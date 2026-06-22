@@ -9,6 +9,7 @@ dist/
 .tmp/
 .codex-tmp/
 *.tsbuildinfo
+tmp-*.png
 
 # logs
 *.log
