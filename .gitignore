@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+
+# build output
+out/
+dist/
+
+# temp & cache
+.tmp/
+.codex-tmp/
+*.tsbuildinfo
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# env & secrets
+.env
+.env.*
+
+# editor
+.vscode/
+.idea/

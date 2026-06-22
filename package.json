@@ -1,0 +1,43 @@
+{
+  "name": "arena",
+  "version": "0.1.0",
+  "description": "Arena — Electron 桌面工具",
+  "main": "./out/main/index.js",
+  "author": "WorkBuddy",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.web.json",
+    "preview": "electron-vite preview",
+    "build:unpack": "pnpm run build && electron-builder --dir",
+    "build:win": "pnpm run build && electron-builder --win",
+    "build:mac": "pnpm run build && electron-builder --mac"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.0",
+    "@electron-toolkit/utils": "^3.0.0",
+    "@fontsource/noto-sans-sc": "^5.2.9",
+    "electron-store": "8.2.0",
+    "lucide-vue-next": "^1.0.0",
+    "naive-ui": "^2.41.0",
+    "echarts": "^5.6.0",
+    "vue-echarts": "^7.0.3",
+    "qrcode": "^1.5.4",
+    "vue": "^3.4.15"
+  },
+  "devDependencies": {
+    "@electron-toolkit/tsconfig": "^2.0.0",
+    "@types/node": "^22.13.0",
+    "@types/qrcode": "^1.5.6",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "electron": "^39.2.6",
+    "electron-builder": "^24.9.1",
+    "electron-vite": "^2.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.0.12",
+    "vue-tsc": "^2.2.12"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron", "esbuild"]
+  }
+}

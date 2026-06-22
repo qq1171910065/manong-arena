@@ -1,0 +1,41 @@
+html[data-theme-id='rose-warm'] {
+  --color-primary: #e11d48;
+  --color-primary-deep: #be123c;
+  --color-accent-indigo: #fb7185;
+  --brand: var(--color-primary);
+  --brand-strong: var(--color-primary-deep);
+  --brand-soft: rgba(225, 29, 72, 0.1);
+  --bg: #fff1f2;
+  --bg-elevated: #ffe4e6;
+  --surface: #ffffff;
+  --surface-soft: #fff1f2;
+  --line: #fecdd3;
+  --text-secondary: #9f1239;
+  --muted: #be123c;
+  --shell-sidebar-bg: #fff1f2;
+  --shell-statusbar-bg: #ffe4e6;
+  --shell-titlebar-bg: #ffffff;
+  --radius: 12px;
+  --radius-md: 16px;
+}
+
+html[data-theme-id='rose-warm'].theme-dark {
+  --bg: #1c0a10;
+  --bg-elevated: #3f0d1a;
+  --surface: #4c0519;
+  --surface-soft: #881337;
+  --line: #9f1239;
+  --line-strong: #be123c;
+  --text: #ffe4e6;
+  --text-secondary: #fecdd3;
+  --muted: #fda4af;
+  --soft: #f43f5e;
+  --brand: #fb7185;
+  --brand-strong: #fda4af;
+  --brand-soft: rgba(251, 113, 133, 0.2);
+  --shell-sidebar-bg: #15060c;
+  --shell-statusbar-bg: #0f0408;
+  --shell-titlebar-bg: #1c0a10;
+  --glass-panel-bg: rgba(76, 5, 25, 0.94);
+  --glass-panel-border: 1px solid rgba(251, 113, 133, 0.18);
+}

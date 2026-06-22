@@ -1,0 +1,28 @@
+export type ArenaSkeletonVariant =
+  | 'home'
+  | 'grid-cards'
+  | 'list-rows'
+  | 'detail-3col'
+  | 'edit-2col'
+  | 'create-match'
+  | 'settings'
+  | 'match-detail'
+  | 'match-room'
+  | 'generic'
+
+export function resolveRouteSkeleton(path: string): ArenaSkeletonVariant {
+  const pathname = path.split('?')[0] || '/home'
+  if (pathname === '/home' || pathname === '/') return 'home'
+  if (pathname === '/characters') return 'grid-cards'
+  if (pathname === '/game-modes') return 'grid-cards'
+  if (pathname === '/match-records') return 'list-rows'
+  if (pathname.startsWith('/character-detail/')) return 'detail-3col'
+  if (pathname.startsWith('/character-edit/')) return 'edit-2col'
+  if (pathname.startsWith('/game-mode-detail/')) return 'detail-3col'
+  if (pathname.startsWith('/game-mode-edit/')) return 'edit-2col'
+  if (pathname === '/create-match') return 'create-match'
+  if (pathname.startsWith('/match-detail/')) return 'match-detail'
+  if (pathname.startsWith('/match-room/')) return 'match-room'
+  if (pathname === '/profile' || pathname.startsWith('/settings')) return 'settings'
+  return 'generic'
+}
