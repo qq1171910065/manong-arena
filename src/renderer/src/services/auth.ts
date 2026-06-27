@@ -143,9 +143,9 @@ export const authApi = {
 
   async register(payload: {
     email: string
-    username: string
-    password: string
     verifyCode: string
+    username?: string
+    password?: string
     name?: string
   }) {
     const session = await portalApi.register(payload)
@@ -168,8 +168,14 @@ export const authApi = {
   },
 
   async startOfficeWechatLogin() {
-    const r = await portalApi.wechatStart('zh')
-    return { state: r.state, authorizeUrl: r.authorizeUrl, expiresIn: r.expiresIn ?? 180 }
+    const r = await portalApi.oauthStart('wechat', 'zh')
+    return {
+      state: r.state,
+      authorizeUrl: r.authorizeUrl,
+      qrImageUrl: r.qrImageUrl,
+      mode: r.mode,
+      expiresIn: r.expiresIn ?? 180,
+    }
   },
 
   async pollOfficeWechatOAuth(state: string): Promise<OfficeWechatPollResult> {

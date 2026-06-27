@@ -23,10 +23,13 @@ import { registerUpdaterHandlers } from './updater'
 import { registerDeeplinkHandlers, initDeeplinkProtocol } from './deeplink'
 import { closeDebugProbe, registerDebugProbe } from './debug-probe'
 import { registerArenaHandlers, flushArenaStore } from './arena/ipc'
-import {
-  registerMatchRoomWindowHandlers,
+import { registerAssetPackHandlers } from './asset-pack'
+import { registerDevAssetsHandlers } from './dev-assets'
+import { registerMatchRoomWindowHandlers,
   tagWindowKind,
+  closeAllMatchRoomWindows,
 } from './match-room-window'
+import { appIconOptions } from './app-icon'
 import type { MntoolsAppConfig, MntoolsModuleId, PortalSession } from '../shared/types'
 
 export type WindowPhase = 'login' | 'main'
@@ -158,6 +161,24 @@ function closeMainWindowWithoutConfirm(): void {
   win.close()
 }
 
+/** 进入对局窗口时隐藏主窗口（不销毁，避免中断对局数据与数据库连接） */
+export function hideMainWindowForMatch(): void {
+  const win = getMainWindow()
+  if (win && !win.isDestroyed()) win.hide()
+}
+
+/** 离开对局窗口后恢复主窗口并回到首页 */
+export function restoreMainWindowToHome(): void {
+  let win = getMainWindow()
+  if (!win || win.isDestroyed()) {
+    win = createMainWindow()
+  } else {
+    void win.webContents.executeJavaScript(`window.location.hash = '/home'`)
+  }
+  if (!win.isVisible()) win.show()
+  win.focus()
+}
+
 export function createLoginWindow(): BrowserWindow {
   if (getLoginWindow()) return getLoginWindow()!
 
@@ -171,6 +192,7 @@ export function createLoginWindow(): BrowserWindow {
     titleBarStyle: 'hidden',
     backgroundColor: '#f1edff',
     autoHideMenuBar: true,
+    ...appIconOptions(),
     webPreferences: {
       preload: preloadPath(),
       sandbox: false,
@@ -206,6 +228,7 @@ export function createMainWindow(): BrowserWindow {
     titleBarStyle: 'hidden',
     backgroundColor: '#0f172a',
     autoHideMenuBar: true,
+    ...appIconOptions(),
     webPreferences: {
       preload: preloadPath(),
       sandbox: false,
@@ -261,6 +284,7 @@ export function registerLoginSuccessHandler(): void {
   ipcMain.removeHandler('auth:logout')
   ipcMain.handle('auth:logout', () => {
     setStoredSession(null)
+    closeAllMatchRoomWindows()
     const main = getMainWindow()
     if (main && !main.isDestroyed()) main.close()
     createLoginWindow()
@@ -273,16 +297,21 @@ export function registerModules(config: MntoolsAppConfig): void {
   registerAuthHandlers()
   registerLoginSuccessHandler()
   registerWindowControls()
-  registerAppSettingsHandlers()
+  registerAppSettingsHandlers(config.appId)
+  registerAssetPackHandlers(config.appId)
   registerArenaHandlers(config.appId)
-  registerMatchRoomWindowHandlers(() => getMainWindow())
+  registerMatchRoomWindowHandlers({
+    hideMainWindowForMatch,
+    restoreMainWindowToHome,
+  })
   registerDebugProbe(() => getActiveRendererWindow())
+  registerDevAssetsHandlers(config.appId, () => getMainWindow())
 
   if (modules.has('request') || modules.has('sse') || true) {
     registerRequestHandlers()
   }
   if (modules.has('sse')) {
-    registerSseHandlers(() => getActiveRendererWindow())
+    registerSseHandlers()
   }
   if (modules.has('file')) {
     registerFileHandlers(() => getMainWindow())

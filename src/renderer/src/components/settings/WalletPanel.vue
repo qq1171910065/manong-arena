@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { Wallet } from 'lucide-vue-next'
 import type { DataTableColumns } from '../../ui'
 import type {
@@ -9,9 +8,12 @@ import type {
 } from '@renderer/services'
 import { tierAppPoints } from '@renderer/composables/fee-points'
 import ProfileSectionLayout from './ProfileSectionLayout.vue'
-import { NButton, NCard, NDataTable } from '../../ui'
+import SettingsBlock from './SettingsBlock.vue'
+import SettingsInfoRow from './SettingsInfoRow.vue'
+import PortalDataTable from './PortalDataTable.vue'
+import { NButton } from '../../ui'
 
-const props = defineProps<{
+defineProps<{
   wallet: PortalWalletSummary | null
   balancePoints: number
   rechargeConfig: PortalRechargeClientConfig | null
@@ -27,39 +29,38 @@ const emit = defineEmits<{
   pageChange: [page: number]
   pageSizeChange: [pageSize: number]
 }>()
-
-const rechargeDesc = computed(
-  () =>
-    props.rechargeConfig?.description?.trim() ||
-    (props.rechargeReady
-      ? '选择档位后使用微信扫码支付，支付成功后自动到账。'
-      : '充值功能暂未开放，请联系管理员。')
-)
 </script>
 
 <template>
-  <ProfileSectionLayout title="钱包充值" :desc="rechargeDesc">
+  <ProfileSectionLayout title="钱包充值" desc="查看余额、充值档位与订单记录。">
     <template #actions>
-      <NButton v-if="rechargeReady" type="primary" @click="emit('recharge')">微信扫码充值</NButton>
+      <NButton v-if="rechargeReady" type="primary" size="small" @click="emit('recharge')">微信扫码充值</NButton>
     </template>
 
-    <NCard class="mntools-panel profile-detail-card" title="当前余额">
-      <div class="wallet-balance-block">
-        <div>
-          <span class="profile-wallet-hero__label">积分余额</span>
-          <strong class="profile-wallet-hero__value">{{ balancePoints.toLocaleString() }}</strong>
-          <span class="profile-wallet-hero__hint">
-            约 {{ Number(wallet?.balanceYuan || 0).toFixed(2) }} 元
-          </span>
-        </div>
-        <div v-if="wallet" class="wallet-balance-meta">
-          <span>累计充值 {{ Number(wallet.totalRechargedYuan || 0).toFixed(2) }} 元</span>
-          <span>累计消费 {{ Number(wallet.totalConsumedYuan || wallet.usedYuan || 0).toFixed(2) }} 元</span>
-        </div>
-      </div>
-    </NCard>
+    <SettingsBlock title="当前余额" desc="积分余额与累计充值、消费概览。">
+      <SettingsInfoRow label="积分余额" :value="balancePoints.toLocaleString()" />
+      <SettingsInfoRow
+        label="折合金额"
+        :value="`约 ${Number(wallet?.balanceYuan || 0).toFixed(2)} 元`"
+      />
+      <SettingsInfoRow
+        v-if="wallet"
+        label="累计充值"
+        :value="`${Number(wallet.totalRechargedYuan || 0).toFixed(2)} 元`"
+      />
+      <SettingsInfoRow
+        v-if="wallet"
+        label="累计消费"
+        :value="`${Number(wallet.totalConsumedYuan || wallet.usedYuan || 0).toFixed(2)} 元`"
+      />
+    </SettingsBlock>
 
-    <NCard class="mntools-panel" title="充值档位">
+    <section class="portal-plain-block">
+      <h4 class="portal-plain-block__title">充值档位</h4>
+      <p v-if="rechargeConfig?.description?.trim()" class="portal-plain-block__desc">
+        {{ rechargeConfig.description.trim() }}
+      </p>
+      <p v-else-if="!rechargeReady" class="portal-plain-block__desc">充值功能暂未开放，请联系管理员。</p>
       <div v-if="rechargeConfig?.tiers?.length" class="portal-tier-grid">
         <button
           v-for="tier in rechargeConfig.tiers"
@@ -77,18 +78,18 @@ const rechargeDesc = computed(
         <Wallet :size="28" />
         <p>暂无可用充值档位</p>
       </div>
-    </NCard>
+    </section>
 
-    <NCard class="mntools-panel profile-table-card profile-list-region" title="充值记录">
-      <NDataTable
+    <section class="portal-plain-block profile-list-region">
+      <h4 class="portal-plain-block__title">充值记录</h4>
+      <p class="portal-plain-block__desc">微信扫码支付订单与到账状态。</p>
+      <PortalDataTable
         v-if="rechargeRecords.length || rechargeLoading"
         remote
         :columns="rechargeColumns"
         :data="rechargeRecords"
         :loading="rechargeLoading"
         :pagination="rechargePagination"
-        :bordered="false"
-        size="small"
         @update:page="emit('pageChange', $event)"
         @update:page-size="emit('pageSizeChange', $event)"
       />
@@ -97,24 +98,6 @@ const rechargeDesc = computed(
         <p>暂无充值记录</p>
         <span>完成充值后将在此展示订单明细</span>
       </div>
-    </NCard>
+    </section>
   </ProfileSectionLayout>
 </template>
-
-<style scoped>
-.wallet-balance-block {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.wallet-balance-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: #8792be;
-  font-size: 13px;
-}
-</style>

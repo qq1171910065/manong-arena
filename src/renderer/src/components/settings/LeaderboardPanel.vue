@@ -14,7 +14,8 @@ import {
   type ArenaAgentModelEntry,
 } from '@renderer/services/arena-leaderboard-api'
 import ProfileSectionLayout from './ProfileSectionLayout.vue'
-import { AppChart, NButton, NCard, NDataTable, NSpace, NSpin, NTag, useMessage } from '../../ui'
+import PortalDataTable from './PortalDataTable.vue'
+import { AppChart, NButton, NSpace, NSpin, NTag, useMessage } from '../../ui'
 
 const message = useMessage()
 
@@ -31,10 +32,10 @@ const syncedLabel = computed(() => {
   return `${d.toLocaleString()}${stale ? ' · 已过期' : ''}`
 })
 
-const headerDesc = computed(() => {
-  if (!leaderboard.value) {
-    return '同步 Arena Agent Labs 的因果测评信号，按厂商 Sessions 加权聚合。'
-  }
+const headerDesc = '同步 Arena Agent Labs 因果测评信号，按厂商 Sessions 加权聚合。'
+
+const metaLine = computed(() => {
+  if (!leaderboard.value) return ''
   const parts = [
     `数据日期 ${leaderboard.value.date}`,
     `信号版本 ${leaderboard.value.signalsVersion}`,
@@ -270,11 +271,11 @@ onMounted(async () => {
   <ProfileSectionLayout title="Agent 测评榜" :desc="headerDesc">
     <template #actions>
       <NSpace>
-        <NButton quaternary :loading="loading && !syncing" @click="loadCached(true)">
+        <NButton quaternary size="small" :loading="loading && !syncing" @click="loadCached(true)">
           <template #icon><RefreshCw :size="14" /></template>
           读取缓存
         </NButton>
-        <NButton type="primary" :loading="syncing" @click="syncNow">
+        <NButton type="primary" size="small" :loading="syncing" @click="syncNow">
           <template #icon><Trophy :size="14" /></template>
           立即同步
         </NButton>
@@ -282,6 +283,7 @@ onMounted(async () => {
     </template>
 
     <p v-if="loadError" class="leaderboard-error">{{ loadError }}</p>
+    <p v-if="metaLine" class="leaderboard-meta text-muted">{{ metaLine }}</p>
 
     <NSpin :show="loading && !leaderboard">
       <div v-if="leaderboard?.signalLeaders.length" class="leaderboard-signal-grid">
@@ -298,23 +300,26 @@ onMounted(async () => {
       </div>
 
       <div v-if="leaderboard" class="leaderboard-charts">
-        <NCard class="mntools-panel profile-chart-card" title="Net Improvement 对比">
+        <section class="portal-plain-block profile-chart-card">
+          <h4 class="portal-plain-block__title">Net Improvement 对比</h4>
           <AppChart :option="topLabsChartOption" height="260px" />
-        </NCard>
-        <NCard v-if="radarChartOption" class="mntools-panel profile-chart-card" title="榜首厂商信号雷达">
+        </section>
+        <section v-if="radarChartOption" class="portal-plain-block profile-chart-card">
+          <h4 class="portal-plain-block__title">榜首厂商信号雷达</h4>
           <AppChart :option="radarChartOption" height="260px" />
-        </NCard>
-        <NCard class="mntools-panel profile-chart-card" title="Sessions 分布">
+        </section>
+        <section class="portal-plain-block profile-chart-card">
+          <h4 class="portal-plain-block__title">Sessions 分布</h4>
           <AppChart :option="sessionsChartOption" height="260px" />
-        </NCard>
+        </section>
       </div>
 
-      <NCard class="mntools-panel profile-table-card">
+      <section class="portal-plain-block profile-table-card">
         <div class="leaderboard-tab-head">
           <div>
-            <strong>Agent Arena · Labs 对比</strong>
-            <p class="text-muted">
-              各指标为相对随机基线的 Net Improvement（百分点）。Tool Hallucination 越低越好，其余越高越好。
+            <h4 class="portal-plain-block__title">Agent Arena · Labs 对比</h4>
+            <p class="portal-plain-block__desc" title="各指标为相对随机基线的 Net Improvement（百分点）。Tool Hallucination 越低越好，其余越高越好。">
+              相对随机基线的净提升（百分点），幻觉率越低越好
             </p>
           </div>
           <NButton
@@ -329,14 +334,11 @@ onMounted(async () => {
           </NButton>
         </div>
 
-        <NDataTable
+        <PortalDataTable
           v-if="leaderboard?.labs.length"
           :columns="labColumns"
           :data="leaderboard.labs"
-          :bordered="false"
-          size="small"
           :scroll-x="1400"
-          :max-height="420"
           :pagination="false"
         />
         <div v-else class="profile-empty">
@@ -351,25 +353,30 @@ onMounted(async () => {
             <strong>{{ expandedLabEntry.lab }}</strong>
             <span class="text-muted">旗下 {{ expandedLabEntry.models.length }} 个模型信号明细</span>
           </div>
-          <NDataTable
+          <PortalDataTable
             :columns="modelColumns"
             :data="expandedLabEntry.models"
-            :bordered="false"
-            size="small"
             :scroll-x="1200"
             :pagination="false"
           />
         </div>
-      </NCard>
+      </section>
     </NSpin>
   </ProfileSectionLayout>
 </template>
 
 <style scoped>
 .leaderboard-error {
-  margin: 0 0 12px;
+  margin: 0 0 8px;
   color: #d03050;
   font-size: 13px;
+}
+
+.leaderboard-meta {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  word-break: break-word;
 }
 
 .leaderboard-charts {
@@ -406,12 +413,10 @@ onMounted(async () => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
 }
 
-.leaderboard-tab-head p {
-  margin: 4px 0 0;
-  font-size: 13px;
+.leaderboard-tab-head .portal-plain-block__desc {
+  margin-bottom: 0;
 }
 
 .leaderboard-lab-detail {

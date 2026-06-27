@@ -24,16 +24,6 @@ export interface AppFeatures {
   deeplink?: boolean
 }
 
-export type ThemeId =
-  | 'enterprise-light'
-  | 'enterprise-dark'
-  | 'creative-vivid'
-  | 'minimal-mono'
-  | 'ocean-teal'
-  | 'rose-warm'
-  | 'forest-calm'
-  | 'high-contrast'
-
 export type ShellLayout = 'compact' | 'sidebar'
 
 export type ShellStyle = 'flat' | 'grouped'
@@ -47,7 +37,6 @@ export interface LoginCapabilities {
 export interface MntoolsAppConfig {
   appId: string
   appName: string
-  themeId: ThemeId
   modules: MntoolsModuleId[]
   login: LoginCapabilities
   shellLayout?: ShellLayout

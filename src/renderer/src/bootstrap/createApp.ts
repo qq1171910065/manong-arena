@@ -3,23 +3,24 @@ import { defineComponent, h, onMounted, onUnmounted, ref, watch, type Component 
 import ImmersiveShell from '../layouts/ImmersiveShell.vue'
 import PageViewHost from '../components/arena/PageViewHost.vue'
 import LoginPage from '../pages/login/LoginPage.vue'
+import StarterInitPage from '../pages/starter/StarterInitPage.vue'
 import UiProvider from '../ui/UiProvider.vue'
 import { route, navigate } from '../router'
-import { applyTheme, getStoredThemeId } from '../composables/useTheme'
+import { isPortalPath } from '../pages/settings/portal-routes'
 import { refreshSessionFromStorage, ensureGatewayKey, getAppKeyName } from '../services'
 import { resolveAuthPhase } from '../services/auth-session'
-import { matchWindowService, settingsService, unlockArenaAudio, loadGameModeOverrides } from '../services/arena'
+import { matchWindowService, settingsService, setArenaAudioHostWindow, unlockArenaAudio, loadGameModeOverrides, loadGameScenarios, needsStarterInit } from '../services/arena'
 import { isWebRuntime } from '../composables/useRuntime'
 import { configureRuntime } from '../composables/runtime-config'
 import { applyGeneralSettingsEffects } from '../composables/useGeneralSettings'
 import { setupAppShortcuts } from './setupAppShortcuts'
 import type { FeatureRegistry, RouteName } from '../types/registry'
-import type { LoginCapabilities, ShellLayout, ShellStyle, ThemeId } from '@shared/types'
+import type { LoginCapabilities, ShellLayout, ShellStyle } from '@shared/types'
 import type { ExampleModuleId } from '../composables/runtime-config'
 
 export interface MntoolsRendererConfig {
   appName: string
-  themeId: ThemeId
+  productCode?: string
   login: LoginCapabilities
   shellLayout?: ShellLayout
   shellStyle?: ShellStyle
@@ -36,9 +37,9 @@ export interface MntoolsRendererConfig {
 export function createMntoolsApp(config: MntoolsRendererConfig) {
   configureRuntime({
     appId: config.appId ?? 'mntools-app',
+    productCode: config.productCode ?? 'arena',
     displayName: config.appName,
     description: config.description ?? '',
-    themeId: config.themeId,
     shellLayout: config.shellLayout ?? 'sidebar',
     exampleModules: config.exampleModules,
     features: config.features,
@@ -49,7 +50,7 @@ export function createMntoolsApp(config: MntoolsRendererConfig) {
   return defineComponent({
     name: 'MntoolsRoot',
     setup() {
-      const phase = ref<'boot' | 'login' | 'main'>('boot')
+      const phase = ref<'boot' | 'login' | 'init' | 'main'>('boot')
       const windowKind = ref<'main' | 'match-room'>('main')
       const pageComponent = ref<Component | null>(null)
       const pageError = ref<string | null>(null)
@@ -62,22 +63,38 @@ export function createMntoolsApp(config: MntoolsRendererConfig) {
       function resolvePageLoaderName(path: string): RouteName {
         const pathname = path.split('?')[0] || '/home'
         if (pathname.startsWith('/character-detail/')) return 'character-detail'
-        if (pathname.startsWith('/character-edit/')) return 'character-edit'
         if (pathname.startsWith('/game-mode-detail/')) return 'game-mode-detail'
-        if (pathname.startsWith('/game-mode-edit/')) return 'game-mode-edit'
         if (pathname.startsWith('/match-detail/')) return 'match-detail'
         if (pathname.startsWith('/match-room/')) return 'match-room'
+        if (pathname === '/profile' || pathname.startsWith('/profile/')) return 'profile'
+        if (pathname === '/settings' || pathname.startsWith('/settings/')) return 'settings'
         return (pathname.split('/').filter(Boolean)[0] || 'home') as RouteName
       }
 
       async function enterMainShell() {
         if (route.value.name === 'login') navigate(defaultHomePath)
         await loadGameModeOverrides().catch((error) => console.warn('[game-modes] overrides load failed', error))
+        await loadGameScenarios().catch((error) => console.warn('[game-scenarios] load failed', error))
         await loadPage(resolvePageLoaderName(route.value.path))
         void ensureGatewayKey(getAppKeyName()).catch((error) =>
           console.warn('[app-key] ensure failed', error)
         )
         if (!teardownShortcuts) teardownShortcuts = setupAppShortcuts()
+      }
+
+      async function maybeEnterMainShell() {
+        if (await needsStarterInit()) {
+          phase.value = 'init'
+          return
+        }
+        await enterMainShell()
+      }
+
+      async function onStarterInitComplete() {
+        phase.value = 'main'
+        await loadGameModeOverrides().catch((error) => console.warn('[game-modes] overrides load failed', error))
+        await loadGameScenarios().catch((error) => console.warn('[game-scenarios] load failed', error))
+        await enterMainShell()
       }
 
       async function syncAuthPhase() {
@@ -89,18 +106,20 @@ export function createMntoolsApp(config: MntoolsRendererConfig) {
 
       onMounted(async () => {
         applyGeneralSettingsEffects()
+        windowKind.value = (await matchWindowService.getKind()) === 'match-room' ? 'match-room' : 'main'
+        setArenaAudioHostWindow(windowKind.value)
         try {
           await settingsService.get()
         } catch (error) {
           console.warn('[arena-settings] load failed', error)
-          applyTheme(getStoredThemeId(config.themeId), config.themeId)
         }
         window.addEventListener('pointerdown', unlockArenaAudio, { once: true })
         window.addEventListener('keydown', unlockArenaAudio, { once: true })
 
-        windowKind.value = (await matchWindowService.getKind()) === 'match-room' ? 'match-room' : 'main'
         if (windowKind.value === 'match-room') {
           phase.value = 'main'
+          await loadGameModeOverrides().catch((error) => console.warn('[game-modes] overrides load failed', error))
+          await loadGameScenarios().catch((error) => console.warn('[game-scenarios] load failed', error))
           await loadPage(resolvePageLoaderName(route.value.path))
           return
         }
@@ -114,7 +133,8 @@ export function createMntoolsApp(config: MntoolsRendererConfig) {
 
         const refresh = await refreshSessionFromStorage()
         if (refresh === 'invalid') {
-          await window.api.logout()
+          const { handleAuthFailure } = await import('../services/auth-session')
+          await handleAuthFailure()
           return
         }
         if (refresh === 'no_refresh_token') {
@@ -127,7 +147,7 @@ export function createMntoolsApp(config: MntoolsRendererConfig) {
           }
           return
         }
-        await enterMainShell()
+        await maybeEnterMainShell()
       })
 
       if (isWebRuntime()) {
@@ -135,7 +155,7 @@ export function createMntoolsApp(config: MntoolsRendererConfig) {
           const next = (ev as CustomEvent<'login' | 'main'>).detail
           phase.value = next
           if (next === 'main') {
-            void enterMainShell()
+            void maybeEnterMainShell()
           } else {
             navigate('/login')
           }
@@ -150,9 +170,18 @@ export function createMntoolsApp(config: MntoolsRendererConfig) {
 
       watch(
         () => route.value.path,
-        () => {
+        (newPath, oldPath) => {
           if (phase.value === 'main' && route.value.name !== 'login') {
-            void loadPage(resolvePageLoaderName(route.value.path))
+            const newPathname = newPath.split('?')[0]
+            const oldPathname = oldPath?.split('?')[0] ?? ''
+            if (
+              pageComponent.value &&
+              isPortalPath(newPathname) &&
+              isPortalPath(oldPathname)
+            ) {
+              return
+            }
+            void loadPage(resolvePageLoaderName(newPath))
           }
         }
       )
@@ -214,6 +243,13 @@ export function createMntoolsApp(config: MntoolsRendererConfig) {
               appName: config.appName,
               login: config.login,
               defaultHomePath,
+            })
+          }
+
+          if (phase.value === 'init') {
+            return h(StarterInitPage, {
+              appName: config.appName,
+              onComplete: () => void onStarterInitComplete(),
             })
           }
 

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "packageId": "game-mode-packs",
+  "modes": [
+    {
+      "id": "werewolf",
+      "modeCover": "werewolf/mode-cover.png",
+      "matchBanner": "werewolf/match-banner.png"
+    },
+    {
+      "id": "avalon",
+      "modeCover": "avalon/mode-cover.png",
+      "matchBanner": "avalon/match-banner.png"
+    },
+    {
+      "id": "undercover",
+      "modeCover": "undercover/mode-cover.png",
+      "matchBanner": "undercover/match-banner.png"
+    },
+    {
+      "id": "custom",
+      "modeCover": "custom/mode-cover.png",
+      "matchBanner": "custom/match-banner.png"
+    }
+  ],
+  "generatedAt": "2026-06-27T02:36:20.521Z"
+}

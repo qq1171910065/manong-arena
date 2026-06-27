@@ -1,21 +1,39 @@
 import { randomUUID } from 'node:crypto'
 import type { ArenaStore } from './store'
 import type { Character } from '@shared/arena/types'
+import {
+  isLegacyCharacterName,
+} from '@shared/arena/character-display-names'
+import { DEFAULT_ARENA_MODEL_ID } from '@shared/arena/constants'
+import {
+  STARTER_CHARACTER_MODEL_IDS,
+  type StarterCharacterModelId,
+} from '@shared/arena/starter-characters'
+import {
+  STARTER_GAME_MODE_IDS,
+  type StarterGameModeId,
+} from '@shared/arena/starter-game-modes'
 
-type SeedCharacter = Omit<Character, 'id' | 'createdAt' | 'updatedAt' | 'stats'>
+type SeedCharacter = Omit<Character, 'id' | 'createdAt' | 'updatedAt' | 'stats' | 'modelId'> & {
+  seedKey: string
+}
+
+function resolveDefaultModelId(store: ArenaStore): string {
+  return store.getSettings().defaultModelId?.trim() || DEFAULT_ARENA_MODEL_ID
+}
 
 const DEFAULT_STATS = { matchCount: 0, winCount: 0, avgCostCents: 0, lastMatchAt: null }
 
 const SEED_CHARACTERS: SeedCharacter[] = [
   {
-    name: '豆包',
-    subtitle: '元气甜心 · 直觉型推理',
-    modelId: 'doubao',
+    name: '豆包大小姐',
+    subtitle: '大小姐气场 · 直觉型推理',
+    seedKey: 'doubao',
     avatarUrl: 'asset://avatar/doubao',
     portraitUrl: 'asset://portrait/doubao',
     gender: 'female',
     ageLabel: '18岁',
-    bio: '说话轻快，擅长从细节里抓可疑点，偶尔会带一点可爱的撒娇语气。',
+    bio: '说话轻快，偶尔带点大小姐式的傲娇，擅长从细节里抓可疑点。',
     tags: ['敏锐观察', '情绪共鸣', '剧情推理'],
     speechStyle: '活泼',
     commonPhrases: ['我觉得这里有一点点不对劲喔。', '让我再想想，细节通常不会骗人。'],
@@ -30,9 +48,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#f472b6',
   },
   {
-    name: 'GPT',
-    subtitle: '理性参谋 · 结构化分析',
-    modelId: 'gpt-4o',
+    name: '查老师',
+    subtitle: '查老师 · 结构化分析',
+    seedKey: 'gpt-4o',
     avatarUrl: 'asset://avatar/gpt',
     portraitUrl: 'asset://portrait/gpt',
     gender: 'male',
@@ -52,9 +70,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#60a5fa',
   },
   {
-    name: 'Claude',
-    subtitle: '温和稳重 · 平衡型玩家',
-    modelId: 'claude-3-5-sonnet',
+    name: '小克',
+    subtitle: '小克 · 平衡型玩家',
+    seedKey: 'claude-3-5-sonnet',
     avatarUrl: 'asset://avatar/claude',
     portraitUrl: 'asset://portrait/claude',
     gender: 'other',
@@ -74,9 +92,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#f59e0b',
   },
   {
-    name: 'DeepSeek',
-    subtitle: '洞察冷静 · 深度推理',
-    modelId: 'deepseek-chat',
+    name: '深鲸',
+    subtitle: '深鲸 · 深度推理',
+    seedKey: 'deepseek-chat',
     avatarUrl: 'asset://avatar/deepseek',
     portraitUrl: 'asset://portrait/deepseek',
     gender: 'male',
@@ -97,8 +115,8 @@ const SEED_CHARACTERS: SeedCharacter[] = [
   },
   {
     name: 'Kimi',
-    subtitle: '沉着可靠 · 信息整合',
-    modelId: 'kimi',
+    subtitle: '001号客服 · 信息整合',
+    seedKey: 'kimi',
     avatarUrl: 'asset://avatar/kimi',
     portraitUrl: 'asset://portrait/kimi',
     gender: 'female',
@@ -118,9 +136,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#c084fc',
   },
   {
-    name: 'Gemini',
-    subtitle: '梦幻灵动 · 创意表达',
-    modelId: 'gemini-pro',
+    name: '哈基米',
+    subtitle: '哈基米 · 创意表达',
+    seedKey: 'gemini-pro',
     avatarUrl: 'asset://avatar/gemini',
     portraitUrl: 'asset://portrait/gemini',
     gender: 'female',
@@ -140,9 +158,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#d82b75',
   },
   {
-    name: 'Qwen',
-    subtitle: '冷静谋士 · 证据链推演',
-    modelId: 'qwen-max',
+    name: '千问',
+    subtitle: '千问 · 证据链推演',
+    seedKey: 'qwen-max',
     avatarUrl: 'asset://avatar/qwen',
     portraitUrl: 'asset://portrait/qwen',
     gender: 'other',
@@ -163,8 +181,8 @@ const SEED_CHARACTERS: SeedCharacter[] = [
   },
   {
     name: 'Mistral',
-    subtitle: '锋利决策 · 快节奏博弈',
-    modelId: 'mistral-large-latest',
+    subtitle: 'Mistral · 快节奏博弈',
+    seedKey: 'mistral-large-latest',
     avatarUrl: 'asset://avatar/mistral',
     portraitUrl: 'asset://portrait/mistral',
     gender: 'male',
@@ -184,9 +202,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#f59e0b',
   },
   {
-    name: 'Llama',
-    subtitle: '温暖调停 · 群体协作',
-    modelId: 'llama-3.1-70b',
+    name: '羊驼',
+    subtitle: '羊驼 · 群体协作',
+    seedKey: 'llama-3.1-70b',
     avatarUrl: 'asset://avatar/llama',
     portraitUrl: 'asset://portrait/llama',
     gender: 'female',
@@ -206,9 +224,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#22c55e',
   },
   {
-    name: 'Hunyuan',
-    subtitle: '秩序裁断 · 隐秘调查',
-    modelId: 'hunyuan-turbo',
+    name: '混元',
+    subtitle: '混元 · 秩序裁断',
+    seedKey: 'hunyuan-turbo',
     avatarUrl: 'asset://avatar/hunyuan',
     portraitUrl: 'asset://portrait/hunyuan',
     gender: 'female',
@@ -228,9 +246,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#8b5cf6',
   },
   {
-    name: 'GLM',
-    subtitle: '博学辩士 · 知识串联',
-    modelId: 'glm-4-plus',
+    name: '清言',
+    subtitle: '清言 · 知识串联',
+    seedKey: 'glm-4-plus',
     avatarUrl: 'asset://avatar/glm',
     portraitUrl: 'asset://portrait/glm',
     gender: 'male',
@@ -250,9 +268,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#0ea5e9',
   },
   {
-    name: 'MiniMax',
-    subtitle: '戏感拉满 · 表演型玩家',
-    modelId: 'abab6.5-chat',
+    name: '小海螺',
+    subtitle: '小海螺 · 表演型玩家',
+    seedKey: 'abab6.5-chat',
     avatarUrl: 'asset://avatar/minimax',
     portraitUrl: 'asset://portrait/minimax',
     gender: 'female',
@@ -273,8 +291,8 @@ const SEED_CHARACTERS: SeedCharacter[] = [
   },
   {
     name: 'Yi',
-    subtitle: '极简判断 · 一击定性',
-    modelId: 'yi-large',
+    subtitle: 'Yi · 极简判断',
+    seedKey: 'yi-large',
     avatarUrl: 'asset://avatar/yi',
     portraitUrl: 'asset://portrait/yi',
     gender: 'male',
@@ -294,9 +312,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#64748b',
   },
   {
-    name: 'Ernie',
-    subtitle: '稳健中庸 · 平衡调解',
-    modelId: 'ernie-4.0-turbo-8k',
+    name: '文心',
+    subtitle: '文心 · 平衡调解',
+    seedKey: 'ernie-4.0-turbo-8k',
     avatarUrl: 'asset://avatar/ernie',
     portraitUrl: 'asset://portrait/ernie',
     gender: 'other',
@@ -316,9 +334,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#2563eb',
   },
   {
-    name: 'Grok',
-    subtitle: '反常识 · 破局思维',
-    modelId: 'grok-2-1212',
+    name: 'Gork',
+    subtitle: 'Gork · 破局思维',
+    seedKey: 'grok-2-1212',
     avatarUrl: 'asset://avatar/grok',
     portraitUrl: 'asset://portrait/grok',
     gender: 'male',
@@ -338,9 +356,9 @@ const SEED_CHARACTERS: SeedCharacter[] = [
     accentColor: '#171717',
   },
   {
-    name: 'Spark',
-    subtitle: '语速迅捷 · 攻防转换',
-    modelId: 'spark-max',
+    name: '星火',
+    subtitle: '星火 · 攻防转换',
+    seedKey: 'spark-max',
     avatarUrl: 'asset://avatar/spark',
     portraitUrl: 'asset://portrait/spark',
     gender: 'female',
@@ -361,8 +379,18 @@ const SEED_CHARACTERS: SeedCharacter[] = [
   },
 ]
 
-function defaultByModel(modelId: string): SeedCharacter | undefined {
-  return SEED_CHARACTERS.find((item) => item.modelId === modelId)
+const LEGACY_SEED_MODEL_IDS = new Set(SEED_CHARACTERS.map((seed) => seed.seedKey))
+
+function shouldUseDefaultModel(store: ArenaStore, character: Character, seed: SeedCharacter): boolean {
+  const id = character.modelId?.trim()
+  if (!id) return true
+  const defaultId = resolveDefaultModelId(store)
+  if (id === defaultId) return false
+  return LEGACY_SEED_MODEL_IDS.has(id) || id === seed.seedKey
+}
+
+function defaultBySeedKey(seedKey: string): SeedCharacter | undefined {
+  return SEED_CHARACTERS.find((item) => item.seedKey === seedKey)
 }
 
 function hasMojibake(value: string): boolean {
@@ -376,6 +404,7 @@ function shouldSyncCharacter(character: Character, seed: SeedCharacter): boolean
     character.avatarUrl === character.portraitUrl ||
     character.avatarUrl !== seed.avatarUrl ||
     character.portraitUrl !== seed.portraitUrl ||
+    isLegacyCharacterName(seed.seedKey, character.name) ||
     hasMojibake(character.name + character.subtitle + character.bio + character.speechStyle)
   )
 }
@@ -383,17 +412,17 @@ function shouldSyncCharacter(character: Character, seed: SeedCharacter): boolean
 function saveSeedCharacter(store: ArenaStore, seed: SeedCharacter, now = new Date().toISOString()): void {
   store.saveCharacter({
     ...seed,
+    modelId: resolveDefaultModelId(store),
     id: randomUUID(),
     stats: { ...DEFAULT_STATS },
     createdAt: now,
     updatedAt: now,
   })
-  store.addIntroducedSeedKeys([seed.modelId])
+  store.addIntroducedSeedKeys([seed.seedKey])
 }
 
 function matchesSeed(character: Character, seed: SeedCharacter): boolean {
   return (
-    character.modelId === seed.modelId ||
     character.name === seed.name ||
     character.avatarUrl === seed.avatarUrl ||
     character.portraitUrl === seed.portraitUrl
@@ -445,24 +474,18 @@ function migrateIntroducedSeedKeys(store: ArenaStore): void {
   const keys: string[] = []
   const characters = store.listCharacters()
   for (const seed of SEED_CHARACTERS) {
-    if (characters.some((c) => matchesSeed(c, seed))) keys.push(seed.modelId)
+    if (characters.some((c) => matchesSeed(c, seed))) keys.push(seed.seedKey)
   }
   store.setIntroducedSeedKeys(keys)
 }
 
 export function seedDefaultCharacters(store: ArenaStore): void {
-  const now = new Date().toISOString()
   if (!store.isSeeded()) {
-    for (const seed of SEED_CHARACTERS) saveSeedCharacter(store, seed, now)
-    store.markSeeded()
-    store.appendLog({
-      level: 'info',
-      scope: 'storage',
-      message: '已初始化默认 AI 角色库',
-    })
+    migrateLegacyInstalledGameModes(store)
     return
   }
 
+  migrateLegacyInstalledGameModes(store)
   migrateIntroducedSeedKeys(store)
   const removed = dedupeSeedCharacterDuplicates(store)
   if (removed > 0) {
@@ -474,7 +497,30 @@ export function seedDefaultCharacters(store: ArenaStore): void {
   }
 
   syncDefaultCharacterAssets(store)
+  ensureStarterCharacters(store)
   ensureMissingSeedCharacters(store)
+}
+
+function ensureStarterCharacters(store: ArenaStore): void {
+  if (!store.getStats().seededAt) return
+
+  const now = new Date().toISOString()
+  let added = 0
+  for (const seedKey of STARTER_CHARACTER_MODEL_IDS) {
+    const seed = defaultBySeedKey(seedKey)
+    if (!seed) continue
+    const existing = store.listCharacters().find((c) => c.name === seed.name)
+    if (existing) continue
+    saveSeedCharacter(store, seed, now)
+    added += 1
+  }
+  if (added > 0) {
+    store.appendLog({
+      level: 'info',
+      scope: 'storage',
+      message: `已补全 ${added} 个入门角色`,
+    })
+  }
 }
 
 function ensureMissingSeedCharacters(store: ArenaStore): void {
@@ -482,7 +528,7 @@ function ensureMissingSeedCharacters(store: ArenaStore): void {
   const introduced = new Set(store.getIntroducedSeedKeys())
   let added = 0
   for (const seed of SEED_CHARACTERS) {
-    if (introduced.has(seed.modelId)) continue
+    if (introduced.has(seed.seedKey)) continue
     saveSeedCharacter(store, seed, now)
     added += 1
   }
@@ -497,11 +543,18 @@ function ensureMissingSeedCharacters(store: ArenaStore): void {
 
 export function syncDefaultCharacterAssets(store: ArenaStore): void {
   for (const character of store.listCharacters()) {
-    const seed = defaultByModel(character.modelId)
+    const seed =
+      SEED_CHARACTERS.find((item) => matchesSeed(character, item)) ||
+      defaultBySeedKey(character.modelId)
     if (!seed || !shouldSyncCharacter(character, seed)) continue
 
     store.saveCharacter({
       ...character,
+      ...(shouldUseDefaultModel(store, character, seed)
+        ? { modelId: resolveDefaultModelId(store) }
+        : {}),
+      name: isLegacyCharacterName(seed.seedKey, character.name) ? seed.name : character.name,
+      subtitle: hasMojibake(character.subtitle) || !character.subtitle ? seed.subtitle : character.subtitle,
       avatarUrl: !character.avatarUrl || hasMojibake(character.avatarUrl) ? seed.avatarUrl : character.avatarUrl,
       portraitUrl: !character.portraitUrl || hasMojibake(character.portraitUrl) ? seed.portraitUrl : character.portraitUrl,
       bio: hasMojibake(character.bio) || !character.bio ? seed.bio : character.bio,
@@ -520,4 +573,50 @@ export function syncDefaultCharacterAssets(store: ArenaStore): void {
       accentColor: character.accentColor || seed.accentColor,
     })
   }
+}
+
+export function seedStarterByModelId(store: ArenaStore, modelId: string): Character {
+  const key = modelId.trim() as StarterCharacterModelId
+  if (!STARTER_CHARACTER_MODEL_IDS.includes(key)) {
+    throw new Error('非入门角色')
+  }
+
+  const seed = defaultBySeedKey(key)
+  if (!seed) throw new Error('角色模板不存在')
+
+  const existing = store.listCharacters().find((c) => c.name === seed.name)
+  if (existing) return existing
+
+  saveSeedCharacter(store, seed)
+  const created = store.listCharacters().find((c) => c.name === seed.name)
+  if (!created) throw new Error('角色创建失败')
+  return created
+}
+
+export function seedStarterGameMode(store: ArenaStore, modeId: string): void {
+  const key = modeId.trim() as StarterGameModeId
+  if (!STARTER_GAME_MODE_IDS.includes(key)) {
+    throw new Error('非入门玩法')
+  }
+  store.installGameMode(key)
+}
+
+/** 旧数据：已初始化但未记录 installedGameModeIds 时补全默认玩法 */
+function migrateLegacyInstalledGameModes(store: ArenaStore): void {
+  if (!store.getStats().seededAt) return
+  if (store.getInstalledGameModeIds().length > 0) return
+  for (const modeId of STARTER_GAME_MODE_IDS) {
+    store.installGameMode(modeId)
+  }
+}
+
+/** 入门初始化完成：标记已播种，并阻止后续自动补全其余默认角色 */
+export function finalizeStarterInit(store: ArenaStore): void {
+  store.addIntroducedSeedKeys(SEED_CHARACTERS.map((seed) => seed.seedKey))
+  store.markSeeded()
+  store.appendLog({
+    level: 'info',
+    scope: 'storage',
+    message: '已完成入门数据初始化（角色与玩法）',
+  })
 }

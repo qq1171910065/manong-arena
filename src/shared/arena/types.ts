@@ -1,6 +1,8 @@
 /** Agent Arena 领域类型 — 主进程与渲染层共享 */
 
-import type { ThemeId } from '../types'
+import type { GameScenarioDefinition, PromptPack } from './game-scenario'
+export type { CharacterExpressionId } from './character-visuals'
+import type { CharacterExpressionId } from './character-visuals'
 
 export type CharacterStatus = 'enabled' | 'disabled'
 export type MatchStatus = 'draft' | 'active' | 'paused' | 'completed' | 'aborted' | 'archived'
@@ -39,11 +41,91 @@ export interface RoleStrategyPreference {
   description: string
 }
 
+/** @deprecated 已由 CharacterGameSkill 取代，保留供遷移 */
 export interface GameModePreference {
   modeId: string
   preferredRoles: string[]
   avoidRoles: string[]
   notes?: string
+}
+
+/** 玩法技能学习记录 — 初始学习、再次学习、赛后讨论 */
+export interface SkillLearningEntry {
+  id: string
+  source: 'initial' | 'relearn' | 'post_match'
+  matchId?: string
+  summary: string
+  understanding?: string
+  createdAt: string
+}
+
+/** 角色技能 — 會玩哪些玩法（取代 gameModePreferences） */
+export interface CharacterGameSkill {
+  scenarioId: string
+  scenarioName?: string
+  /** 是否已完成玩法学习 */
+  learned: boolean
+  /** 是否通过考试 */
+  examPassed: boolean
+  /** 用户开后门免考（仍须学习） */
+  examBypassed: boolean
+  /** 学习后基于性格形成的初始理解 */
+  initialUnderstanding?: string
+  initialStrategy?: string
+  learnedAt?: string | null
+  examPassedAt?: string | null
+  notes?: string
+  /** 学习历程：含赛后讨论沉淀 */
+  learningLog?: SkillLearningEntry[]
+  /** 深度学习的假设列表 */
+  hypotheses?: string[]
+  /** 心智模型摘要 */
+  mentalModel?: string
+  /** 易错边界 */
+  edgeCases?: string[]
+  /** 常见误区 */
+  commonMistakes?: string[]
+}
+
+export interface CharacterChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+  /** 弹窗流式回复状态 */
+  streamStatus?: MessageStreamStatus
+}
+
+export interface CharacterGrowthRecord {
+  id: string
+  characterId: string
+  source: 'chat' | 'post_game_review'
+  matchId?: string
+  scenarioId?: string
+  summary: string
+  createdAt: string
+  addedPrinciples: string[]
+  removedPrinciples: string[]
+  addedPhrases: string[]
+  applied: boolean
+}
+
+/** 赛后行为准则调整记录 — 可追溯 */
+export interface BehaviorChangeRecord {
+  id: string
+  characterId: string
+  matchId: string
+  scenarioId: string
+  createdAt: string
+  summary: string
+  previousPrinciples: string[]
+  newPrinciples: string[]
+  addedPrinciples: string[]
+  removedPrinciples: string[]
+  trigger: 'post_game_review' | 'manual' | 'chat'
+  reviewPromptId?: string
+  modelCallId?: string
+  applied: boolean
 }
 
 export interface CharacterStats {
@@ -60,19 +142,42 @@ export interface Character {
   modelId: string
   avatarUrl: string
   portraitUrl: string
+  /** 横版立绘 / banner */
+  portraitHorizontalUrl?: string
+  /** 表情素材，键为 neutral/thinking/confident/happy/sad/angry */
+  expressionUrls?: Partial<Record<CharacterExpressionId, string>>
+  /** 绑定的内置角色素材 ID，如 doubao */
+  visualPackId?: string
   gender: 'female' | 'male' | 'other'
   ageLabel: string
   bio: string
   tags: string[]
   speechStyle: string
+  /** MiMo-V2.5-TTS 预置音色 ID，如 冰糖 / 苏打 / mimo_default */
+  ttsVoiceId?: string
+  /** MiMo user message：自然语言风格 / 导演模式指令 */
+  ttsStyleInstruction?: string
+  /** MiMo assistant 开头 (风格) 标签，如 ['温柔','活泼'] */
+  ttsOpeningStyleTags?: string[]
+  /** 自动从说话方式映射 (风格) 标签，默认 true */
+  ttsAutoStyleTags?: boolean
+  /** 自动从说话方式补充自然语言风格指令，默认 true */
+  ttsAutoStyleInstruction?: boolean
+  /** 播报微调说明 — 与自动分析结果合并后用于合成 */
+  ttsAdjustNotes?: string
+  /** 最近一次自动分析摘要（只读展示） */
+  ttsAnalyzedSummary?: string
   commonPhrases: string[]
   behaviorPrinciples: string[]
   tabooBehaviors: string[]
   strategy: StrategyTendency
   strengths: string[]
   weaknesses: string[]
-  gameModePreferences: GameModePreference[]
+  /** @deprecated 迁移至 gameSkills */
+  gameModePreferences?: GameModePreference[]
   roleStrategies: RoleStrategyPreference[]
+  /** 会玩什么游戏 — 含学习/考试状态 */
+  gameSkills: CharacterGameSkill[]
   status: CharacterStatus
   accentColor: string
   stats: CharacterStats
@@ -102,6 +207,18 @@ export interface GameModePhase {
   description: string
 }
 
+/** 局内公开发言渲染配置（@ 提及、玩法术语高亮） */
+export interface SpeechTermHighlight {
+  term: string
+  label?: string
+}
+
+export interface SpeechDisplayConfig {
+  /** 是否高亮 @ 席位 / 角色名，默认 true */
+  highlightMentions?: boolean
+  terms?: SpeechTermHighlight[]
+}
+
 export interface GameMode {
   id: string
   name: string
@@ -120,6 +237,12 @@ export interface GameMode {
   setupSummary?: string
   sheriffRule?: string
   ruleHighlights?: string[]
+  /** 关联玩法场景 id */
+  scenarioId?: string
+  /** 引擎类型，用于步进分派 */
+  engineKind?: 'werewolf' | 'roundtable' | 'prompt-only'
+  /** 局内发言展示：@ 提及与术语高亮 */
+  speechDisplay?: SpeechDisplayConfig
 }
 
 export interface MatchParticipant {
@@ -146,6 +269,8 @@ export interface MatchMessage {
   roleLabel: string | null
   content: string
   thought?: string
+  /** 仅上帝视角可见的补充说明（如夜间各角色技能详情） */
+  godViewContent?: string
   streamStatus?: MessageStreamStatus
   createdAt: string
   round: number
@@ -160,6 +285,8 @@ export interface MatchVoteRecord {
   targetId: string | null
   targetName: string | null
   abstain: boolean
+  /** explicit=角色主动弃权；parse_failed=模型输出无法解析，按弃权计入 */
+  abstainReason?: 'explicit' | 'parse_failed' | null
   round: number
   phaseId: string
   createdAt: string
@@ -172,6 +299,32 @@ export interface MatchPublicEvent {
   createdAt: string
   phaseId: string
   round: number
+}
+
+export interface MatchRecapMoment {
+  id: string
+  round: number
+  type: 'highlight' | 'reversal'
+  title: string
+  description: string
+}
+
+/** 解说授予的本局 MVP（后续写入角色战绩） */
+export interface MatchRecapMvp {
+  characterId: string
+  characterName: string
+  seatOrder: number
+  reason: string
+}
+
+/** 赛后战报：解说总结 + 局内高光与反转 */
+export interface MatchRecap {
+  summary: string
+  highlights: MatchRecapMoment[]
+  reversals: MatchRecapMoment[]
+  mvp?: MatchRecapMvp | null
+  generatedAt: string
+  source: 'narrator' | 'fallback'
 }
 
 export interface ModelCallRecord {
@@ -218,6 +371,8 @@ export interface MatchAnomalyRecord {
 export interface WerewolfRuntimeState {
   sheriffId: string | null
   sheriffHistory: string[]
+  /** 警上宣布竞选的玩家 characterId 列表 */
+  sheriffCandidates?: string[]
   guardedLastNightId: string | null
   guardedTonightId?: string | null
   guardedThisNightId?: string | null
@@ -239,6 +394,15 @@ export interface WerewolfRuntimeState {
   gravediggerLastDeathCamp?: string | null
   wolfKingShotIds?: string[]
   whiteWolfKingShotIds?: string[]
+  /** 第一夜结束后狼人阵营互相知晓队友 */
+  wolfTeamRevealed?: boolean
+}
+
+export interface RoundtableRuntimeState {
+  discussionTopic: string
+  totalRounds: number
+  hostEnabled: boolean
+  narratorEnabled: boolean
 }
 
 export interface MatchRuntimeState {
@@ -259,8 +423,17 @@ export interface MatchRuntimeState {
   voteTargetId: string | null
   waitingHint: string | null
   sheriffId?: string | null
+  /** 狼人杀：是否启用警长竞选与警徽机制 */
+  sheriffEnabled?: boolean
   activeVoteMessageId?: string | null
   werewolfState?: WerewolfRuntimeState
+  roundtableState?: RoundtableRuntimeState
+  /** 本局使用的提示词包 id */
+  promptPackId?: string
+  /** 本局创建时快照的系统角色模型（裁判/解说等） */
+  systemRoleModels?: Record<string, string>
+  /** 遗言阶段待发言的出局者 */
+  pendingLastWordsIds?: string[]
 }
 
 export interface Match {
@@ -282,16 +455,19 @@ export interface Match {
   estimatedCostCents: number
   resultSummary: string | null
   winnerCamp: string | null
+  recap?: MatchRecap | null
   roomCode: string
   createdAt: string
   updatedAt: string
   startedAt: string | null
   endedAt: string | null
+  /** 狼人杀：启用的规则扩展（如夜间遗言） */
+  werewolfRuleModules?: import('./werewolf-dlc').WerewolfRuleModuleId[]
+  /** 狼人杀：胜负条件（屠边 / 屠城） */
+  werewolfWinCondition?: import('./werewolf-win-condition').WerewolfWinCondition
 }
 
 export interface ArenaSettings {
-  themeId: ThemeId
-  themeMode: 'light' | 'dark' | 'system'
   uiScale: 100 | 125 | 150
   animationEnabled: boolean
   compactLayout: boolean
@@ -300,20 +476,36 @@ export interface ArenaSettings {
   sfxEnabled: boolean
   bgmVolume: number
   sfxVolume: number
+  /** 局内角色发言 TTS 播报 */
+  ttsEnabled: boolean
+  ttsVolume: number
+  /** 裁判/解说 TTS 音色（固定使用 mimo-v2.5-tts） */
+  judgeVoiceId: string
   autoSaveMatch: boolean
   modelCallHints: boolean
   balanceReminder: boolean
   balanceReminderThresholdCents: number
   dataRetentionDays: number
   defaultIdentityAssignMode: IdentityAssignMode
+  /** 全局兜底模型：角色绑定、玩法系统模型等已选模型优先，仅在其未配置或不可用时使用 */
+  defaultModelId: string
   matchDefaults: {
     confirmBeforeStart: boolean
     pauseOnLowBalance: boolean
     autoAdvance: boolean
     autoNextRound: boolean
     narratorEnabled: boolean
+    /** 裁判裁定、阶段公告等 TTS 播报 */
+    judgeTtsEnabled: boolean
     fastMode: boolean
     showEmotionTags: boolean
+    /** 对局房间界面：classic 标准分栏 / immersive 沉浸圆桌 */
+    matchRoomLayout: 'classic' | 'immersive'
+  }
+  /** 角色演化：赛后复盘与行为准则微调 */
+  characterEvolution: {
+    postGameReviewEnabled: boolean
+    autoApplyBehaviorChanges: boolean
   }
 }
 
@@ -342,8 +534,21 @@ export type GameModeOverride = Partial<
     | 'setupSummary'
     | 'sheriffRule'
     | 'ruleHighlights'
+    | 'speechDisplay'
   >
 >
+
+export interface ArenaStoreStats {
+  characterCount: number
+  matchCount: number
+  snapshotCount: number
+  logCount: number
+  gameModeOverrideCount: number
+  customGameModeCount: number
+  installedGameModeCount: number
+  installedGameModeIds: string[]
+  seededAt: string | null
+}
 
 export interface ArenaStoreData {
   version: number
@@ -353,9 +558,27 @@ export interface ArenaStoreData {
   settings: ArenaSettings
   logs: ArenaLogEntry[]
   seededAt: string | null
+  /** 已安装的玩法 id（入门初始化或用户后续安装） */
+  installedGameModeIds?: string[]
   /** 已发放过的默认角色 catalog key（通常为 seed.modelId），避免编辑后重复补种 */
   introducedSeedKeys?: string[]
   gameModeOverrides?: Record<string, GameModeOverride>
+  /** 用户自建玩法（非内置模板） */
+  customGameModes?: GameMode[]
+  /** 用户自定义玩法场景 */
+  customScenarios?: GameScenarioDefinition[]
+  /** 用户自定义提示词包 */
+  customPromptPacks?: PromptPack[]
+  /** 行为准则变更历史（全局索引，按 characterId 查询） */
+  behaviorChangeLog?: BehaviorChangeRecord[]
+  /** 角色对话记录 */
+  characterChatLogs?: Record<string, CharacterChatMessage[]>
+  /** 玩法答疑对话（key = gameModeId） */
+  gameModeQALogs?: Record<string, CharacterChatMessage[]>
+  /** 帮助中心对话 */
+  helpChatLog?: CharacterChatMessage[]
+  /** 角色成长记录（对话等） */
+  characterGrowthLog?: CharacterGrowthRecord[]
 }
 
 export interface ArenaResult<T = unknown> {
@@ -371,6 +594,22 @@ export interface CreateMatchInput {
   identityAssignMode?: IdentityAssignMode
   title?: string
   manualRoles?: Record<string, string>
+  /** 提示词包 id，默认使用场景 defaultPromptPackId */
+  promptPackId?: string
+  /** 圆桌：讨论议题 */
+  discussionTopic?: string
+  /** 圆桌：讨论轮数 */
+  roundtableRounds?: number
+  /** 狼人杀：启用的扩展身份 id（如 knight、wolf_king） */
+  werewolfDlcs?: string[]
+  /** 狼人杀：是否开启警长玩法，默认开启 */
+  sheriffEnabled?: boolean
+  /** 狼人杀：启用的规则扩展模块（如 night_last_words） */
+  werewolfRuleModules?: string[]
+  /** 狼人杀：胜负条件 side_slaughter=屠边 city_slaughter=屠城，默认屠城 */
+  werewolfWinCondition?: string
+  /** 跳过未学习/未通过考试的角色检查（用户开后门） */
+  skipLearningCheck?: boolean
 }
 
 export interface CharacterFilter {
@@ -389,9 +628,11 @@ export interface MatchFilter {
 
 export interface DashboardSummary {
   characters: Character[]
+  allCharacters: Character[]
   recentMatches: Match[]
   resumableMatch: Match | null
-  gameModes: GameMode[]
   walletBalanceCents: number | null
   recentCostCents: number
+  behaviorChanges: BehaviorChangeRecord[]
+  growthRecords: CharacterGrowthRecord[]
 }

@@ -1,0 +1,344 @@
+{
+  "version": 1,
+  "packageId": "character-packs",
+  "generatedAt": "2026-06-27T03:46:50.181Z",
+  "usage": "Agent Arena 17 角色素材包（含默认角色）。每个角色含竖版/横版立绘与 6 个表情头像。",
+  "styleGuide": {
+    "portrait": "720x1280 PNG",
+    "banner": "1280x720 PNG",
+    "avatar": "256x256 PNG (avatars/neutral.png)",
+    "expressions": [
+      "neutral",
+      "thinking",
+      "confident",
+      "happy",
+      "sad",
+      "angry"
+    ]
+  },
+  "characters": [
+    {
+      "id": "default",
+      "name": "默认",
+      "modelId": "default",
+      "vendor": "Platform",
+      "gender": "other",
+      "accent": "#58c7df",
+      "palette": "teal / sky blue / white / soft yellow",
+      "portrait": "default/portrait.png",
+      "banner": "default/banner.png",
+      "avatars": {
+        "neutral": "default/avatars/neutral.png",
+        "thinking": "default/avatars/thinking.png",
+        "confident": "default/avatars/confident.png",
+        "happy": "default/avatars/happy.png",
+        "sad": "default/avatars/sad.png",
+        "angry": "default/avatars/angry.png"
+      }
+    },
+    {
+      "id": "doubao",
+      "name": "豆包",
+      "modelId": "doubao",
+      "vendor": "ByteDance",
+      "gender": "female",
+      "accent": "#8b6cff",
+      "palette": "lavender / violet / soft pink",
+      "portrait": "doubao/portrait.png",
+      "banner": "doubao/banner.png",
+      "avatars": {
+        "neutral": "doubao/avatars/neutral.png",
+        "thinking": "doubao/avatars/thinking.png",
+        "confident": "doubao/avatars/confident.png",
+        "happy": "doubao/avatars/happy.png",
+        "sad": "doubao/avatars/sad.png",
+        "angry": "doubao/avatars/angry.png"
+      }
+    },
+    {
+      "id": "gpt",
+      "name": "GPT",
+      "modelId": "gpt-4o",
+      "vendor": "OpenAI",
+      "gender": "male",
+      "accent": "#5e8dff",
+      "palette": "teal / cyan / white",
+      "portrait": "gpt/portrait.png",
+      "banner": "gpt/banner.png",
+      "avatars": {
+        "neutral": "gpt/avatars/neutral.png",
+        "thinking": "gpt/avatars/thinking.png",
+        "confident": "gpt/avatars/confident.png",
+        "happy": "gpt/avatars/happy.png",
+        "sad": "gpt/avatars/sad.png",
+        "angry": "gpt/avatars/angry.png"
+      }
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "modelId": "claude-3-5-sonnet",
+      "vendor": "Anthropic",
+      "gender": "other",
+      "accent": "#f2a35f",
+      "palette": "amber / terracotta / cream",
+      "portrait": "claude/portrait.png",
+      "banner": "claude/banner.png",
+      "avatars": {
+        "neutral": "claude/avatars/neutral.png",
+        "thinking": "claude/avatars/thinking.png",
+        "confident": "claude/avatars/confident.png",
+        "happy": "claude/avatars/happy.png",
+        "sad": "claude/avatars/sad.png",
+        "angry": "claude/avatars/angry.png"
+      }
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "modelId": "deepseek-chat",
+      "vendor": "DeepSeek",
+      "gender": "male",
+      "accent": "#5f74ff",
+      "palette": "indigo / deep blue / silver",
+      "portrait": "deepseek/portrait.png",
+      "banner": "deepseek/banner.png",
+      "avatars": {
+        "neutral": "deepseek/avatars/neutral.png",
+        "thinking": "deepseek/avatars/thinking.png",
+        "confident": "deepseek/avatars/confident.png",
+        "happy": "deepseek/avatars/happy.png",
+        "sad": "deepseek/avatars/sad.png",
+        "angry": "deepseek/avatars/angry.png"
+      }
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi",
+      "modelId": "kimi",
+      "vendor": "Moonshot AI",
+      "gender": "female",
+      "accent": "#a873f6",
+      "palette": "violet / lilac / moonlight silver",
+      "portrait": "kimi/portrait.png",
+      "banner": "kimi/banner.png",
+      "avatars": {
+        "neutral": "kimi/avatars/neutral.png",
+        "thinking": "kimi/avatars/thinking.png",
+        "confident": "kimi/avatars/confident.png",
+        "happy": "kimi/avatars/happy.png",
+        "sad": "kimi/avatars/sad.png",
+        "angry": "kimi/avatars/angry.png"
+      }
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "modelId": "gemini-pro",
+      "vendor": "Google",
+      "gender": "female",
+      "accent": "#ee73ad",
+      "palette": "rose / magenta / pearl",
+      "portrait": "gemini/portrait.png",
+      "banner": "gemini/banner.png",
+      "avatars": {
+        "neutral": "gemini/avatars/neutral.png",
+        "thinking": "gemini/avatars/thinking.png",
+        "confident": "gemini/avatars/confident.png",
+        "happy": "gemini/avatars/happy.png",
+        "sad": "gemini/avatars/sad.png",
+        "angry": "gemini/avatars/angry.png"
+      }
+    },
+    {
+      "id": "qwen",
+      "name": "通义千问",
+      "modelId": "qwen-max",
+      "vendor": "Alibaba",
+      "gender": "other",
+      "accent": "#6b8cff",
+      "palette": "azure / cobalt / white",
+      "portrait": "qwen/portrait.png",
+      "banner": "qwen/banner.png",
+      "avatars": {
+        "neutral": "qwen/avatars/neutral.png",
+        "thinking": "qwen/avatars/thinking.png",
+        "confident": "qwen/avatars/confident.png",
+        "happy": "qwen/avatars/happy.png",
+        "sad": "qwen/avatars/sad.png",
+        "angry": "qwen/avatars/angry.png"
+      }
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral",
+      "modelId": "mistral-large-latest",
+      "vendor": "Mistral AI",
+      "gender": "male",
+      "accent": "#ff7a59",
+      "palette": "orange / coral / sand",
+      "portrait": "mistral/portrait.png",
+      "banner": "mistral/banner.png",
+      "avatars": {
+        "neutral": "mistral/avatars/neutral.png",
+        "thinking": "mistral/avatars/thinking.png",
+        "confident": "mistral/avatars/confident.png",
+        "happy": "mistral/avatars/happy.png",
+        "sad": "mistral/avatars/sad.png",
+        "angry": "mistral/avatars/angry.png"
+      }
+    },
+    {
+      "id": "llama",
+      "name": "Llama",
+      "modelId": "llama-3.1-70b",
+      "vendor": "Meta",
+      "gender": "female",
+      "accent": "#4fbf9a",
+      "palette": "jade / mint / ivory",
+      "portrait": "llama/portrait.png",
+      "banner": "llama/banner.png",
+      "avatars": {
+        "neutral": "llama/avatars/neutral.png",
+        "thinking": "llama/avatars/thinking.png",
+        "confident": "llama/avatars/confident.png",
+        "happy": "llama/avatars/happy.png",
+        "sad": "llama/avatars/sad.png",
+        "angry": "llama/avatars/angry.png"
+      }
+    },
+    {
+      "id": "hunyuan",
+      "name": "混元",
+      "modelId": "hunyuan-turbo",
+      "vendor": "Tencent",
+      "gender": "female",
+      "accent": "#58b4ff",
+      "palette": "sky blue / navy / gold",
+      "portrait": "hunyuan/portrait.png",
+      "banner": "hunyuan/banner.png",
+      "avatars": {
+        "neutral": "hunyuan/avatars/neutral.png",
+        "thinking": "hunyuan/avatars/thinking.png",
+        "confident": "hunyuan/avatars/confident.png",
+        "happy": "hunyuan/avatars/happy.png",
+        "sad": "hunyuan/avatars/sad.png",
+        "angry": "hunyuan/avatars/angry.png"
+      }
+    },
+    {
+      "id": "glm",
+      "name": "智谱 GLM",
+      "modelId": "glm-4-plus",
+      "vendor": "Z.ai",
+      "gender": "male",
+      "accent": "#6b8cff",
+      "palette": "blue-violet / cyan / silver",
+      "portrait": "glm/portrait.png",
+      "banner": "glm/banner.png",
+      "avatars": {
+        "neutral": "glm/avatars/neutral.png",
+        "thinking": "glm/avatars/thinking.png",
+        "confident": "glm/avatars/confident.png",
+        "happy": "glm/avatars/happy.png",
+        "sad": "glm/avatars/sad.png",
+        "angry": "glm/avatars/angry.png"
+      }
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax",
+      "modelId": "abab6.5-chat",
+      "vendor": "MiniMax",
+      "gender": "female",
+      "accent": "#ff8a6a",
+      "palette": "coral pink / warm orange / cream",
+      "portrait": "minimax/portrait.png",
+      "banner": "minimax/banner.png",
+      "avatars": {
+        "neutral": "minimax/avatars/neutral.png",
+        "thinking": "minimax/avatars/thinking.png",
+        "confident": "minimax/avatars/confident.png",
+        "happy": "minimax/avatars/happy.png",
+        "sad": "minimax/avatars/sad.png",
+        "angry": "minimax/avatars/angry.png"
+      }
+    },
+    {
+      "id": "yi",
+      "name": "零一 Yi",
+      "modelId": "yi-large",
+      "vendor": "01.AI",
+      "gender": "male",
+      "accent": "#5f74ff",
+      "palette": "slate / cyan / white",
+      "portrait": "yi/portrait.png",
+      "banner": "yi/banner.png",
+      "avatars": {
+        "neutral": "yi/avatars/neutral.png",
+        "thinking": "yi/avatars/thinking.png",
+        "confident": "yi/avatars/confident.png",
+        "happy": "yi/avatars/happy.png",
+        "sad": "yi/avatars/sad.png",
+        "angry": "yi/avatars/angry.png"
+      }
+    },
+    {
+      "id": "ernie",
+      "name": "文心 ERNIE",
+      "modelId": "ernie-4.0-turbo-8k",
+      "vendor": "Baidu",
+      "gender": "other",
+      "accent": "#5e8dff",
+      "palette": "deep blue / porcelain white / vermilion",
+      "portrait": "ernie/portrait.png",
+      "banner": "ernie/banner.png",
+      "avatars": {
+        "neutral": "ernie/avatars/neutral.png",
+        "thinking": "ernie/avatars/thinking.png",
+        "confident": "ernie/avatars/confident.png",
+        "happy": "ernie/avatars/happy.png",
+        "sad": "ernie/avatars/sad.png",
+        "angry": "ernie/avatars/angry.png"
+      }
+    },
+    {
+      "id": "grok",
+      "name": "Grok",
+      "modelId": "grok-2-1212",
+      "vendor": "xAI",
+      "gender": "male",
+      "accent": "#22c55e",
+      "palette": "black / charcoal / electric green",
+      "portrait": "grok/portrait.png",
+      "banner": "grok/banner.png",
+      "avatars": {
+        "neutral": "grok/avatars/neutral.png",
+        "thinking": "grok/avatars/thinking.png",
+        "confident": "grok/avatars/confident.png",
+        "happy": "grok/avatars/happy.png",
+        "sad": "grok/avatars/sad.png",
+        "angry": "grok/avatars/angry.png"
+      }
+    },
+    {
+      "id": "spark",
+      "name": "讯飞星火",
+      "modelId": "spark-max",
+      "vendor": "iFlytek",
+      "gender": "female",
+      "accent": "#58b4ff",
+      "palette": "electric blue / navy / red",
+      "portrait": "spark/portrait.png",
+      "banner": "spark/banner.png",
+      "avatars": {
+        "neutral": "spark/avatars/neutral.png",
+        "thinking": "spark/avatars/thinking.png",
+        "confident": "spark/avatars/confident.png",
+        "happy": "spark/avatars/happy.png",
+        "sad": "spark/avatars/sad.png",
+        "angry": "spark/avatars/angry.png"
+      }
+    }
+  ]
+}

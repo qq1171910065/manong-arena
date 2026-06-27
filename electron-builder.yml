@@ -11,19 +11,31 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!docs/**'
   - '!AGENTS.md'
+  - '!.tmp/**'
+extraResources:
+  - from: build/
+    to: icons
+    filter:
+      - icon.ico
+      - icon.png
 npmRebuild: false
 win:
   executableName: arena
+  icon: icon.ico
   target:
     - nsis
   sign: null
   signAndEditExecutable: false
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
+  include: build/installer.nsh
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  installerIcon: icon.ico
+  uninstallerIcon: icon.ico
 mac:
+  icon: icon.icns
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.

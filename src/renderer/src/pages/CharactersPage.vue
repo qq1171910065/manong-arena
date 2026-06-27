@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
-import { Plus, Search, SlidersHorizontal } from 'lucide-vue-next'
+import { Plus, Search, SlidersHorizontal, Upload } from 'lucide-vue-next'
 import ArenaPageShell from '@renderer/components/arena/ArenaPageShell.vue'
 import ArenaPageState from '@renderer/components/arena/ArenaPageState.vue'
-import CharacterQuickMenu from '@renderer/components/arena/CharacterQuickMenu.vue'
-import { characterAvatarByName, characterPortraitByName } from '@renderer/data/arena-visual-assets'
-import { navigate } from '@renderer/router'
-import { characterService, formatUserMessage } from '@renderer/services/arena'
+import ArenaPageSkeleton from '@renderer/components/arena/ArenaPageSkeleton.vue'
+import CharacterEditDialog from '@renderer/components/arena/CharacterEditDialog.vue'
+import { characterBannerUrl } from '@renderer/data/arena-visual-assets'
+import { navigate, route } from '@renderer/router'
+import { characterService, formatUserMessage, portableDataService } from '@renderer/services/arena'
+import { resolveModelInfo } from '@renderer/data/model-catalog'
 import { CHARACTER_MODEL_OPTIONS } from '@shared/arena/constants'
 import type { Character, CharacterStatus } from '@shared/arena/types'
 
@@ -17,9 +19,16 @@ const query = ref('')
 const modelFilter = ref('all')
 const statusFilter = ref<CharacterStatus | 'all'>('all')
 const sortBy = ref<'updated' | 'created' | 'name' | 'matches'>('updated')
+const createOpen = ref(false)
+const importing = ref(false)
 
 function modelName(modelId: string) {
-  return CHARACTER_MODEL_OPTIONS.find((item) => item.id === modelId)?.label || modelId
+  return resolveModelInfo(modelId).label
+}
+
+function matchLabel(char: Character): string {
+  if (char.stats.matchCount <= 0) return '尚未参战'
+  return `${char.stats.matchCount} 场对局`
 }
 
 async function loadCharacters() {
@@ -48,39 +57,43 @@ watch(query, () => {
 
 onMounted(() => {
   void loadCharacters()
+  if (route.value.path.includes('create=1')) createOpen.value = true
 })
 
-async function toggleCharacterStatus(char: Character) {
-  try {
-    await characterService.toggleStatus(char.id)
-    await loadCharacters()
-  } catch (err) {
-    error.value = formatUserMessage(err)
+watch(
+  () => route.value.path,
+  (path) => {
+    if (path.includes('create=1')) createOpen.value = true
   }
+)
+
+function openCreate() {
+  createOpen.value = true
 }
 
-async function duplicateCharacter(char: Character) {
-  try {
-    const copy = await characterService.duplicate(char.id)
-    navigate(`/character-detail/${copy.id}`)
-  } catch (err) {
-    error.value = formatUserMessage(err)
-  }
+function onCharacterCreated(char: Character) {
+  navigate(`/character-detail/${char.id}`)
 }
 
-async function removeCharacter(char: Character) {
-  if (!window.confirm(`确定删除角色「${char.name}」吗？此操作不可恢复。`)) return
+async function importCharacter() {
+  importing.value = true
+  error.value = ''
   try {
-    await characterService.remove(char.id)
-    await loadCharacters()
+    const imported = await portableDataService.importCharacter()
+    if (imported) {
+      await loadCharacters()
+      navigate(`/character-detail/${imported.id}`)
+    }
   } catch (err) {
     error.value = formatUserMessage(err)
+  } finally {
+    importing.value = false
   }
 }
 </script>
 
 <template>
-  <ArenaPageShell class="characters-page">
+  <ArenaPageShell class="characters-page" viewport-lock>
     <section class="list-toolbar" aria-label="角色筛选">
       <label class="search-pill">
         <Search :size="17" />
@@ -105,7 +118,11 @@ async function removeCharacter(char: Character) {
             <option value="matches">对局次数</option>
           </select>
         </div>
-        <button class="toolbar-action" type="button" @click="navigate('/character-edit/new')">
+        <button class="toolbar-action toolbar-action--ghost" type="button" :disabled="importing" @click="importCharacter">
+          <Upload :size="17" />
+          导入
+        </button>
+        <button class="toolbar-action" type="button" @click="openCreate">
           <Plus :size="17" />
           新建角色
         </button>
@@ -120,77 +137,86 @@ async function removeCharacter(char: Character) {
       loading-label="正在整理角色库..."
       @retry="loadCharacters"
     >
+      <template #skeleton>
+        <ArenaPageSkeleton variant="grid-cards" embedded label="正在整理角色库..." />
+      </template>
       <template #empty>
         <strong>还没有符合条件的角色</strong>
         <span>新建一个 AI 伙伴，或者放宽筛选条件。</span>
-        <button type="button" @click="navigate('/character-edit/new')">新建角色</button>
+        <button type="button" @click="openCreate">新建角色</button>
       </template>
 
       <section class="character-grid arena-stagger" aria-label="角色列表">
       <article
-        v-for="(char, index) in characters"
+        v-for="char in characters"
         :key="char.id"
         class="library-card"
         :class="{ disabled: char.status !== 'enabled' }"
         :style="{ '--accent': char.accentColor }"
         @click="navigate(`/character-detail/${char.id}`)"
       >
-        <div class="card-visual">
-          <div class="visual-bg" aria-hidden="true" />
+        <div class="card-banner">
           <img
-            class="portrait"
-            :src="characterPortraitByName(char.name, index, char.modelId, char.portraitUrl)"
+            class="card-banner__img"
+            :src="characterBannerUrl(char)"
             :alt="char.name"
-          />
-          <div class="visual-scrim" aria-hidden="true" />
-          <img
-            class="avatar"
-            :src="characterAvatarByName(char.name, index, char.modelId, char.avatarUrl)"
-            :alt="`${char.name}头像`"
           />
           <span class="status-badge" :class="{ off: char.status !== 'enabled' }">
             <i aria-hidden="true" />
             {{ char.status === 'enabled' ? '在线' : '停用' }}
           </span>
-          <CharacterQuickMenu
-            class="card-menu"
-            compact
-            :status="char.status"
-            @click.stop
-            @edit="navigate(`/character-edit/${char.id}`)"
-            @duplicate="duplicateCharacter(char)"
-            @toggle-status="toggleCharacterStatus(char)"
-            @remove="removeCharacter(char)"
-          />
         </div>
         <div class="card-body">
-          <h2>{{ char.name }}</h2>
-          <p class="subtitle">{{ char.subtitle || '未填写一句话设定' }}</p>
-          <div class="meta-row">
-            <span class="model-chip">{{ modelName(char.modelId) }}</span>
-            <span v-for="tag in char.tags.slice(0, 2)" :key="tag" class="tag">{{ tag }}</span>
+          <h2 class="card-body__name">{{ char.name }}</h2>
+          <p class="card-body__subtitle">{{ char.subtitle || '未填写一句话设定' }}</p>
+          <div v-if="char.tags.length || char.modelId" class="card-body__tags">
+            <span class="card-body__tag card-body__tag--model">{{ modelName(char.modelId) }}</span>
+            <span v-for="tag in char.tags.slice(0, 2)" :key="tag" class="card-body__tag">{{ tag }}</span>
           </div>
-          <div class="stats-row">
-            <span>{{ char.stats.matchCount }} 场对局</span>
-            <span class="sep" aria-hidden="true">·</span>
-            <span class="speech">{{ char.speechStyle }}</span>
-          </div>
+          <span class="card-body__stat">{{ matchLabel(char) }}</span>
         </div>
       </article>
       </section>
     </ArenaPageState>
+
+    <CharacterEditDialog v-model="createOpen" section="create" @saved="onCharacterCreated" />
   </ArenaPageShell>
 </template>
 
 <style scoped>
 .characters-page :deep(.aa-page-inner) {
   max-width: none;
-  height: 100%;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 14px;
-  padding: 28px 38px 20px;
-  overflow: hidden;
+  padding: 28px 38px 0;
+  min-height: 0;
+}
+
+.characters-page :deep(.arena-page-state) {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.characters-page :deep(.arena-page-state__skeleton),
+.characters-page :deep(.arena-page-state__content) {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.characters-page :deep(.arena-page-state__skeleton)::-webkit-scrollbar,
+.characters-page :deep(.arena-page-state__content)::-webkit-scrollbar {
+  display: none;
+}
+
+.characters-page :deep(.arena-page-state__content) {
+  display: block;
 }
 
 .list-toolbar {
@@ -229,6 +255,17 @@ async function removeCharacter(char: Character) {
 .toolbar-action:hover {
   transform: translateY(-1px);
   box-shadow: 0 16px 28px rgba(88, 80, 239, 0.28);
+}
+
+.toolbar-action--ghost {
+  color: #4b5688;
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(130, 142, 207, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.toolbar-action--ghost:hover {
+  box-shadow: 0 10px 20px rgba(88, 80, 239, 0.12);
 }
 
 .search-pill,
@@ -277,43 +314,40 @@ async function removeCharacter(char: Character) {
 }
 
 .character-grid {
-  min-height: 0;
-  overflow: auto;
   display: grid;
-  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, 280px);
   gap: 16px;
   align-content: start;
-  padding: 2px 4px 10px;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.character-grid::-webkit-scrollbar {
-  display: none;
+  align-items: start;
+  justify-content: start;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 4px 24px;
 }
 
 .library-card {
   --accent: #7568ff;
+  --card-width: 280px;
+  --banner-ratio: 1280 / 720;
+  width: var(--card-width);
+  max-width: var(--card-width);
+  align-self: start;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  border: 1px solid rgba(255, 255, 255, 0.76);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.88),
-    0 16px 36px rgba(91, 101, 174, 0.1);
-  backdrop-filter: blur(18px);
+  flex: none;
+  border: 1px solid rgba(130, 142, 207, 0.16);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(91, 101, 174, 0.1);
   cursor: pointer;
   transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease;
 }
 
 .library-card:hover {
-  transform: translateY(-6px);
-  border-color: color-mix(in srgb, var(--accent) 36%, white);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.94),
-    0 22px 42px rgba(91, 101, 174, 0.16);
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--accent) 28%, rgba(130, 142, 207, 0.22));
+  box-shadow: 0 16px 32px rgba(91, 101, 174, 0.14);
 }
 
 .library-card.disabled {
@@ -322,61 +356,97 @@ async function removeCharacter(char: Character) {
 }
 
 .library-card.disabled:hover {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
 }
 
-.card-visual {
+.card-banner {
   position: relative;
-  height: 168px;
-  margin: 10px 10px 0;
+  width: 100%;
+  aspect-ratio: var(--banner-ratio);
+  flex: none;
   overflow: hidden;
-  border-radius: 14px;
+  background: #eef1f8;
 }
 
-.visual-bg {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.42), transparent 42%),
-    linear-gradient(160deg, color-mix(in srgb, var(--accent) 28%, white), color-mix(in srgb, var(--accent) 10%, #f4f6ff));
-}
-
-.portrait {
-  position: relative;
-  z-index: 1;
+.card-banner__img {
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  object-position: center bottom;
-  transform: scale(1.06) translateY(6px);
-  transition: transform 0.4s ease, filter 0.3s ease;
-}
-
-.library-card:hover .portrait {
-  transform: scale(1.1) translateY(2px);
-  filter: saturate(1.06);
-}
-
-.visual-scrim {
-  position: absolute;
-  inset: auto 0 0;
-  z-index: 2;
-  height: 56%;
-  background: linear-gradient(to top, rgba(18, 24, 58, 0.28), transparent);
-  pointer-events: none;
-}
-
-.avatar {
-  position: absolute;
-  left: 12px;
-  bottom: 10px;
-  z-index: 3;
-  width: 44px;
-  height: 44px;
-  border: 2px solid rgba(255, 255, 255, 0.92);
-  border-radius: 14px;
   object-fit: cover;
-  box-shadow: 0 8px 18px rgba(34, 42, 88, 0.22);
+  object-position: center center;
+  transition: transform 0.35s ease;
+}
+
+.library-card:hover .card-banner__img {
+  transform: scale(1.03);
+}
+
+.card-body {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px 14px;
+  background: #fff;
+}
+
+.card-body__name {
+  margin: 0;
+  overflow: hidden;
+  color: #17205a;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-body__subtitle {
+  margin: 0;
+  overflow: hidden;
+  color: #66709d;
+  font-size: 12px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-body__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+.card-body__tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 9px;
+  overflow: hidden;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-body__tag--model {
+  color: color-mix(in srgb, var(--accent) 78%, #26305e);
+  background: color-mix(in srgb, var(--accent) 12%, white);
+}
+
+.card-body__tag:not(.card-body__tag--model) {
+  color: #655df0;
+  border: 1px solid rgba(109, 101, 255, 0.12);
+  background: rgba(112, 105, 255, 0.08);
+}
+
+.card-body__stat {
+  margin-top: 2px;
+  color: #9aa3c7;
+  font-size: 11px;
+  line-height: 1.3;
 }
 
 .status-badge {
@@ -406,113 +476,6 @@ async function removeCharacter(char: Character) {
 
 .status-badge.off {
   color: #7380aa;
-}
-
-.card-menu {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 4;
-}
-
-.card-menu :deep(.char-menu__trigger) {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(10px);
-  color: #455180;
-  opacity: 0;
-  transform: translateY(-4px);
-  transition: opacity 0.2s ease, transform 0.2s ease, background 0.2s ease;
-}
-
-.library-card:hover .card-menu :deep(.char-menu__trigger),
-.card-menu :deep(.char-menu__trigger:focus-visible) {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 12px 16px 16px;
-}
-
-.card-body h2 {
-  margin: 0;
-  color: #17205a;
-  font-size: 18px;
-  font-weight: 650;
-  line-height: 1.2;
-}
-
-.subtitle {
-  overflow: hidden;
-  margin: 0;
-  color: #66709d;
-  font-size: 13px;
-  line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.meta-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 2px;
-}
-
-.model-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 26px;
-  padding: 0 10px;
-  color: color-mix(in srgb, var(--accent) 78%, #26305e);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 12%, white);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.meta-row .tag {
-  display: inline-flex;
-  align-items: center;
-  height: 26px;
-  max-width: 88px;
-  padding: 0 10px;
-  overflow: hidden;
-  color: #655df0;
-  border: 1px solid rgba(109, 101, 255, 0.12);
-  border-radius: 8px;
-  background: rgba(112, 105, 255, 0.08);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.stats-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  margin-top: 2px;
-  color: #7b84ad;
-  font-size: 12px;
-}
-
-.stats-row .sep {
-  color: #b4bbda;
-}
-
-.stats-row .speech {
-  overflow: hidden;
-  min-width: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .character-state {

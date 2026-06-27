@@ -2,9 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Copy, ExternalLink } from 'lucide-vue-next'
 import { getAppFeatures, getRuntimeConfig } from '@renderer/composables/runtime-config'
+import { useClientUpdate } from '@renderer/composables/useClientUpdate'
 import { getDefaultApiBaseUrl } from '@renderer/services'
 import { getApiBaseUrl } from '@renderer/services/config'
-import { getStoredThemeId, THEME_PRESETS } from '@renderer/composables/useTheme'
 import { formatAcceleratorLabel } from '@renderer/composables/shortcut-utils'
 import { SHORTCUT_CATALOG, getShortcutBinding } from '@renderer/composables/useShortcutSettings'
 import { NAlert, NButton, useMessage } from '../../ui'
@@ -12,47 +12,48 @@ import { NAlert, NButton, useMessage } from '../../ui'
 const message = useMessage()
 const features = getAppFeatures()
 const config = getRuntimeConfig()
-const themeLabel = THEME_PRESETS[getStoredThemeId(config.themeId)]?.label ?? config.themeId
 const displayUrl = computed(() => getApiBaseUrl() || getDefaultApiBaseUrl())
 
-const version = ref('')
-const updateInfo = ref<Record<string, unknown> | null>(null)
-const checking = ref(false)
+const { checkingUpdate, currentVersion, checkAndDownloadUpdate, runInAppUpdate } = useClientUpdate()
+const version = computed(() => currentVersion.value || '0.1.0')
+const updateSummary = ref<string | null>(null)
 const deeplinkProtocol = ref('')
 const lastDeeplink = ref('')
 let offDeeplink: (() => void) | undefined
 
 async function loadVersion() {
   const r = await window.api.getVersion?.()
-  if (r?.ok && r.version) version.value = r.version
-  else if (typeof window.api.checkForUpdates === 'function') {
-    const u = await window.api.checkForUpdates()
-    if (u?.ok && typeof u.currentVersion === 'string') version.value = u.currentVersion
+  if (r?.ok && r.version) currentVersion.value = r.version
+  else if (typeof window.api.getRuntimeMeta === 'function') {
+    const meta = await window.api.getRuntimeMeta()
+    currentVersion.value = meta.appVersion
   }
-  if (!version.value) version.value = '0.1.0'
 }
 
 async function checkUpdate() {
-  if (typeof window.api.checkForUpdates !== 'function') {
-    message.info('当前应用未启用自动更新模块')
+  if (!features.autoUpdate) {
+    message.info('当前应用未启用自动更新')
     return
   }
-  checking.value = true
-  try {
-    const r = await window.api.checkForUpdates()
-    updateInfo.value = r ?? null
-    if (r?.ok) message.success(r.updateAvailable ? '发现新版本' : '当前已是最新版本')
-    else message.error(String(r?.error || '检查失败'))
-  } finally {
-    checking.value = false
+  const result = await checkAndDownloadUpdate()
+  if (!result?.res) {
+    updateSummary.value = '暂无可用更新'
+    return
+  }
+  updateSummary.value = `发现新版本 ${result.res.latestVersion}`
+  const confirmed = window.confirm(
+    `发现新版本 ${result.res.latestVersion}\n\n是否下载并安装？`
+  )
+  if (confirmed && result.res.downloadUrl && result.res.latestVersion) {
+    await runInAppUpdate(result.res.downloadUrl, result.res.latestVersion)
   }
 }
 
 async function copyDiagnostics() {
   const lines = [
     `应用: ${config.displayName} (${config.appId})`,
+    `产品码: ${config.productCode}`,
     `版本: ${version.value}`,
-    `主题: ${themeLabel}`,
     `平台地址: ${displayUrl.value}`,
     `系统: ${navigator.platform}`,
     `语言: ${navigator.language}`,
@@ -106,16 +107,12 @@ onBeforeUnmount(() => offDeeplink?.())
         <dt>平台 API 地址</dt>
         <dd>
           <code class="code-block settings-api-url">{{ displayUrl }}</code>
-          <p class="text-muted settings-info-hint">登录后不可修改，如需更换请退出登录后在登录窗口调整。</p>
+          <p class="text-muted settings-info-hint" title="登录后不可修改，如需更换请退出登录后在登录窗口调整。">登录后不可改，请退出后在登录页调整。</p>
         </dd>
       </div>
       <div>
         <dt>应用 ID</dt>
         <dd><code class="code-inline">{{ config.appId }}</code></dd>
-      </div>
-      <div>
-        <dt>当前主题</dt>
-        <dd>{{ themeLabel }}</dd>
       </div>
       <div v-if="features.deeplink && deeplinkProtocol">
         <dt>Deep Link 协议</dt>
@@ -141,7 +138,7 @@ onBeforeUnmount(() => offDeeplink?.())
     </div>
 
     <div class="settings-panel-actions">
-      <NButton v-if="features.autoUpdate" size="small" type="primary" :loading="checking" @click="checkUpdate">
+      <NButton v-if="features.autoUpdate" size="small" type="primary" :loading="checkingUpdate" @click="checkUpdate">
         检查更新
       </NButton>
       <NButton size="small" @click="copyDiagnostics">
@@ -154,8 +151,8 @@ onBeforeUnmount(() => offDeeplink?.())
       </NButton>
     </div>
 
-    <NAlert v-if="updateInfo && features.autoUpdate" type="info" :bordered="false">
-      {{ updateInfo.message || (updateInfo.updateAvailable ? '发现新版本' : '当前已是最新版本') }}
+    <NAlert v-if="updateSummary && features.autoUpdate" type="info" :bordered="false">
+      {{ updateSummary }}
     </NAlert>
   </div>
 </template>

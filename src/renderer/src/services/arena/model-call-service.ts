@@ -2,16 +2,92 @@ import { randomUUID } from '@renderer/utils/id'
 import { arenaLog } from './logger'
 import { ArenaError } from './errors'
 import { billingService } from './billing-service'
-import { gameModeService } from './character-service'
+import { gameModeService, characterService } from './character-service'
+import { gameScenarioService } from './game-scenario-service'
+import { resolvePromptFromPack } from './prompt-resolver'
+import { getFallbackModelId } from './settings-runtime'
 import { gatewayChatCompletion, gatewayChatStream } from '../gateway-api'
+import { detectPlainTextStream, previewSpeechFromStreamBuffer } from './speech-stream-preview'
+import { buildWerewolfSpeechPromptContext } from './werewolf-speech-context'
+import { getSheriffCandidateParticipants, isSheriffCandidate, normalizeSheriffVote } from './werewolf-sheriff'
 import type { GatewayTokenUsage } from '../gateway-api'
 import type { Match, MatchParticipant, MatchVoteRecord, MessageStreamStatus, ModelCallRecord } from '@shared/arena/types'
+import type { SystemRoleKind } from '@shared/arena/game-scenario'
 
 const RETRY_ONCE = 1
-const LEAK_PATTERNS = /内心|我认为|我觉得|thought|推理过程|上帝视角|身份目标|可信度排序|JSON|\"speech\"|\"thought\"/i
-const INNER_MONOLOGUE = /^(我)?(认为|觉得|怀疑|猜测|内心)/
+/** 仅匹配内心推理/格式泄露，不含「我认为/我觉得」等正常发言用语 */
+const LEAK_PATTERNS = /内心|thought|推理过程|上帝视角|JSON|\"speech\"|\"thought\"/i
+const INNER_MONOLOGUE = /^(我)?(认为|觉得|怀疑|猜测|内心)(?!.*[号位人])/
+const IDENTITY_EXPOSURE_WARNING =
+  /(?:泄露|暴露|公开|透露|披露).{0,8}身份|身份.{0,6}(?:泄露|暴露)|跳身份|悍跳|认神|认狼|身份自述|不应.{0,6}身份|不要.{0,6}身份/i
+
+function isIdentityExposureOnlyWarning(warning: string): boolean {
+  const text = warning.trim()
+  if (!text) return false
+  if (!IDENTITY_EXPOSURE_WARNING.test(text)) return false
+  return !/上帝视角|私有|隐藏信息|thought|内心|JSON|刀口|查验结果|夜间|未公开/.test(text)
+}
+
+function normalizeJudgeWarning(warning: string): string {
+  return isIdentityExposureOnlyWarning(warning) ? '' : warning.trim()
+}
 
 type ModelAction = 'speech' | 'vote' | 'judge'
+
+let activeSpeechCancel: (() => void) | null = null
+let activeSpeechAborted = false
+
+export function cancelActiveSpeechStream(): void {
+  activeSpeechAborted = true
+  activeSpeechCancel?.()
+  activeSpeechCancel = null
+  void window.api.cancelSSE()
+}
+
+function clearActiveSpeechStream(): void {
+  activeSpeechAborted = false
+  activeSpeechCancel = null
+}
+
+function throwIfSpeechAborted(): void {
+  if (activeSpeechAborted) {
+    throw new ArenaError('ENGINE_ABORTED', '模型调用已取消', 'model')
+  }
+}
+
+const SYSTEM_ROLE_NAMES: Record<SystemRoleKind, string> = {
+  judge: '裁判',
+  narrator: '解说',
+  host: '主持人',
+  commentator: '评论员',
+}
+
+async function resolveSystemRoleModelId(match: Match, kind: SystemRoleKind): Promise<string> {
+  const snapshotted = match.runtime.systemRoleModels?.[kind]
+  if (snapshotted) return snapshotted
+
+  await gameScenarioService.refresh()
+  const scenario = gameScenarioService.getByGameModeId(match.gameModeId)
+  const role = scenario?.systemRoles.find((item) => item.kind === kind)
+  const fallback = getFallbackModelId()
+  return role?.modelId || fallback
+}
+
+async function buildSystemRoleParticipant(match: Match, kind: SystemRoleKind): Promise<MatchParticipant> {
+  return {
+    characterId: 'system:' + kind,
+    characterName: SYSTEM_ROLE_NAMES[kind] || kind,
+    avatarUrl: '',
+    accentColor: '#7a85b0',
+    modelId: await resolveSystemRoleModelId(match, kind),
+    seatOrder: 0,
+    roleId: null,
+    roleName: null,
+    roleCamp: null,
+    alive: 'alive',
+    isSpeaking: false,
+  }
+}
 
 export type SpeechStreamDelta = {
   content: string
@@ -27,10 +103,43 @@ function publicRoleLabel(match: Match, participant: MatchParticipant): string | 
   return participant.roleName
 }
 
+function isWolfTeamRevealed(match: Match): boolean {
+  const state = match.runtime.werewolfState
+  if (state?.wolfTeamRevealed) return true
+  if (match.runtime.currentRound > 1) return true
+  return ['day-discuss', 'day-vote', 'result', 'last-words'].includes(match.runtime.currentPhaseId)
+}
+
+function formatWolfSeat(participant: MatchParticipant, alive: boolean): string {
+  const roleSuffix =
+    participant.roleName && participant.roleName !== '狼人' ? '（' + participant.roleName + '）' : ''
+  const statusSuffix = alive ? '' : '（已出局）'
+  return participant.seatOrder + '号' + participant.characterName + roleSuffix + statusSuffix
+}
+
+function wolfTeammateContext(match: Match, participant: MatchParticipant): string {
+  if (participant.roleCamp !== 'wolf') return ''
+  if (!isWolfTeamRevealed(match)) {
+    return '第一夜行动前，你尚未与其他狼人队友相认；警上阶段不要假设已知狼坑或队友身份。'
+  }
+  const teammates = match.participants.filter(
+    (p) => p.roleCamp === 'wolf' && p.characterId !== participant.characterId
+  )
+  if (!teammates.length) return '狼队友：本局除你之外没有其他狼人。'
+  const alive = teammates.filter((p) => p.alive === 'alive').map((p) => formatWolfSeat(p, true))
+  const dead = teammates.filter((p) => p.alive !== 'alive').map((p) => formatWolfSeat(p, false))
+  const lines = ['狼队友（仅你可见，公开频道勿直接暴露）：']
+  if (alive.length) lines.push('存活：' + alive.join('、'))
+  if (dead.length) lines.push('已出局：' + dead.join('、'))
+  lines.push('白天发言与投票时可与队友配合，但不要明牌暴露狼队信息。')
+  return lines.join('\n')
+}
+
 function roleContext(match: Match, participant: MatchParticipant): string {
   const state = match.runtime.werewolfState
   const sheriffId = state?.sheriffId || match.runtime.sheriffId
   const isSheriff = sheriffId === participant.characterId
+  const isSheriffSpeech = match.runtime.currentPhaseId === 'sheriff-speech'
   const seerChecks = state?.seerChecks.filter((item) => item.seerId === participant.characterId) || []
   const checks = seerChecks.map((item) => {
     const target = match.participants.find((p) => p.characterId === item.targetId)
@@ -42,7 +151,13 @@ function roleContext(match: Match, participant: MatchParticipant): string {
       : ''
   return [
     participant.roleName ? '你的身份：' + participant.roleName + '（' + (participant.roleCamp === 'wolf' ? '狼人阵营' : participant.roleCamp === 'good' ? '好人阵营' : '中立') + '）' : '',
+    wolfTeammateContext(match, participant),
     isSheriff ? '你是警长，白天可组织归票，你的投票按 1.5 票计算。' : sheriffId ? '当前警长：' + (match.participants.find((p) => p.characterId === sheriffId)?.characterName || '未知') : '本局暂时没有警长。',
+    isSheriffSpeech
+      ? participant.roleId === 'seer'
+        ? '当前为警上阶段（首夜之前）：你尚未进行任何查验，若跳预言家只能说明身份与警徽流，无法公布验人。'
+        : '当前为警上阶段（首夜之前）：此阶段预言家尚未查验，警上跳预言家无法报验人属正常，勿仅因缺少查验就质疑其为假预言家。'
+      : '',
     gravediggerNote,
     ...checks,
     ...match.anomalies.filter((item) => item.type === 'judge_warning' && item.characterId === participant.characterId && !item.resolved).slice(-3).map((item) => '裁判警告：' + item.message),
@@ -57,16 +172,20 @@ function parseJsonLike(raw: string): Record<string, unknown> | null {
   try { return JSON.parse(match[0]) as Record<string, unknown> } catch { return null }
 }
 
-function normalizePublicThought(value: unknown): string {
-  const text = String(value || '').trim().replace(/\s+/g, ' ')
-  if (!text) return '正在结合公开发言、身份目标和当前阶段整理判断。'
-  return text
+function normalizeReasoningThought(value: unknown): string {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  return text.length > 2400 ? text.slice(0, 2400) + '…' : text
 }
 
 function extractStreamingFields(buffer: string): { speech: string; thought: string } {
   const speech = extractJsonStringField(buffer, 'speech')
   const thought = extractJsonStringField(buffer, 'thought')
   return { speech, thought }
+}
+
+function previewSpeechFromBuffer(buffer: string, plainTextMode: boolean | null = null): string {
+  return previewSpeechFromStreamBuffer(buffer, plainTextMode)
 }
 
 function extractJsonStringField(buffer: string, field: string): string {
@@ -97,14 +216,6 @@ function extractJsonStringField(buffer: string, field: string): string {
   return out
 }
 
-function overlapRatio(a: string, b: string): number {
-  if (!a || !b) return 0
-  const short = a.length <= b.length ? a : b
-  const long = short === a ? b : a
-  if (long.includes(short)) return short.length / Math.max(long.length, 1)
-  return 0
-}
-
 function stripLeakPatterns(text: string): string {
   return text
     .replace(/\{[\s\S]*?"thought"[\s\S]*?\}/gi, '')
@@ -113,121 +224,252 @@ function stripLeakPatterns(text: string): string {
     .trim()
 }
 
-function buildSpeechPrompt(match: Match, participant: MatchParticipant): { system: string; user: string } {
-  const recentMessages = match.messages
-    .filter((m) => m.kind === 'speech' && m.confirmed && m.streamStatus !== 'pending')
-    .slice(-10)
-    .map((m) => m.participantName + ': ' + m.content)
-    .join('\n')
-  const alive = match.participants.filter((p) => p.alive === 'alive').map((p) => p.seatOrder + '号' + p.characterName + (p.isSheriff ? '（警长）' : '')).join('、')
+function buildPromptContext(match: Match, participant: MatchParticipant, character?: { bio: string; speechStyle: string; commonPhrases: string[]; behaviorPrinciples: string[]; gameSkills?: import('@shared/arena/types').CharacterGameSkill[] }): import('@shared/arena/game-scenario').PromptRenderContext {
+  const werewolfCtx = buildWerewolfSpeechPromptContext(match, participant, character)
+  const scenario = gameScenarioService.getByGameModeId(match.gameModeId)
+  const gameMode = gameModeService.get(match.gameModeId)
+  const skill = character?.gameSkills?.find((s) => s.scenarioId === scenario?.id)
+  const phase = match.runtime
+  const phaseDef = gameMode?.phases?.find((p) => p.id === phase.currentPhaseId)
+  return {
+    characterName: participant.characterName,
+    characterBio: character?.bio || '',
+    speechStyle: character?.speechStyle || '',
+    commonPhrases: character?.commonPhrases || [],
+    behaviorPrinciples: character?.behaviorPrinciples || [],
+    gameModeName: match.gameModeName,
+    phaseName: phase.currentPhaseName,
+    phaseDescription: phaseDef?.description || '',
+    roleContext: roleContext(match, participant),
+    recentMessages: werewolfCtx.recentMessages,
+    thisRoundMessages: werewolfCtx.thisRoundMessages,
+    lastRoundTail: werewolfCtx.lastRoundTail,
+    mentionedBy: werewolfCtx.mentionedBy,
+    replyBrief: werewolfCtx.replyBrief,
+    aliveList: werewolfCtx.aliveList,
+    discussionTopic: match.runtime.roundtableState?.discussionTopic || scenario?.discussionTopic || '',
+    round: phase.currentRound,
+    initialUnderstanding: skill?.initialUnderstanding || '',
+    gameRulesDocument: scenario?.contentDocument || '',
+  }
+}
+
+function tryResolvePrompt(match: Match, participant: MatchParticipant, slotId: import('@shared/arena/game-scenario').PromptSlotId, character?: Parameters<typeof buildPromptContext>[2]): { system: string; user: string } | null {
+  const packId = match.runtime.promptPackId
+  if (!packId) return null
+  const pack = gameScenarioService.getPromptPack(packId)
+  if (!pack) return null
+  const rulesTpl = pack.templates.find((t) => t.slotId === 'game_rules')
+  const context = buildPromptContext(match, participant, character)
+  context.gameRules = rulesTpl ? rulesTpl.systemTemplate : ''
+  const resolved = resolvePromptFromPack(pack, slotId, context)
+  if (!resolved) return null
+  return { system: resolved.system, user: resolved.user }
+}
+
+function buildSpeechPrompt(match: Match, participant: MatchParticipant, character?: Parameters<typeof buildPromptContext>[2]): { system: string; user: string } {
+  const fromPack = tryResolvePrompt(match, participant, 'speech', character)
+  if (match.runtime.currentPhaseId === 'last-words') {
+    const lastWordsLead =
+      '你已按规则出局，请发表遗言。这是最后一次公开发言，可总结站边、点狼、留信息或回应质疑；不要重复整段投票唱票内容。标准规则下多为首夜出局。'
+    if (fromPack) {
+      return {
+        system: fromPack.system + '\n' + lastWordsLead,
+        user: fromPack.user || '请发表遗言。',
+      }
+    }
+  } else if (fromPack) {
+    return fromPack
+  }
+  const ctx = buildWerewolfSpeechPromptContext(match, participant, character)
   const isSheriffSpeech = match.runtime.currentPhaseId === 'sheriff-speech'
-  const phaseInstruction = isSheriffSpeech
-    ? '这是警上发言。请明确说明你是否竞选警长，并给出警徽流、归票思路或不竞选理由。不要宣布投票结果。'
-    : '请给出你的判断、怀疑对象、守护信息或归票建议。'
+  const isLastWords = match.runtime.currentPhaseId === 'last-words'
+  const phaseInstruction = isLastWords
+    ? '遗言：总结你的判断与站边，可 @ 关键对象，不要空话。'
+    : isSheriffSpeech
+      ? ctx.replyBrief
+      : '白天发言：给出站边、怀疑对象，自然回应前文争议。'
+  const sheriffSpeechRules = isSheriffSpeech
+    ? '警上位于首夜之前：预言家尚未查验，跳预言家无法报验人属正常；勿仅因缺少查验就质疑假预言家。'
+    : ''
   const system = [
-    '你是 Agent Arena 中的社交推理游戏 AI 角色「' + participant.characterName + '」。',
-    '当前玩法：' + match.gameModeName,
-    '当前阶段：' + match.runtime.currentPhaseName + ' · 第 ' + match.runtime.currentRound + '轮',
+    '你是狼人杀对局角色「' + participant.characterName + '」。',
+    '当前：' + match.runtime.currentPhaseName + ' · 第 ' + match.runtime.currentRound + '轮',
     roleContext(match, participant),
-    '公开发言只能基于你可见的信息、公开发言、公开事件和你的身份能力。不要泄露你不应知道的隐藏信息。',
-    'speech 字段必须是面向全场的正式发言，80-200字。禁止出现内心独白、推理过程、「我认为/我觉得」式自我分析、thought 字段措辞、JSON 结构或身份自述（狼人绝不能承认自己是狼）。',
-    'thought 字段仅供上帝视角，可写身份目标与策略，180-320字。',
+    sheriffSpeechRules,
+    isLastWords ? '你已被放逐/出局，正在发表遗言。' : isSheriffSpeech ? '' : ctx.replyBrief,
+    '发言风格：口语化、直接、有信息量。禁止空话套话（如「值得警惕」「局势复杂」「有待观察」「我会持续关注」等不能直接当结论）。',
+    '主体内容要有实质推理与站边；仅在回应他人时自然 @对方（@3号 或 @角色名），不要为 @ 而 @，@ 不占主要篇幅。',
+    '200-350 字，关键轮可到 400 字。',
+    '发言须严格按席位顺序，被 @ 不会提前你的顺位。',
+    '只输出面向全场的公开发言正文，禁止 JSON、禁止字段名、禁止内心独白与推理过程（思考由模型内部完成，不要写出来）。',
+    '跳身份、悍跳、公开站边神职或阵营立场均为正常玩法，按阶段与策略自行选择。',
     phaseInstruction,
-    '请输出 JSON：{"thought":"...","speech":"..."}。不要输出 JSON 以外的内容。',
   ].filter(Boolean).join('\n')
-  const user = (recentMessages ? '近期公开频道：\n' + recentMessages + '\n\n' : '') + '存活玩家：' + alive + '\n轮到你发言。'
+  const user = [
+    '本轮前面发言：\n' + ctx.thisRoundMessages,
+    '',
+    '上一轮尾盘：\n' + ctx.lastRoundTail,
+    '',
+    '有人@你：\n' + ctx.mentionedBy,
+    '',
+    '存活：' + ctx.aliveList,
+    '',
+    '近期公开频道：\n' + ctx.recentMessages,
+    '',
+    isLastWords ? '轮到你发表遗言。' : isSheriffSpeech ? '轮到你警上发言。结合竞选意向与前文组织内容，勿机械质疑缺少验人的预言家。' : '轮到你发言。',
+  ].join('\n')
   return { system, user }
 }
 
-function buildVotePrompt(match: Match, participant: MatchParticipant): { system: string; user: string } {
+function buildVotePrompt(match: Match, participant: MatchParticipant, character?: Parameters<typeof buildPromptContext>[2], strict = false): { system: string; user: string } {
+  const fromPack = tryResolvePrompt(match, participant, 'vote', character)
   const isSheriffVote = match.runtime.currentPhaseId === 'sheriff-vote'
-  const candidates = match.participants
-    .filter((p) => p.alive === 'alive' && (isSheriffVote || p.characterId !== participant.characterId))
-    .map((p) => p.seatOrder + '号' + p.characterName + (p.isSheriff ? '（警长）' : ''))
-    .join('、')
+  const sheriffCandidates = isSheriffVote ? getSheriffCandidateParticipants(match) : []
+  const candidates = isSheriffVote
+    ? sheriffCandidates.map((p) => p.seatOrder + '号' + p.characterName)
+    : match.participants
+        .filter((p) => p.alive === 'alive' && p.characterId !== participant.characterId)
+        .map((p) => p.seatOrder + '号' + p.characterName + (p.isSheriff ? '（警长）' : ''))
+  const candidateLine = candidates.join('、') || (isSheriffVote ? '（无人竞选，请弃权）' : '无')
   const recentMessages = match.messages.filter((m) => m.kind === 'speech' && m.confirmed).slice(-8).map((m) => m.participantName + ': ' + m.content).join('\n')
   const voteInstruction = isSheriffVote
-    ? '现在进行警长投票。请根据警上发言选择最适合带队归票的玩家；这是授予警徽，不是放逐。'
-    : '现在进行放逐投票。请根据公开发言、票型和你的身份目标做决定。'
-  const system = [
-    '你是社交推理游戏角色「' + participant.characterName + '」。',
-    '当前阶段：' + match.runtime.currentPhaseName + ' · 第 ' + match.runtime.currentRound + '轮',
+    ? '警长投票：必须从下方竞选者中选一人授予警徽（不是放逐）。若你是竞选者，请投自己（格式：投票：你的席位号）。若非竞选者，选出最可信的竞选者。只要有人竞选，禁止弃权。'
+    : '放逐投票：根据公开发言与身份目标，必须投出一名怀疑对象。'
+  let system = fromPack?.system || [
+    '你是「' + participant.characterName + '」。',
+    '阶段：' + match.runtime.currentPhaseName + ' · 第 ' + match.runtime.currentRound + '轮',
     roleContext(match, participant),
     voteInstruction,
-    '只输出以下格式之一：投票：X号；或：弃权。不要输出解释。',
+    isSheriffVote
+      ? '只输出一行：投票：X号（X 为竞选者席位数字）。禁止弃权。'
+      : '只输出一行：投票：X号。仅在完全无法判断时输出：弃权。',
   ].filter(Boolean).join('\n')
-  const user = '近期公开频道：\n' + (recentMessages || '暂无公开发言') + '\n\n可投票对象：' + (candidates || '无其他存活玩家') + '。请给出投票决定。'
+  if (strict) {
+    system += isSheriffVote
+      ? '\n【格式】只输出一行：投票：X号（X 为竞选者席位数字）。禁止弃权、禁止 JSON、禁止解释。'
+      : '\n【格式】只输出一行：投票：X号（X 为席位数字）。禁止 JSON、禁止解释。除非完全无法判断，否则禁止弃权。'
+  }
+  const user = (fromPack?.user || '') + [
+    fromPack?.user ? '' : '近期发言：\n' + (recentMessages || '暂无'),
+    '可投对象：' + candidateLine,
+    isSheriffVote && isSheriffCandidate(match, participant.characterId)
+      ? '你是竞选者，请投自己：投票：' + participant.seatOrder + '号。'
+      : isSheriffVote
+        ? '请从竞选者中选出一人：投票：X号。'
+        : '请给出投票决定。',
+  ].filter(Boolean).join('\n\n')
   return { system, user }
 }
 
-function buildJudgePrompt(match: Match, participant: MatchParticipant, speech: string): { system: string; user: string } {
-  const phase = match.runtime.currentPhaseName + ' · 第 ' + match.runtime.currentRound + '轮'
-  const publicContext = match.messages.filter((m) => m.kind === 'speech' && m.confirmed).slice(-8).map((m) => m.participantName + ': ' + m.content).join('\n')
-  const system = [
-    '你是 Agent Arena 的狼人杀裁判，负责监听公开发言是否合规。',
-    '只判断公开发言，不改变游戏结果。违规包括：明显超出当前阶段、泄露不应知道的隐藏信息、发言明显过长、同一玩家短时间复制或近乎复制自己已说过的话、格式混乱、攻击性内容、将内心推理或 thought 内容复述到公开发言。',
-    '注意：不同玩家表达相似立场、好人阵营互相附和、警上重复说明竞选或不竞选，都不算重复发言。只有同一玩家机械复读或无信息刷屏才警告。',
-    '请输出 JSON：{"valid":true/false,"warning":"若需要警告，写给玩家的简短提醒；否则为空","severity":"info|warning|error"}。不要输出 JSON 以外内容。',
-  ].join('\n')
-  const user = '当前阶段：' + phase + '\n角色：' + participant.characterName + ' / ' + (participant.roleName || '未知身份') + '\n近期公开内容：\n' + (publicContext || '暂无') + '\n\n待审阅发言：\n' + speech
-  return { system, user }
+function isExplicitAbstain(text: string): boolean {
+  const compact = text.trim().replace(/\s+/g, '')
+  return (
+    /^弃权[。.!]?$/.test(compact) ||
+    /^弃票[。.!]?$/.test(compact) ||
+    /^不投(?:票)?[。.!]?$/.test(compact) ||
+    /投票[：:]\s*弃权/.test(text) ||
+    /投[：:]\s*弃权/.test(text)
+  )
 }
 
-function sanitizeSpeech(raw: string, allowRawFallback = false): { content: string; thought: string; needsRetry: boolean } {
-  const parsed = parseJsonLike(raw)
-  if (!parsed || typeof parsed.speech !== 'string') {
-    if (allowRawFallback) {
-      const stripped = stripLeakPatterns(raw)
-      if (stripped && stripped.length >= 8) return { content: stripped.slice(0, 900), thought: normalizePublicThought(parsed?.thought), needsRetry: false }
-    }
-    return { content: '', thought: '', needsRetry: true }
-  }
-  let text = String(parsed.speech).trim().replace(/^[\"'“”‘’]+|[\"'“”‘’]+$/g, '')
-  const thought = normalizePublicThought(parsed.thought)
-  if (!text) return { content: '', thought, needsRetry: true }
-  if (LEAK_PATTERNS.test(text) || INNER_MONOLOGUE.test(text)) {
-    text = stripLeakPatterns(text)
-    if (!text || text.length < 8) return { content: '', thought, needsRetry: true }
-  }
-  if (overlapRatio(text, thought) > 0.7) {
-    text = text.slice(0, Math.min(text.length, Math.max(40, Math.floor(text.length * 0.45))))
-  }
-  const content = text.length > 900 ? text.slice(0, 900) + '...' : text
-  return { content, thought, needsRetry: false }
-}
-
-function parseJudgeReview(raw: string, speech: string): { valid: boolean; warning: string; severity: 'info' | 'warning' | 'error'; leakDetected: boolean } {
-  const parsed = parseJsonLike(raw)
-  const leakDetected = LEAK_PATTERNS.test(speech)
-  const hardWarning = speech.length > 680 ? '发言偏长，请下次收束重点，避免占用过多公共讨论时间。' : ''
-  let warning = hardWarning || (typeof parsed?.warning === 'string' ? parsed.warning.trim() : '')
-  if ((leakDetected || /内心|thought|推理过程|我认为/.test(speech)) && !warning) warning = '公开发言中不应包含内心推理，请只陈述面向全场的观点。'
-  if (/重复发言|不要重复|重复/.test(warning) && speech.length < 420) warning = ''
-  const valid = warning ? false : parsed?.valid !== false
-  const severity = parsed?.severity === 'error' ? 'error' : warning ? 'warning' : 'info'
-  return { valid, warning, severity, leakDetected: Boolean(warning && /内心|thought|推理/.test(warning)) }
-}
-
-function parseVoteResponse(raw: string, match: Match, voterId: string): MatchVoteRecord {
-  const text = raw.trim()
-  const abstain = /弃权|弃票|不投/.test(text)
+function resolveVoteTarget(
+  raw: string,
+  match: Match,
+  voterId: string
+): { targetId: string | null; targetName: string | null; explicitAbstain: boolean } {
+  let text = raw.trim()
   const isSheriffVote = match.runtime.currentPhaseId === 'sheriff-vote'
-  const canSelect = (p: MatchParticipant) => p.alive === 'alive' && (isSheriffVote || p.characterId !== voterId)
-  let targetId: string | null = null
-  let targetName: string | null = null
-  if (!abstain) {
-    const seatMatch = text.match(/(\d+)\s*号/)
-    const nameMatch = match.participants.find((p) => canSelect(p) && text.includes(p.characterName))
-    if (seatMatch) {
-      const seat = Number(seatMatch[1])
-      const target = match.participants.find((p) => p.seatOrder === seat && canSelect(p))
-      targetId = target?.characterId ?? null
-      targetName = target?.characterName ?? null
-    } else if (nameMatch) {
-      targetId = nameMatch.characterId
-      targetName = nameMatch.characterName
+  const sheriffCandidateIds = new Set(getSheriffCandidateParticipants(match).map((p) => p.characterId))
+  const canSelect = (p: MatchParticipant) => {
+    if (p.alive !== 'alive') return false
+    if (isSheriffVote) return sheriffCandidateIds.has(p.characterId)
+    return p.characterId !== voterId
+  }
+
+  if (isExplicitAbstain(text)) {
+    return { targetId: null, targetName: null, explicitAbstain: true }
+  }
+
+  const parsed = parseJsonLike(text)
+  if (parsed) {
+    const voteVal = parsed.vote ?? parsed.target ?? parsed.targetId ?? parsed.seat ?? parsed.choice ?? parsed.name
+    if (typeof voteVal === 'string' && isExplicitAbstain(voteVal)) {
+      return { targetId: null, targetName: null, explicitAbstain: true }
+    }
+    if (typeof voteVal === 'number' && Number.isFinite(voteVal)) {
+      text = `投票：${voteVal}号`
+    } else if (typeof voteVal === 'string' && voteVal.trim()) {
+      text = voteVal.trim()
     }
   }
+
+  const seatPatterns = [/投票[：:]\s*(\d+)\s*号?/, /投[给：:]\s*(\d+)\s*号?/, /票投\s*(\d+)\s*号?/, /选择\s*(\d+)\s*号?/, /^(\d+)\s*号$/]
+  for (const pattern of seatPatterns) {
+    const m = text.match(pattern)
+    if (!m?.[1]) continue
+    const seat = Number(m[1])
+    const target = match.participants.find((p) => p.seatOrder === seat && canSelect(p))
+    if (target) return { targetId: target.characterId, targetName: target.characterName, explicitAbstain: false }
+  }
+
+  const nameMatch = match.participants.find((p) => canSelect(p) && text.includes(p.characterName))
+  if (nameMatch) {
+    return { targetId: nameMatch.characterId, targetName: nameMatch.characterName, explicitAbstain: false }
+  }
+
+  return { targetId: null, targetName: null, explicitAbstain: false }
+}
+
+function fallbackVoteTarget(match: Match, voterId: string): { targetId: string; targetName: string } | null {
+  const isSheriffVote = match.runtime.currentPhaseId === 'sheriff-vote'
+  const candidates = isSheriffVote
+    ? getSheriffCandidateParticipants(match)
+    : match.participants.filter((p) => p.alive === 'alive' && p.characterId !== voterId)
+  if (!candidates.length) return null
+
+  const scores = new Map<string, number>()
+  for (const msg of match.messages.filter((m) => m.kind === 'speech' && m.confirmed).slice(-12)) {
+    for (const p of candidates) {
+      if (!msg.content.includes(p.characterName) && !msg.content.includes(`${p.seatOrder}号`)) continue
+      const weight = /狼|可疑|怀疑|投|出|查杀|踩|问题/.test(msg.content) ? 2 : 1
+      scores.set(p.characterId, (scores.get(p.characterId) || 0) + weight)
+    }
+  }
+
+  let best = candidates[0]
+  let bestScore = -1
+  for (const p of candidates) {
+    const score = scores.get(p.characterId) || 0
+    if (score > bestScore) {
+      bestScore = score
+      best = p
+    }
+  }
+  return { targetId: best.characterId, targetName: best.characterName }
+}
+
+function parseVoteResponse(raw: string, match: Match, voterId: string, options?: { allowFallback?: boolean }): MatchVoteRecord {
+  const resolved = resolveVoteTarget(raw, match, voterId)
+  let targetId = resolved.targetId
+  let targetName = resolved.targetName
+  let explicitAbstain = resolved.explicitAbstain
+  let abstainReason: MatchVoteRecord['abstainReason'] = null
+
+  if (!targetId && !explicitAbstain && options?.allowFallback) {
+    const fallback = fallbackVoteTarget(match, voterId)
+    if (fallback) {
+      targetId = fallback.targetId
+      targetName = fallback.targetName
+      abstainReason = null
+    }
+  }
+
+  const abstain = explicitAbstain || !targetId
+  if (abstain) {
+    abstainReason = explicitAbstain ? 'explicit' : 'parse_failed'
+  }
+
   const voter = match.participants.find((p) => p.characterId === voterId)
   return {
     id: randomUUID(),
@@ -235,11 +477,97 @@ function parseVoteResponse(raw: string, match: Match, voterId: string): MatchVot
     voterName: voter?.characterName || '未知',
     targetId,
     targetName,
-    abstain: abstain || !targetId,
+    abstain,
+    abstainReason,
     round: match.runtime.currentRound,
     phaseId: match.runtime.currentPhaseId,
     createdAt: new Date().toISOString(),
   }
+}
+
+function buildJudgePrompt(match: Match, participant: MatchParticipant, speech: string): { system: string; user: string } {
+  const phase = match.runtime.currentPhaseName + ' · 第 ' + match.runtime.currentRound + '轮'
+  const publicContext = match.messages.filter((m) => m.kind === 'speech' && m.confirmed).slice(-8).map((m) => m.participantName + ': ' + m.content).join('\n')
+  const user = [
+    '当前阶段：' + phase,
+    '角色：' + participant.characterName + ' / ' + (participant.roleName || '未知身份'),
+    '',
+    '待审阅发言：',
+    speech,
+    '',
+    '近期公开频道：',
+    publicContext || '暂无',
+  ].join('\n')
+
+  const fromPack = tryResolvePrompt(match, participant, 'judge')
+  if (fromPack) {
+    return { system: fromPack.system, user }
+  }
+
+  const system = [
+    '你是 Agent Arena 的狼人杀裁判，负责监听公开发言是否合规。',
+    '只判断公开发言，不改变游戏结果。违规包括：明显超出当前阶段、泄露不应知道的私有信息（如未公开的夜间行动、仅神职知晓的查验/用药结果）、将内心推理或 thought 内容复述到公开发言、格式混乱、攻击性内容、同一玩家机械复读无信息刷屏。',
+    '跳身份、悍跳、公开声明神职或阵营立场均为正常玩法，不应警告或判违规。',
+    match.runtime.currentPhaseId === 'sheriff-speech'
+      ? '警上位于首夜之前，预言家尚未查验；警上跳预言家无法报验人、发言偏模糊属正常，不因「缺少查验」或质疑假预言家而警告。'
+      : '',
+    '注意：150-320 字的正常推理发言不算过长；不同玩家立场相近、好人互相附和、警上说明竞选理由，都不算违规。',
+    '请输出 JSON：{"valid":true/false,"warning":"若需要警告，写给玩家的简短提醒；否则为空","severity":"info|warning|error"}。不要输出 JSON 以外内容。',
+  ].join('\n')
+  return { system, user }
+}
+
+function extractSpeechText(raw: string): string {
+  const parsed = parseJsonLike(raw)
+  if (parsed && typeof parsed.speech === 'string') {
+    return String(parsed.speech).trim().replace(/^[\"'“”‘’]+|[\"'“”‘’]+$/g, '')
+  }
+  return raw.trim().replace(/^```(?:json|text)?\s*/i, '').replace(/```$/i, '').trim()
+}
+
+function sanitizeSpeech(raw: string, allowRawFallback = false, reasoningFallback = ''): { content: string; thought: string; needsRetry: boolean } {
+  const thought = normalizeReasoningThought(reasoningFallback)
+  let text = extractSpeechText(raw)
+  if (!text) {
+    if (allowRawFallback) {
+      const stripped = stripLeakPatterns(raw)
+      if (stripped && stripped.length >= 8) {
+        return { content: stripped.slice(0, 900), thought, needsRetry: false }
+      }
+    }
+    return { content: '', thought, needsRetry: true }
+  }
+  if (LEAK_PATTERNS.test(text) || INNER_MONOLOGUE.test(text)) {
+    text = stripLeakPatterns(text)
+    if (!text || text.length < 8) return { content: '', thought, needsRetry: true }
+  }
+  const content = text.length > 900 ? text.slice(0, 900) + '...' : text
+  return { content, thought, needsRetry: false }
+}
+
+function parseJudgeReview(raw: string, speech: string): { valid: boolean; warning: string; severity: 'info' | 'warning' | 'error'; leakDetected: boolean } {
+  const parsed = parseJsonLike(raw)
+  const leakDetected = /内心|thought|推理过程|上帝视角|JSON|\"speech\"|\"thought\"/i.test(speech)
+  const hardWarning = speech.length > 720 ? '发言偏长，请下次收束重点，避免占用过多公共讨论时间。' : ''
+  let warning = normalizeJudgeWarning(hardWarning || (typeof parsed?.warning === 'string' ? parsed.warning.trim() : ''))
+  if (/内心|thought|推理过程/.test(speech) && !warning) {
+    warning = '公开发言中不应包含内心推理，请只陈述面向全场的观点。'
+  }
+  if (/重复发言|不要重复|重复/.test(warning) && speech.length < 180) warning = ''
+  const valid = warning ? false : parsed?.valid !== false
+  const severity = parsed?.severity === 'error' ? 'error' : warning ? 'warning' : 'info'
+  return { valid, warning, severity, leakDetected: Boolean(warning && /内心|thought|推理/.test(warning)) }
+}
+
+function shouldRegenerateAfterReview(
+  review: ReturnType<typeof parseJudgeReview>,
+  speech: string
+): boolean {
+  if (review.valid && !review.leakDetected) return false
+  if (isIdentityExposureOnlyWarning(review.warning)) return false
+  if (review.warning.trim()) return true
+  if (review.leakDetected) return true
+  return /内心|thought|推理过程|上帝视角|JSON|\"speech\"|\"thought\"/i.test(speech)
 }
 
 function buildCallRecord(
@@ -271,12 +599,13 @@ function buildCallRecord(
   }
 }
 
-function costFromUsage(
+async function costFromUsage(
+  modelId: string,
   usage: GatewayTokenUsage | undefined,
   prompt: { system: string; user: string },
   content: string
-): number {
-  return billingService.estimateCallCostCents(usage, {
+): Promise<number> {
+  return billingService.estimateCallCostCents(modelId, usage, {
     promptChars: prompt.system.length + prompt.user.length,
     completionChars: content.length,
   })
@@ -296,32 +625,40 @@ async function callModel(match: Match, participant: MatchParticipant, prompt: { 
       ])
       const content = result.content.trim()
       if (!content) throw new ArenaError('MODEL_FAILED', '模型返回为空', 'model')
-      const costCents = costFromUsage(result.usage, prompt, content)
+      const costCents = await costFromUsage(participant.modelId, result.usage, prompt, content)
       return { content, costCents, callRecord: buildCallRecord(match, participant, action, requestAt, costCents, retryCount) }
     } catch (error) {
       lastError = error
+      const message = error instanceof Error ? error.message : String(error)
+      if (/超时/.test(message)) {
+        throw new ArenaError('MODEL_TIMEOUT', message, 'model')
+      }
       retryCount += 1
     }
   }
   throw new ArenaError('MODEL_FAILED', lastError instanceof Error ? lastError.message : '模型调用失败', 'model')
 }
 
-function throttle<T extends (...args: never[]) => void>(fn: T, ms: number): T {
-  let last = 0
-  let timer: ReturnType<typeof setTimeout> | null = null
-  let pending: Parameters<T> | null = null
-  return ((...args: Parameters<T>) => {
-    pending = args
-    const now = Date.now()
-    const run = () => {
-      last = Date.now()
-      if (pending) fn(...pending)
-      pending = null
-      timer = null
-    }
-    if (now - last >= ms) run()
-    else if (!timer) timer = setTimeout(run, ms - (now - last))
-  }) as T
+function rafBatch<T>(fn: (value: T) => void): { push: (value: T) => void; flush: () => void } {
+  let pending: T | null = null
+  let scheduled = false
+  const flush = () => {
+    scheduled = false
+    if (pending === null) return
+    const value = pending
+    pending = null
+    fn(value)
+  }
+  return {
+    push(value: T) {
+      pending = value
+      if (!scheduled) {
+        scheduled = true
+        requestAnimationFrame(flush)
+      }
+    },
+    flush,
+  }
 }
 
 export const modelCallService = {
@@ -337,16 +674,28 @@ export const modelCallService = {
     const balance = await billingService.getBalanceCents()
     if (balance !== null && balance <= 0) throw new ArenaError('INSUFFICIENT_BALANCE', '余额不足，对局已暂停。', 'model')
 
-    const prompt = buildSpeechPrompt(match, participant)
+    const character = await characterService.get(participant.characterId).catch(() => null)
+    const prompt = buildSpeechPrompt(match, participant, character || undefined)
     const requestAt = new Date().toISOString()
     let retryCount = 0
 
     while (retryCount <= RETRY_ONCE) {
       try {
+        clearActiveSpeechStream()
         onDelta({ content: '', thought: '', streamStatus: 'pending' })
         let buffer = ''
+        let reasoningBuffer = ''
+        let plainTextMode: boolean | null = null
         let usage: GatewayTokenUsage | undefined
-        const emit = throttle((delta: SpeechStreamDelta) => onDelta(delta), 50)
+        const emitBatch = rafBatch((delta: SpeechStreamDelta) => onDelta(delta))
+        const emitStream = (content: string, thought: string) => {
+          throwIfSpeechAborted()
+          emitBatch.push({
+            content,
+            thought,
+            streamStatus: 'streaming',
+          })
+        }
 
         const text = await new Promise<string>((resolve, reject) => {
           void gatewayChatStream(
@@ -357,25 +706,55 @@ export const modelCallService = {
             ],
             {
               onChunk: (chunk) => {
+                if (activeSpeechAborted) {
+                  reject(new ArenaError('ENGINE_ABORTED', '模型调用已取消', 'model'))
+                  return
+                }
                 buffer += chunk
+                if (plainTextMode === null) plainTextMode = detectPlainTextStream(buffer)
                 const fields = extractStreamingFields(buffer)
-                emit({ content: fields.speech, thought: fields.thought, streamStatus: 'streaming' })
+                emitStream(
+                  previewSpeechFromBuffer(buffer, plainTextMode),
+                  reasoningBuffer || fields.thought
+                )
+              },
+              onReasoningChunk: (chunk) => {
+                if (activeSpeechAborted) {
+                  reject(new ArenaError('ENGINE_ABORTED', '模型调用已取消', 'model'))
+                  return
+                }
+                reasoningBuffer += chunk
+                const fields = extractStreamingFields(buffer)
+                emitStream(
+                  previewSpeechFromBuffer(buffer, plainTextMode),
+                  reasoningBuffer || fields.thought
+                )
               },
               onUsage: (u) => {
                 usage = { ...usage, ...u }
               },
-              onEnd: () => resolve(buffer),
+              onEnd: () => {
+                if (activeSpeechAborted) {
+                  reject(new ArenaError('ENGINE_ABORTED', '模型调用已取消', 'model'))
+                  return
+                }
+                resolve(buffer)
+              },
               onError: (err) => reject(new Error(err)),
             }
-          )
+          ).then((cancel) => {
+            activeSpeechCancel = cancel
+          })
         })
 
-        const speech = sanitizeSpeech(text, false)
+        emitBatch.flush()
+        throwIfSpeechAborted()
+        const speech = sanitizeSpeech(text, false, reasoningBuffer)
         if (speech.needsRetry) {
           retryCount += 1
           continue
         }
-        const costCents = costFromUsage(usage, prompt, text)
+        const costCents = await costFromUsage(participant.modelId, usage, prompt, text)
         onDelta({ content: speech.content, thought: speech.thought, streamStatus: 'done' })
         await arenaLog('info', 'model', '模型发言成功', speech.content.slice(0, 80), { matchId: match.id, characterId: participant.characterId })
         return {
@@ -386,14 +765,17 @@ export const modelCallService = {
           costCents,
           callRecord: buildCallRecord(match, participant, 'speech', requestAt, costCents, retryCount),
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof ArenaError && error.code === 'ENGINE_ABORTED') throw error
         retryCount += 1
+      } finally {
+        clearActiveSpeechStream()
       }
     }
 
     const fallback = participant.characterName + '：我先整理一下当前局势，下一轮再补充具体观点。'
     onDelta({ content: fallback, thought: '', streamStatus: 'done' })
-    const costCents = billingService.estimateCallCostCents(undefined, {
+    const costCents = await billingService.estimateCallCostCents(participant.modelId, undefined, {
       promptChars: prompt.system.length + prompt.user.length,
       completionChars: fallback.length,
     })
@@ -408,22 +790,24 @@ export const modelCallService = {
   },
 
   async reviewSpeech(match: Match, participant: MatchParticipant, speech: string, thought?: string) {
-    const result = await callModel(match, participant, buildJudgePrompt(match, participant, speech), 'judge')
+    const judge = await buildSystemRoleParticipant(match, 'judge')
+    await arenaLog('debug', 'model', '裁判审阅', judge.modelId, { matchId: match.id, characterId: participant.characterId })
+    const result = await callModel(match, judge, buildJudgePrompt(match, participant, speech), 'judge')
     let review = parseJudgeReview(result.content, speech)
     const callRecords = [result.callRecord]
     let finalContent = speech
     let finalThought = thought
     let totalCost = result.costCents
 
-    if (!review.valid || review.leakDetected || LEAK_PATTERNS.test(speech)) {
+    if (shouldRegenerateAfterReview(review, speech)) {
       const regenPrompt = buildSpeechPrompt(match, participant)
-      regenPrompt.system += '\n上次发言违规，请重新生成更短、更面向全场的 JSON 发言，禁止任何内心推理。'
+      regenPrompt.system += '\n上次发言未通过裁判审阅。请重新生成合规公开发言：200-350 字、回应近期发言、面向全场表达站边，只输出发言正文，禁止内心推理与 JSON。'
       const regen = await callModel(match, participant, regenPrompt, 'speech')
       const regenSpeech = sanitizeSpeech(regen.content, false)
       callRecords.push(regen.callRecord)
       totalCost += regen.costCents
       if (!regenSpeech.needsRetry && regenSpeech.content) {
-        const retryReview = await callModel(match, participant, buildJudgePrompt(match, participant, regenSpeech.content), 'judge')
+        const retryReview = await callModel(match, judge, buildJudgePrompt(match, participant, regenSpeech.content), 'judge')
         callRecords.push(retryReview.callRecord)
         totalCost += retryReview.costCents
         review = parseJudgeReview(retryReview.content, regenSpeech.content)
@@ -447,9 +831,40 @@ export const modelCallService = {
   async performVote(match: Match, voterId: string) {
     const participant = match.participants.find((p) => p.characterId === voterId)
     if (!participant) throw new ArenaError('NOT_FOUND', '投票角色不存在', 'model')
-    const result = await callModel(match, participant, buildVotePrompt(match, participant), 'vote')
-    const vote = parseVoteResponse(result.content, match, voterId)
-    await arenaLog('info', 'model', '模型投票成功', vote.abstain ? '弃权' : vote.targetName || '', { matchId: match.id, characterId: participant.characterId })
-    return { match, participant, vote, costCents: result.costCents, callRecord: result.callRecord }
+    const character = await characterService.get(participant.characterId).catch(() => null)
+    let result = await callModel(match, participant, buildVotePrompt(match, participant, character || undefined), 'vote')
+    let vote = parseVoteResponse(result.content, match, voterId)
+    let totalCost = result.costCents
+    const callRecords = [result.callRecord]
+
+    let lastRaw = result.content
+
+    if (vote.abstain && vote.abstainReason === 'parse_failed') {
+      const retry = await callModel(match, participant, buildVotePrompt(match, participant, character || undefined, true), 'vote')
+      lastRaw = retry.content
+      vote = parseVoteResponse(retry.content, match, voterId)
+      totalCost += retry.costCents
+      callRecords.push(retry.callRecord)
+    }
+
+    if (vote.abstain && vote.abstainReason === 'parse_failed') {
+      vote = parseVoteResponse(lastRaw, match, voterId, { allowFallback: true })
+      if (!vote.abstain) {
+        await arenaLog('warn', 'model', '投票解析失败，已按发言嫌疑自动补票', vote.targetName || '', {
+          matchId: match.id,
+          characterId: participant.characterId,
+        })
+      }
+    }
+
+    vote = normalizeSheriffVote(vote, match, voterId)
+
+    const logLabel = vote.abstain
+      ? vote.abstainReason === 'explicit'
+        ? '主动弃权'
+        : '未识别(计弃权)'
+      : vote.targetName || ''
+    await arenaLog('info', 'model', '模型投票成功', logLabel, { matchId: match.id, characterId: participant.characterId })
+    return { match, participant, vote, costCents: totalCost, callRecords }
   },
 }

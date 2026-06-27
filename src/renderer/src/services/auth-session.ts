@@ -1,5 +1,9 @@
 import { navigate } from '../router'
 import { isWebRuntime } from '../composables/useRuntime'
+import {
+  clearStoredGatewayKey,
+  invalidateGatewayModelCache,
+} from './gateway-api'
 import { getPortalSession, setPortalSession, type PortalSession } from './portal-api'
 
 /** 登录成功后进入主界面（Web 走路由，Desktop 走 IPC） */
@@ -30,4 +34,24 @@ export async function performAuthLogout(): Promise<void> {
     return
   }
   await window.api.logout()
+}
+
+let authFailureHandling = false
+
+/** 接口鉴权失败：清理本地状态并回到登录小窗 */
+export async function handleAuthFailure(): Promise<void> {
+  if (authFailureHandling) return
+  authFailureHandling = true
+  try {
+    setPortalSession(null)
+    const { setUserInfoCache } = await import('./auth')
+    setUserInfoCache(null)
+    localStorage.removeItem('token')
+    localStorage.removeItem('refreshToken')
+    clearStoredGatewayKey()
+    invalidateGatewayModelCache()
+    await performAuthLogout()
+  } finally {
+    authFailureHandling = false
+  }
 }

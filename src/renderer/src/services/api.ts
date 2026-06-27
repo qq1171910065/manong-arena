@@ -13,6 +13,15 @@ export function isSuccessBusinessCode(code: unknown): boolean {
   return n === 0 || n === 1000
 }
 
+/** 登录失效、未登录或无权限 */
+export function isAuthError(status: number, code?: unknown, message?: string): boolean {
+  if (status === 401 || status === 403) return true
+  const n = Number(code)
+  if (n === 401 || n === 1002) return true
+  const msg = String(message || '')
+  return /登录失效|未登录|无权限|无权|Unauthorized|invalid token/i.test(msg)
+}
+
 export function parseCoolApiEnvelope(raw: unknown): ApiResponse<unknown> | null {
   if (raw != null && typeof raw === 'object' && !Array.isArray(raw) && 'code' in raw) {
     return raw as ApiResponse<unknown>

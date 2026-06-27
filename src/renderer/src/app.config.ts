@@ -1,11 +1,11 @@
 import type { ExampleModuleId } from '@renderer/composables/runtime-config'
-import type { LoginCapabilities, ShellLayout, ShellStyle, ThemeId } from '@shared/types'
+import type { LoginCapabilities, ShellLayout, ShellStyle } from '@shared/types'
 
 export const appConfig = {
   appId: 'com.agentarena',
+  productCode: 'arena',
   displayName: 'Agent Arena',
   description: '养成你的 AI 角色，让他们一起玩规则化社交游戏',
-  themeId: 'enterprise-light' as ThemeId,
   shellLayout: 'compact' as ShellLayout,
   shellStyle: 'grouped' as ShellStyle,
   defaultHomePath: '/home',
@@ -14,7 +14,7 @@ export const appConfig = {
     "showcase": false,
     "platform": true,
     "tray": false,
-    "autoUpdate": false,
+    "autoUpdate": true,
     "i18n": false,
     "deeplink": false
   } as const,

@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { ArrowLeft, Bug, ChevronRight, FileQuestion, Info, Minus, Plus, X } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { ArrowLeft, Bug, Download, FileQuestion, FolderOpen, Info, Minus, Plus, X } from 'lucide-vue-next'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import { goBack, navigate, route } from '../router'
+import { portalPathForTab } from '../pages/settings/portal-routes'
 import { isSidebarFooterGroup } from '../types/registry'
 import WechatRechargeModal from '../components/billing/WechatRechargeModal.vue'
+import SleepyCatWidget from '../components/support/SleepyCatWidget.vue'
 import { useArenaWallet } from '../composables/useArenaWallet'
+import { useClientUpdate } from '../composables/useClientUpdate'
 import { userInfoRef } from '../services/auth'
-import bgImage from '../assets/home/home-bg-clean.png'
-import mascotCat from '../assets/home/mascot-cat-v2.png'
-import brandLockup from '../assets/home/brand-lockup-v2.png'
-import charGemini from '../assets/home/char-gemini.png'
-import sleepyCat from '../assets/home/sleepy-cat-cutout.png'
+import { useDialog } from '../ui'
+import MarkdownContent from '../components/common/MarkdownContent.vue'
+import { arenaHomeAssets } from '../data/arena-home-assets'
 import type { FeatureRegistry } from '../types/registry'
 
 const props = defineProps<{
@@ -18,7 +19,19 @@ const props = defineProps<{
   registry: FeatureRegistry
 }>()
 
+const dialog = useDialog()
+const {
+  updateAvailable,
+  checkingUpdate,
+  checkAndDownloadUpdate,
+  runInAppUpdate,
+  refreshAvailability,
+  startPolling,
+  stopPolling,
+} = useClientUpdate()
+
 const showRecharge = ref(false)
+const showDevAssets = ref(false)
 const { balanceCents, formatBalance, refresh } = useArenaWallet()
 const userName = computed(() => userInfoRef.value?.name || userInfoRef.value?.username || 'Agent Player')
 const userEmail = computed(() => userInfoRef.value?.emailDisplay || '模型服务账户')
@@ -26,10 +39,10 @@ const userStatus = computed(() => (userInfoRef.value?.gatewayReady === false ? '
 
 const backEntry = computed(() => {
   const name = route.value.name
-  if (name === 'character-detail' || name === 'character-edit') {
+  if (name === 'character-detail') {
     return { label: '返回角色库', path: '/characters' }
   }
-  if (name === 'game-mode-detail' || name === 'game-mode-edit') {
+  if (name === 'game-mode-detail') {
     return { label: '返回玩法场景', path: '/game-modes' }
   }
   if (name === 'create-match') {
@@ -49,6 +62,12 @@ const navItems = computed(() =>
 
 function isActive(path: string): boolean {
   const current = route.value.path.split('?')[0]
+  if (path.startsWith('/settings')) {
+    return current === '/settings' || current.startsWith('/settings/')
+  }
+  if (path.startsWith('/profile')) {
+    return current === '/profile' || current.startsWith('/profile/')
+  }
   return current === path || current.startsWith(`${path}/`)
 }
 
@@ -70,20 +89,63 @@ function openProfile() {
 }
 
 function openSettingsHelp(tab: 'support-version' | 'support-bug' | 'support-help') {
-  navigate(`/profile?tab=${tab}`)
+  navigate(portalPathForTab(tab))
 }
+
+async function onTitlebarUpdateClick() {
+  const result = await checkAndDownloadUpdate()
+  if (!result?.res?.hasUpdate || !result.res.downloadUrl || !result.res.latestVersion) return
+  const notes = (result.res.releaseNotes || '').trim() || '暂无更新说明'
+  dialog.warning({
+    title: `发现新版本 ${result.res.latestVersion}`,
+    style: { width: '520px', maxWidth: '92vw' },
+    content: () =>
+      h('div', { class: 'arena-update-dialog' }, [
+        h('p', { style: 'margin: 0 0 12px; font-size: 13px; color: #94a3b8' }, [
+          `当前版本：${result.res.currentVersion}`,
+        ]),
+        h(MarkdownContent, { source: notes }),
+      ]),
+    positiveText: '下载并安装',
+    negativeText: '稍后',
+    onPositiveClick: () => {
+      void runInAppUpdate(result.res.downloadUrl!, result.res.latestVersion!)
+    },
+  })
+}
+
+watch(
+  () => route.value.name,
+  () => void refreshAvailability()
+)
+
+onMounted(async () => {
+  startPolling()
+  if (import.meta.env.DEV) {
+    try {
+      const res = await window.api.isDevAssetsAvailable()
+      showDevAssets.value = Boolean(res.available)
+    } catch {
+      showDevAssets.value = false
+    }
+  }
+})
+
+onUnmounted(() => {
+  stopPolling()
+})
 
 </script>
 
 <template>
-  <div class="arena-shell" :style="{ '--arena-bg-image': `url(${bgImage})` }">
+  <div class="arena-shell" :style="{ '--arena-bg-image': `url(${arenaHomeAssets.bgClean})` }">
     <nav class="arena-nav">
       <button v-if="backEntry" type="button" class="arena-brand arena-back" @click="goBack()">
         <span class="arena-back__icon"><ArrowLeft :size="22" /></span>
         <span>返回</span>
       </button>
       <button v-else type="button" class="arena-brand" @click="navigate('/home')">
-        <img class="arena-brand__lockup" :src="brandLockup" alt="Agent Arena" />
+        <img class="arena-brand__lockup" :src="arenaHomeAssets.brandLockup" alt="Agent Arena" />
       </button>
 
       <div class="arena-tabs" aria-label="主导航">
@@ -101,6 +163,17 @@ function openSettingsHelp(tab: 'support-version' | 'support-bug' | 'support-help
       </div>
 
       <div class="arena-actions">
+        <button
+          v-if="updateAvailable"
+          type="button"
+          class="arena-update-btn"
+          aria-label="下载更新"
+          title="下载更新"
+          :disabled="checkingUpdate"
+          @click="onTitlebarUpdateClick"
+        >
+          <Download :size="18" />
+        </button>
         <button type="button" class="arena-balance" aria-label="余额充值" @click="showRecharge = true">
           <span>余额</span>
           <strong>{{ formatBalance(balanceCents) }}</strong>
@@ -108,12 +181,12 @@ function openSettingsHelp(tab: 'support-version' | 'support-bug' | 'support-help
         </button>
         <div class="arena-profile-wrap">
           <button type="button" class="arena-profile" aria-label="用户信息" @click="openProfile">
-            <img :src="charGemini" alt="" />
+            <img :src="arenaHomeAssets.charGemini" alt="" />
             <span></span>
           </button>
           <div class="arena-profile-popover" role="dialog" aria-label="用户信息">
             <div class="arena-profile-popover__head">
-              <img :src="charGemini" alt="" />
+              <img :src="arenaHomeAssets.charGemini" alt="" />
               <div>
                 <strong>{{ userName }}</strong>
                 <span>{{ userEmail }}</span>
@@ -141,28 +214,36 @@ function openSettingsHelp(tab: 'support-version' | 'support-bug' | 'support-help
     </main>
 
     <footer class="arena-footer">
-      <div class="arena-footer__version">
-        <img :src="mascotCat" alt="" />
-        <span>Agent Arena v0.1.0</span>
+      <div class="arena-footer__left">
+        <div class="arena-footer__version">
+          <img :src="arenaHomeAssets.mascotCat" alt="" />
+          <span>Agent Arena v0.1.0</span>
+        </div>
+        <div class="arena-footer__links" aria-label="底部信息">
+          <button
+            v-if="showDevAssets"
+            type="button"
+            class="arena-footer__link-btn"
+            @click="navigate('/dev-assets')"
+          >
+            <FolderOpen :size="16" />
+            素材管理
+          </button>
+          <button type="button" class="arena-footer__link-btn" @click="openSettingsHelp('support-version')">
+            <Info :size="17" />
+            版本说明
+          </button>
+          <button type="button" class="arena-footer__link-btn" @click="openSettingsHelp('support-bug')">
+            <Bug :size="17" />
+            报 bug
+          </button>
+          <button type="button" class="arena-footer__link-btn" @click="openSettingsHelp('support-help')">
+            <FileQuestion :size="17" />
+            帮助
+          </button>
+        </div>
       </div>
-      <div class="arena-footer__links" aria-label="底部信息">
-        <button type="button" @click="openSettingsHelp('support-version')">
-          <Info :size="17" />
-          版本说明
-        </button>
-        <button type="button" @click="openSettingsHelp('support-bug')">
-          <Bug :size="17" />
-          报 bug
-        </button>
-        <button type="button" @click="openSettingsHelp('support-help')">
-          <FileQuestion :size="17" />
-          帮助
-        </button>
-      </div>
-      <button type="button" class="arena-footer__more" aria-label="更多信息">
-        <ChevronRight :size="18" />
-      </button>
-      <img class="arena-sleepy-cat" :src="sleepyCat" alt="" />
+      <SleepyCatWidget />
     </footer>
 
     <WechatRechargeModal v-model="showRecharge" @paid="onRechargePaid" />
@@ -367,6 +448,39 @@ function openSettingsHelp(tab: 'support-version' | 'support-bug' | 'support-help
   justify-self: end;
   gap: 10px;
   min-width: 0;
+}
+
+.arena-update-btn {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.28);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.arena-update-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.34);
+}
+
+.arena-update-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.96);
+}
+
+.arena-update-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
 }
 
 .arena-balance {
@@ -645,7 +759,16 @@ function openSettingsHelp(tab: 'support-version' | 'support-bug' | 'support-help
   position: relative;
   z-index: 2;
   min-height: 0;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.arena-content::-webkit-scrollbar {
+  display: none;
 }
 
 .arena-footer {
@@ -654,16 +777,26 @@ function openSettingsHelp(tab: 'support-version' | 'support-bug' | 'support-help
   display: flex;
   align-items: center;
   padding: 0 32px;
+  overflow: visible;
   background: rgba(248, 249, 255, 0.38);
   border-top: 1px solid rgba(255, 255, 255, 0.72);
   box-shadow: 0 -10px 26px rgba(97, 105, 181, 0.06);
   backdrop-filter: blur(18px);
 }
 
+.arena-footer__left {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
 .arena-footer__version {
   display: inline-flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
   color: #65709f;
   font-size: 12px;
   font-weight: 500;
@@ -678,15 +811,14 @@ function openSettingsHelp(tab: 'support-version' | 'support-bug' | 'support-help
 }
 
 .arena-footer__links {
-  position: absolute;
-  right: 232px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
-.arena-footer__links button,
-.arena-footer__more {
+.arena-footer__link-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -708,31 +840,11 @@ function openSettingsHelp(tab: 'support-version' | 'support-bug' | 'support-help
     background 0.18s ease;
 }
 
-.arena-footer__links button:hover,
-.arena-footer__more:hover {
+.arena-footer__link-btn:hover {
   transform: translateY(-1px);
   color: #4f4bf1;
   border-color: rgba(103, 98, 240, 0.24);
   background: rgba(255, 255, 255, 0.72);
   box-shadow: 0 10px 18px rgba(86, 91, 190, 0.1);
-}
-
-.arena-footer__more {
-  position: absolute;
-  right: 198px;
-  width: 30px;
-  padding: 0;
-}
-
-.arena-sleepy-cat {
-  position: absolute;
-  right: 22px;
-  bottom: 0;
-  width: 178px;
-  height: 68px;
-  object-fit: contain;
-  object-position: center bottom;
-  filter: drop-shadow(0 12px 16px rgba(76, 82, 151, 0.14));
-  pointer-events: none;
 }
 </style>

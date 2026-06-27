@@ -8,12 +8,21 @@ const props = withDefaults(
     cards?: number
     rows?: number
     label?: string
+    /** 列表页顶部搜索/筛选栏骨架（页面级加载时使用） */
+    toolbar?: boolean
+    /** 角色库「新建」按钮占位 */
+    toolbarAction?: boolean
+    /** 嵌在列表页内（工具栏已在外部，仅渲染内容区骨架） */
+    embedded?: boolean
   }>(),
   {
     variant: 'generic',
     cards: 8,
     rows: 6,
     label: '加载中',
+    toolbar: false,
+    toolbarAction: false,
+    embedded: false,
   }
 )
 
@@ -45,16 +54,24 @@ const rowItems = computed(() => Array.from({ length: props.rows }, (_, i) => i))
         </div>
         <div class="aa-skeleton-home__panels">
           <div class="aa-skel aa-skel--panel aa-skel--h220" />
-          <div class="aa-skel aa-skel--panel aa-skel--h220" />
+          <div class="aa-skeleton-home__activity">
+            <div v-for="i in 4" :key="i" class="aa-skeleton-home__activity-row">
+              <div class="aa-skel aa-skel--circle aa-skel--sm" />
+              <div class="aa-skeleton-home__activity-copy">
+                <div class="aa-skel aa-skel--text aa-skel--w55" />
+                <div class="aa-skel aa-skel--text aa-skel--w80" />
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </template>
 
     <!-- 卡片网格：角色库 / 玩法场景 -->
     <template v-else-if="variant === 'grid-cards'">
-      <div class="aa-skeleton-grid">
+      <div v-if="embedded" class="aa-skeleton-grid aa-skeleton-grid--embedded">
         <article v-for="i in cardItems" :key="i" class="aa-skeleton-card">
-          <div class="aa-skel aa-skel--rect aa-skel--h168" />
+          <div class="aa-skel aa-skel--rect aa-skeleton-card__banner" />
           <div class="aa-skeleton-card__body">
             <div class="aa-skel aa-skel--title aa-skel--w55" />
             <div class="aa-skel aa-skel--text aa-skel--w80" />
@@ -66,13 +83,59 @@ const rowItems = computed(() => Array.from({ length: props.rows }, (_, i) => i))
           </div>
         </article>
       </div>
+      <div v-else class="aa-skeleton-list-page">
+        <div v-if="toolbar" class="aa-skeleton-toolbar">
+          <div class="aa-skel aa-skel--search-pill" />
+          <div class="aa-skeleton-toolbar__right">
+            <div class="aa-skel aa-skel--filter-cluster" />
+            <div v-if="toolbarAction" class="aa-skel aa-skel--action-btn" />
+          </div>
+        </div>
+        <div class="aa-skeleton-grid">
+          <article v-for="i in cardItems" :key="i" class="aa-skeleton-card">
+            <div class="aa-skel aa-skel--rect aa-skeleton-card__banner" />
+            <div class="aa-skeleton-card__body">
+              <div class="aa-skel aa-skel--title aa-skel--w55" />
+              <div class="aa-skel aa-skel--text aa-skel--w80" />
+              <div class="aa-skeleton-card__chips">
+                <div class="aa-skel aa-skel--chip" />
+                <div class="aa-skel aa-skel--chip aa-skel--w48" />
+              </div>
+              <div class="aa-skel aa-skel--text aa-skel--w65" />
+            </div>
+          </article>
+        </div>
+      </div>
+    </template>
+
+    <!-- 沉浸式卡片：玩法场景 -->
+    <template v-else-if="variant === 'immersive-cards'">
+      <div v-if="embedded" class="aa-skeleton-grid aa-skeleton-grid--embedded">
+        <article v-for="i in cardItems" :key="i" class="aa-skeleton-immersive-card">
+          <div class="aa-skel aa-skel--rect aa-skeleton-immersive-card__fill" />
+        </article>
+      </div>
+      <div v-else class="aa-skeleton-list-page">
+        <div v-if="toolbar" class="aa-skeleton-toolbar">
+          <div class="aa-skel aa-skel--search-pill" />
+          <div class="aa-skeleton-toolbar__right">
+            <div class="aa-skel aa-skel--filter-cluster" />
+            <div v-if="toolbarAction" class="aa-skel aa-skel--action-btn" />
+          </div>
+        </div>
+        <div class="aa-skeleton-grid">
+          <article v-for="i in cardItems" :key="i" class="aa-skeleton-immersive-card">
+            <div class="aa-skel aa-skel--rect aa-skeleton-immersive-card__fill" />
+          </article>
+        </div>
+      </div>
     </template>
 
     <!-- 列表行：对局记录 -->
     <template v-else-if="variant === 'list-rows'">
-      <div class="aa-skeleton-list">
+      <div v-if="embedded" class="aa-skeleton-list aa-skeleton-list--embedded">
         <article v-for="i in rowItems" :key="i" class="aa-skeleton-row">
-          <div class="aa-skel aa-skel--square" />
+          <div class="aa-skel aa-skel--emblem" />
           <div class="aa-skeleton-row__main">
             <div class="aa-skel aa-skel--title aa-skel--w35" />
             <div class="aa-skeleton-row__avatars">
@@ -83,38 +146,47 @@ const rowItems = computed(() => Array.from({ length: props.rows }, (_, i) => i))
             <div class="aa-skel aa-skel--text aa-skel--w80" />
             <div class="aa-skel aa-skel--chip aa-skel--w64" />
           </div>
-          <div class="aa-skel aa-skel--pill aa-skel--w72" />
+          <div class="aa-skel aa-skel--row-action" />
+          <div class="aa-skel aa-skel--row-action aa-skel--row-action-wide" />
         </article>
+      </div>
+      <div v-else class="aa-skeleton-list-page">
+        <div v-if="toolbar" class="aa-skeleton-toolbar">
+          <div class="aa-skel aa-skel--search-pill" />
+          <div class="aa-skeleton-toolbar__right">
+            <div class="aa-skel aa-skel--filter-cluster" />
+          </div>
+        </div>
+        <div class="aa-skeleton-list">
+          <article v-for="i in rowItems" :key="i" class="aa-skeleton-row">
+            <div class="aa-skel aa-skel--emblem" />
+            <div class="aa-skeleton-row__main">
+              <div class="aa-skel aa-skel--title aa-skel--w35" />
+              <div class="aa-skeleton-row__avatars">
+                <div v-for="j in 4" :key="j" class="aa-skel aa-skel--circle aa-skel--sm" />
+              </div>
+            </div>
+            <div class="aa-skeleton-row__meta">
+              <div class="aa-skel aa-skel--text aa-skel--w80" />
+              <div class="aa-skel aa-skel--chip aa-skel--w64" />
+            </div>
+            <div class="aa-skel aa-skel--row-action" />
+            <div class="aa-skel aa-skel--row-action aa-skel--row-action-wide" />
+          </article>
+        </div>
       </div>
     </template>
 
-    <!-- 三栏详情 -->
+    <!-- 详情页：仅中间内容列骨架（不展示左右侧栏） -->
     <template v-else-if="variant === 'detail-3col'">
       <div class="aa-skeleton-detail-3">
-        <aside class="aa-skel aa-skel--panel">
-          <div class="aa-skel aa-skel--rect aa-skel--h240" />
-          <div class="aa-skeleton-detail-3__identity">
-            <div class="aa-skel aa-skel--circle" />
-            <div>
-              <div class="aa-skel aa-skel--title aa-skel--w70" />
-              <div class="aa-skel aa-skel--text aa-skel--w90" />
-            </div>
-          </div>
-          <div class="aa-skeleton-detail-3__stats">
-            <div v-for="i in 3" :key="i" class="aa-skel aa-skel--stat" />
-          </div>
-        </aside>
-        <main class="aa-skel aa-skel--panel">
+        <main class="aa-skeleton-detail-3__main aa-skel aa-skel--panel">
           <div class="aa-skel aa-skel--text aa-skel--w30" />
           <div class="aa-skel aa-skel--title aa-skel--w50" />
           <div class="aa-skel aa-skel--rect aa-skel--h100" />
           <div class="aa-skel aa-skel--rect aa-skel--h100" />
           <div class="aa-skel aa-skel--rect aa-skel--h80" />
         </main>
-        <aside class="aa-skel aa-skel--panel">
-          <div class="aa-skel aa-skel--title aa-skel--w60" />
-          <div v-for="i in 4" :key="i" class="aa-skel aa-skel--row-item" />
-        </aside>
       </div>
     </template>
 

@@ -5,7 +5,6 @@ import type { PortalTicketRecord } from '@renderer/services'
 import ProfileSectionLayout from './ProfileSectionLayout.vue'
 import {
   NButton,
-  NCard,
   NForm,
   NFormItem,
   NInput,
@@ -107,18 +106,13 @@ function onPageSizeChange(next: number) {
 </script>
 
 <template>
-  <ProfileSectionLayout title="报 Bug" desc="记录可复现问题、异常状态或体验瑕疵，保留完整历史记录。">
+  <ProfileSectionLayout title="报 Bug" desc="记录可复现问题、异常状态或体验瑕疵，保留完整历史。">
     <template #actions>
-      <NButton type="primary" @click="openTicketModal">填写反馈</NButton>
+      <NButton type="primary" size="small" @click="openTicketModal">填写反馈</NButton>
     </template>
 
-    <NCard class="mntools-panel support-card support-card--wide">
-      <div class="support-card__icon"><MessageSquare :size="22" /></div>
-      <strong>提交问题反馈</strong>
-      <p>建议包含发生页面、操作路径、期望结果和实际表现。所有反馈都会保存在下方历史记录中。</p>
-    </NCard>
-
-    <NCard class="mntools-panel support-history profile-list-region" title="反馈历史">
+    <section class="portal-plain-block profile-list-region">
+      <h4 class="portal-plain-block__title">反馈历史</h4>
 
       <ul v-if="paginatedTickets.length" class="profile-record-list">
         <li v-for="item in paginatedTickets" :key="item.id" class="profile-record-item">
@@ -161,7 +155,7 @@ function onPageSizeChange(next: number) {
           @update:value="onPageSizeChange"
         />
       </div>
-    </NCard>
+    </section>
 
     <NModal
       v-model:show="ticketModalOpen"

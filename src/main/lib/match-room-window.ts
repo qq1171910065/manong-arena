@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { BrowserWindow, ipcMain, app } from 'electron'
+import { appIconOptions } from './app-icon'
 
 export type AppWindowKind = 'login' | 'main' | 'match-room'
 
@@ -36,10 +37,18 @@ export function getMatchRoomWindow(matchId: string): BrowserWindow | null {
 export function closeMatchRoomWindow(matchId: string): void {
   const win = getMatchRoomWindow(matchId)
   if (win && !win.isDestroyed()) win.close()
-  matchRoomWindows.delete(matchId)
 }
 
-export function createMatchRoomWindow(matchId: string): BrowserWindow {
+export function closeAllMatchRoomWindows(): void {
+  for (const matchId of [...matchRoomWindows.keys()]) {
+    closeMatchRoomWindow(matchId)
+  }
+}
+
+export function createMatchRoomWindow(
+  matchId: string,
+  opts?: { onLastClosed?: () => void }
+): BrowserWindow {
   const existing = getMatchRoomWindow(matchId)
   if (existing) {
     existing.focus()
@@ -56,6 +65,7 @@ export function createMatchRoomWindow(matchId: string): BrowserWindow {
     titleBarStyle: 'hidden',
     backgroundColor: '#eef0ff',
     autoHideMenuBar: true,
+    ...appIconOptions(),
     webPreferences: {
       preload: preloadPath(),
       sandbox: false,
@@ -69,13 +79,17 @@ export function createMatchRoomWindow(matchId: string): BrowserWindow {
   win.on('ready-to-show', () => win.show())
   win.on('closed', () => {
     matchRoomWindows.delete(matchId)
+    if (matchRoomWindows.size === 0) opts?.onLastClosed?.()
   })
 
   loadRenderer(win, `/match-room/${matchId}`)
   return win
 }
 
-export function registerMatchRoomWindowHandlers(getMainWindow: () => BrowserWindow | null): void {
+export function registerMatchRoomWindowHandlers(deps: {
+  hideMainWindowForMatch: () => void
+  restoreMainWindowToHome: () => void
+}): void {
   ipcMain.removeHandler('window:getKind')
   ipcMain.handle('window:getKind', (event): AppWindowKind => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -85,7 +99,8 @@ export function registerMatchRoomWindowHandlers(getMainWindow: () => BrowserWind
   ipcMain.removeHandler('arena:matchWindow:open')
   ipcMain.handle('arena:matchWindow:open', (_event, matchId: string) => {
     if (!matchId) return { ok: false, error: '缺少对局 ID' }
-    createMatchRoomWindow(matchId)
+    createMatchRoomWindow(matchId, { onLastClosed: deps.restoreMainWindowToHome })
+    deps.hideMainWindowForMatch()
     return { ok: true }
   })
 
@@ -97,11 +112,7 @@ export function registerMatchRoomWindowHandlers(getMainWindow: () => BrowserWind
 
   ipcMain.removeHandler('arena:matchWindow:focusMain')
   ipcMain.handle('arena:matchWindow:focusMain', () => {
-    const main = getMainWindow()
-    if (main && !main.isDestroyed()) {
-      if (!main.isVisible()) main.show()
-      main.focus()
-    }
+    deps.restoreMainWindowToHome()
     return { ok: true }
   })
 }

@@ -1,12 +1,17 @@
 /** localStorage 键：用户在本机覆盖的平台 API 根地址 */
 export const API_BASE_URL_STORAGE_KEY = 'mntools-api-base-url'
 
+const DEV_DEFAULT_API_BASE_URL = 'http://127.0.0.1:8010'
+const PROD_DEFAULT_API_BASE_URL = 'http://local.czmanong.com'
+
 export function getDefaultApiBaseUrl(): string {
   const env =
     typeof import.meta !== 'undefined' && import.meta.env?.VITE_PLATFORM_API_URL
       ? String(import.meta.env.VITE_PLATFORM_API_URL).trim()
       : ''
-  return env || 'http://127.0.0.1:8010'
+  if (env) return env
+  const isDev = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV)
+  return isDev ? DEV_DEFAULT_API_BASE_URL : PROD_DEFAULT_API_BASE_URL
 }
 
 function normalizeApiBaseUrl(raw: string): string {

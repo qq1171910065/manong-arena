@@ -1,9 +1,0 @@
-/* 运行时主题：按 html[data-theme-id] 切换，与各 themes 目录下 tokens.css 对应。 */
-@import '../../../../themes/enterprise-light/tokens.css';
-@import '../../../../themes/enterprise-dark/tokens.css';
-@import '../../../../themes/creative-vivid/tokens.css';
-@import '../../../../themes/minimal-mono/tokens.css';
-@import '../../../../themes/ocean-teal/tokens.css';
-@import '../../../../themes/rose-warm/tokens.css';
-@import '../../../../themes/forest-calm/tokens.css';
-@import '../../../../themes/high-contrast/tokens.css';

@@ -1,4 +1,4 @@
-html[data-theme-id='enterprise-light'] {
+html {
   --color-primary: #7c3aed;
   --color-primary-deep: #5b21b6;
   --color-accent-cyan: #a78bfa;
@@ -17,22 +17,4 @@ html[data-theme-id='enterprise-light'] {
   --shell-titlebar-bg: #ffffff;
   --radius: 8px;
   --radius-md: 12px;
-}
-
-html[data-theme-id='enterprise-light'].theme-dark {
-  --bg: #0f172a;
-  --bg-elevated: #1e293b;
-  --surface: #1e293b;
-  --surface-soft: #334155;
-  --line: #334155;
-  --line-strong: #475569;
-  --text: #f1f5f9;
-  --text-secondary: #cbd5e1;
-  --muted: #94a3b8;
-  --brand-soft: rgba(139, 92, 246, 0.2);
-  --shell-sidebar-bg: #0f172a;
-  --shell-statusbar-bg: #0b1220;
-  --shell-titlebar-bg: #0f172a;
-  --glass-panel-bg: rgba(30, 41, 59, 0.94);
-  --glass-panel-border: 1px solid rgba(148, 163, 184, 0.18);
 }

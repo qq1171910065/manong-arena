@@ -297,10 +297,11 @@ onMounted(async () => {
       <div class="profile-section__head">
         <div>
           <h3 class="profile-section__title">模型服务调试</h3>
-          <p class="profile-section__desc">
-            浏览 Platform 配置的 New API 模型网关，测试连通性与流式对话。模型列表来自网关
-            <code class="code-inline">/api/pricing</code>，对话走
-            <code class="code-inline">/v1/chat/completions</code>，鉴权使用本机 sk- Key。
+          <p
+            class="profile-section__desc"
+            title="浏览 Platform 配置的 New API 模型网关，测试连通性与流式对话。模型列表来自网关 /api/pricing，对话走 /v1/chat/completions，鉴权使用本机 sk- Key。"
+          >
+            浏览模型网关，测试连通性与流式对话
           </p>
         </div>
         <NSpace>
@@ -325,7 +326,7 @@ onMounted(async () => {
       >
         <span>{{ item.label }}</span>
         <strong>{{ item.value }}</strong>
-        <span class="text-muted">{{ item.hint }}</span>
+        <span class="text-muted" :title="item.hint">{{ item.hint }}</span>
       </div>
     </div>
 

@@ -1,10 +1,10 @@
 import { ipcMain } from 'electron'
 import { join } from 'node:path'
-import { app } from 'electron'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { getAppStorageDir } from './app-home'
 
 function getStoragePath(appId: string): string {
-  const dir = join(app.getPath('userData'), appId, 'storage')
+  const dir = getAppStorageDir(appId)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   return dir
 }

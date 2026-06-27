@@ -1,2 +1,5 @@
 export * from './arena/types'
 export * from './arena/constants'
+export * from './arena/game-scenario'
+export * from './arena/prompt-defaults'
+export * from './arena/scenario-docs'

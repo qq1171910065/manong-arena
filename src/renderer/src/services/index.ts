@@ -1,6 +1,7 @@
 export { getApiBaseUrl, getDefaultApiBaseUrl, saveApiBaseUrlFromInput, API_BASE_URL_STORAGE_KEY } from './config'
 export { isSuccessBusinessCode, parseCoolApiEnvelope, refreshSessionFromStorage } from './api'
 export type { RefreshSessionResult, ApiResponse } from './api'
+export { isAuthError } from './api'
 export {
   portalApi,
   getPortalSession,
@@ -8,6 +9,8 @@ export {
   isPortalLoggedIn,
   fetchPlatformPing,
 } from './portal-api'
+export { clientReleaseApi } from './client-release'
+export type { ClientReleaseLatest, ClientReleaseHistoryItem } from './client-release'
 export type {
   PortalSession,
   PortalProfile,
@@ -25,7 +28,7 @@ export type {
 } from './portal-api'
 export { authApi, userInfoRef, getCurrentUserContext, setUserInfoCache } from './auth'
 export type { UserInfo, LoginResult, OfficeWechatPollResult, OAuthBindPollResult } from './auth'
-export { completeAuthSession, resolveAuthPhase, performAuthLogout } from './auth-session'
+export { completeAuthSession, resolveAuthPhase, performAuthLogout, handleAuthFailure } from './auth-session'
 export {
   ensureGatewayKey,
   getAppKeyName,

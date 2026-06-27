@@ -10,14 +10,13 @@ export type RouteName =
   | 'showcase'
   | 'characters'
   | 'character-detail'
-  | 'character-edit'
   | 'game-modes'
   | 'game-mode-detail'
-  | 'game-mode-edit'
   | 'create-match'
   | 'match-room'
   | 'match-records'
   | 'match-detail'
+  | 'dev-assets'
 
 export type FeatureGroupId = 'main' | 'design' | 'examples' | 'account' | 'settings'
 

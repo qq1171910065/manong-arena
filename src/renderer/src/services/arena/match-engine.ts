@@ -3,7 +3,14 @@ import { arenaLog } from './logger'
 import { ArenaError } from './errors'
 import { gameModeService } from './character-service'
 import { matchService } from './match-service'
-import { modelCallService } from './model-call-service'
+import { modelCallService, cancelActiveSpeechStream } from './model-call-service'
+import { registerSheriffCampaign } from './werewolf-sheriff'
+import { completeVoteTallyMessage } from './werewolf-vote-tally'
+import {
+  collectNightLastWordsTargets,
+  collectVoteLastWordsTargets,
+  startLastWordsPhase,
+} from '@shared/arena/werewolf-last-words'
 import {
   advanceToNextPhase,
   checkWinCondition,
@@ -20,10 +27,104 @@ import {
   transferSheriffIfNeeded,
   triggerDeathSkill,
 } from './phase-engine'
+import { advanceRoundtablePhase, checkRoundtableComplete, isRoundtableMode } from './roundtable-engine'
 import type { Match, MatchMessage, MatchParticipant, MatchPublicEvent, MatchSnapshot } from '@shared/arena/types'
+
+export type MatchStreamPatch = {
+  messageId: string
+  content: string
+  thought?: string
+  streamStatus: MatchMessage['streamStatus']
+}
 
 export type AdvanceStepOptions = {
   onDelta?: (match: Match) => void
+  onStream?: (patch: MatchStreamPatch) => void
+}
+
+type PendingSpeechReview = {
+  messageId: string
+  participant: MatchParticipant
+  promise: ReturnType<typeof modelCallService.reviewSpeech>
+}
+
+const pendingSpeechReviews = new Map<string, PendingSpeechReview[]>()
+
+let activeAdvanceMatchId: string | null = null
+let activeAdvanceToken = 0
+
+function beginAdvance(matchId: string): number {
+  activeAdvanceMatchId = matchId
+  activeAdvanceToken += 1
+  return activeAdvanceToken
+}
+
+function isAdvanceCancelled(matchId: string, token: number): boolean {
+  return activeAdvanceMatchId !== matchId || activeAdvanceToken !== token
+}
+
+function endAdvance(matchId: string, token: number): void {
+  if (activeAdvanceMatchId === matchId && activeAdvanceToken === token) {
+    activeAdvanceMatchId = null
+  }
+}
+
+function hasIncompleteLiveMessages(match: Match): boolean {
+  return match.messages.some(
+    (m) =>
+      !m.confirmed &&
+      (m.streamStatus === 'pending' ||
+        m.streamStatus === 'streaming' ||
+        (m.kind === 'vote' && m.streamStatus === 'streaming'))
+  )
+}
+
+function rollbackInProgressStep(match: Match): Match {
+  const incompleteSpeechSpeakerIds = new Set(
+    match.messages
+      .filter(
+        (m) =>
+          m.kind === 'speech' &&
+          !m.confirmed &&
+          (m.streamStatus === 'pending' || m.streamStatus === 'streaming')
+      )
+      .map((m) => m.participantId)
+  )
+
+  match.messages = match.messages.filter((m) => {
+    if (m.kind === 'speech' && !m.confirmed && (m.streamStatus === 'pending' || m.streamStatus === 'streaming')) {
+      return false
+    }
+    if (m.kind === 'vote' && !m.confirmed && m.streamStatus === 'streaming') {
+      return false
+    }
+    return true
+  })
+
+  if (match.runtime.activeVoteMessageId) {
+    const voteMsg = match.messages.find((m) => m.id === match.runtime.activeVoteMessageId)
+    if (!voteMsg) match.runtime.activeVoteMessageId = undefined
+  }
+
+  if (match.runtime.stepAdvanceState === 'waiting' || incompleteSpeechSpeakerIds.size) {
+    match.runtime.actedCharacterIds = match.runtime.actedCharacterIds.filter(
+      (id) => !incompleteSpeechSpeakerIds.has(id) && id !== match.runtime.currentSpeakerId
+    )
+  }
+
+  setSpeaking(match, null)
+  match.runtime.modelCallStatus = null
+  if (match.status === 'active') {
+    match.runtime.stepAdvanceState = 'ready'
+  }
+  return match
+}
+
+async function abortInProgressStep(matchId: string): Promise<void> {
+  activeAdvanceToken += 1
+  activeAdvanceMatchId = null
+  cancelActiveSpeechStream()
+  flushPendingMatchDelta()
 }
 
 async function saveSnapshot(match: Match, label: string): Promise<MatchSnapshot> {
@@ -32,14 +133,66 @@ async function saveSnapshot(match: Match, label: string): Promise<MatchSnapshot>
     matchId: match.id,
     label,
     createdAt: new Date().toISOString(),
-    state: structuredClone(match.runtime),
+    state: JSON.parse(JSON.stringify(match.runtime)) as MatchSnapshot['state'],
   }
   await window.api.saveSnapshot(snapshot)
   return snapshot
 }
 
-function notifyDelta(match: Match, options?: AdvanceStepOptions): void {
-  options?.onDelta?.(structuredClone(match))
+function deferSnapshot(match: Match, label: string): void {
+  const runtime = match.runtime
+  const id = match.id
+  window.setTimeout(() => {
+    void saveSnapshot({ ...match, id, runtime } as Match, label).catch(() => undefined)
+  }, 0)
+}
+
+const DELTA_MIN_INTERVAL_MS = 200
+let deltaLastEmit = 0
+let deltaTimer: ReturnType<typeof setTimeout> | undefined
+let deltaPending: { match: Match; options: AdvanceStepOptions } | null = null
+
+export function flushPendingMatchDelta(): void {
+  if (deltaTimer !== undefined) {
+    clearTimeout(deltaTimer)
+    deltaTimer = undefined
+  }
+  if (!deltaPending?.options.onDelta) {
+    deltaPending = null
+    return
+  }
+  const { match, options } = deltaPending
+  deltaPending = null
+  deltaLastEmit = Date.now()
+  options.onDelta(match)
+}
+
+function notifyDelta(match: Match, options?: AdvanceStepOptions, immediate = false): void {
+  if (!options?.onDelta) return
+  if (immediate) {
+    if (deltaTimer !== undefined) {
+      clearTimeout(deltaTimer)
+      deltaTimer = undefined
+    }
+    deltaPending = null
+    deltaLastEmit = Date.now()
+    options.onDelta(match)
+    return
+  }
+  deltaPending = { match, options }
+  const now = Date.now()
+  const elapsed = now - deltaLastEmit
+  if (elapsed >= DELTA_MIN_INTERVAL_MS) {
+    deltaLastEmit = now
+    options.onDelta(match)
+    return
+  }
+  if (deltaTimer === undefined) {
+    deltaTimer = setTimeout(() => {
+      deltaTimer = undefined
+      flushPendingMatchDelta()
+    }, DELTA_MIN_INTERVAL_MS - elapsed)
+  }
 }
 
 function appendSystemEvent(match: Match, icon: string, text: string): MatchPublicEvent {
@@ -107,7 +260,7 @@ function ensureLiveVoteMessage(match: Match): MatchMessage {
   return message
 }
 
-function updateLiveVoteMessage(match: Match): void {
+function updateLiveVoteMessage(match: Match, options?: AdvanceStepOptions): void {
   const messageId = match.runtime.activeVoteMessageId
   if (!messageId) return
   const message = match.messages.find((m) => m.id === messageId)
@@ -115,6 +268,19 @@ function updateLiveVoteMessage(match: Match): void {
   const votes = match.votes.filter((v) => v.round === match.runtime.currentRound && v.phaseId === match.runtime.currentPhaseId)
   const eligible = voteEligibleParticipants(match).length
   message.content = '已收到 ' + votes.length + '/' + eligible + ' 票'
+  patchLiveVoteMessage(match, options)
+}
+
+function patchLiveVoteMessage(match: Match, options?: AdvanceStepOptions): void {
+  const messageId = match.runtime.activeVoteMessageId
+  if (!messageId) return
+  const message = match.messages.find((m) => m.id === messageId)
+  if (!message) return
+  options?.onStream?.({
+    messageId: message.id,
+    content: message.content,
+    streamStatus: message.streamStatus,
+  })
 }
 
 function finalizeLiveVoteMessage(match: Match): void {
@@ -124,15 +290,17 @@ function finalizeLiveVoteMessage(match: Match): void {
   if (message) {
     message.streamStatus = 'done'
     message.confirmed = true
-    message.content = '投票完成，正在唱票…'
+    if (!message.content.trim()) {
+      message.content = '投票完成，正在唱票…'
+    }
   }
-  match.runtime.activeVoteMessageId = null
 }
 
-function appendSetupMessage(match: Match): void {
-  if (match.messages.some((message) => message.kind === 'judge' && message.phaseId === 'setup')) return
+function appendSetupMessage(match: Match): boolean {
+  if (match.messages.some((message) => message.kind === 'judge' && message.phaseId === 'setup')) return false
   appendRoomMessage(match, '身份已经完成分配。本局只在公开频道展示阶段、发言、投票和规则允许公开的结算信息。', 'judge')
   match.messages[match.messages.length - 1].phaseId = 'setup'
+  return true
 }
 
 function setSpeaking(match: Match, characterId: string | null): void {
@@ -144,19 +312,91 @@ async function finishMatch(match: Match, summary: string, winnerCamp: string | n
   return matchService.complete(match.id, summary, winnerCamp)
 }
 
+function queueSpeechReview(
+  matchId: string,
+  messageId: string,
+  participant: MatchParticipant,
+  match: Match,
+  content: string,
+  thought?: string
+): void {
+  const promise = modelCallService.reviewSpeech(match, participant, content, thought)
+  const jobs = pendingSpeechReviews.get(matchId) || []
+  jobs.push({ messageId, participant, promise })
+  pendingSpeechReviews.set(matchId, jobs)
+}
+
+function applySpeechReviewResult(match: Match, messageId: string, participant: MatchParticipant, review: Awaited<ReturnType<typeof modelCallService.reviewSpeech>>): void {
+  const msg = match.messages.find((m) => m.id === messageId)
+  if (msg) {
+    msg.content = review.content
+    if (review.thought) msg.thought = review.thought
+  }
+  match.totalCostCents += review.costCents
+  match.modelCalls.push(...review.callRecords)
+  if (review.review.warning) {
+    match.anomalies.push({
+      id: randomUUID(),
+      matchId: match.id,
+      type: 'judge_warning',
+      message: review.review.warning,
+      createdAt: new Date().toISOString(),
+      resolved: false,
+      resolution: null,
+      characterId: participant.characterId,
+      severity: review.review.severity,
+    })
+    appendSystemEvent(match, '⚠️', participant.characterName + ' 收到裁判提醒：' + review.review.warning)
+    appendRoomMessage(match, participant.characterName + '，' + review.review.warning, 'warning')
+  }
+}
+
+async function flushSpeechReviews(matchId: string, options?: AdvanceStepOptions): Promise<Match> {
+  const jobs = pendingSpeechReviews.get(matchId) || []
+  pendingSpeechReviews.delete(matchId)
+  if (!jobs.length) return matchService.get(matchId)
+
+  let match = await matchService.get(matchId)
+  match.runtime.waitingHint = '裁判正在汇总本阶段发言审阅…'
+  match = await matchService.save(match)
+  notifyDelta(match, options)
+
+  for (const job of jobs) {
+    try {
+      const review = await job.promise
+      applySpeechReviewResult(match, job.messageId, job.participant, review)
+    } catch (error) {
+      await arenaLog('warn', 'engine', '后台裁判审阅失败', error instanceof Error ? error.message : String(error), {
+        matchId,
+        characterId: job.participant.characterId,
+      })
+    }
+  }
+  match = await matchService.save(match)
+  notifyDelta(match, options)
+  return match
+}
+
 async function afterActorStep(match: Match, matchId: string, options?: AdvanceStepOptions): Promise<Match> {
   if (!isPhaseStepComplete(match)) {
     match.runtime.stepAdvanceState = 'ready'
-    match.runtime.waitingHint = '当前行动已完成，可以继续下一位。'
+    match.runtime.waitingHint = match.runtime.currentPhaseId === 'last-words' ? match.runtime.waitingHint : '当前行动已完成，可以继续下一位。'
     match = await matchService.save(match)
-    await saveSnapshot(match, '单步行动完成')
+    void deferSnapshot(match, '单步行动完成')
     return match
+  }
+
+  if (match.runtime.currentActionKind === 'speech') {
+    match = await flushSpeechReviews(matchId, options)
   }
 
   const mode = gameModeService.get(match.gameModeId)
   if (!mode) return matchService.save(match)
 
+  let deferPhaseAdvance = false
+
   if (match.runtime.currentActionKind === 'vote') {
+    completeVoteTallyMessage(match)
     if (match.runtime.currentPhaseId === 'sheriff-vote') {
       const result = resolveSheriffElection(match)
       appendSystemEvent(match, result.icon, result.text)
@@ -169,6 +409,7 @@ async function afterActorStep(match: Match, matchId: string, options?: AdvanceSt
         appendRoomMessage(match, item, 'resource')
       }
       const { targetId, tied } = tallyVotes(match)
+      let eliminatedForLastWords: MatchParticipant | null = null
       if (targetId) {
         const idiot = resolveIdiotExile(match, targetId)
         if (idiot.prevented) {
@@ -178,9 +419,10 @@ async function afterActorStep(match: Match, matchId: string, options?: AdvanceSt
         } else {
           const eliminated = eliminateParticipant(match, targetId)
           if (eliminated) {
+            eliminatedForLastWords = eliminated
             const text = eliminated.characterName + ' 被投票放逐。'
             appendSystemEvent(match, '🗳️', text)
-            appendRoomMessage(match, text, 'vote', eliminated.characterId, eliminated.characterName)
+            appendRoomMessage(match, text, 'judge')
             match.runtime.voteTargetId = targetId
             const deathEvents = triggerDeathSkill(match, eliminated, 'vote')
             for (const item of deathEvents) {
@@ -199,6 +441,12 @@ async function afterActorStep(match: Match, matchId: string, options?: AdvanceSt
         appendSystemEvent(match, '🗳️', text)
         appendRoomMessage(match, text, 'judge')
       }
+      const lastWordsIds = collectVoteLastWordsTargets(match, eliminatedForLastWords)
+      if (lastWordsIds.length && !checkWinCondition(match, mode)) {
+        startLastWordsPhase(match, lastWordsIds)
+        appendRoomMessage(match, match.runtime.waitingHint || '请发表遗言。', 'judge')
+        deferPhaseAdvance = true
+      }
     }
   }
 
@@ -210,22 +458,94 @@ async function afterActorStep(match: Match, matchId: string, options?: AdvanceSt
     return finishMatch(match, win.summary, win.winnerCamp)
   }
 
-  advanceToNextPhase(match, mode)
+  const roundtableDone = checkRoundtableComplete(match, mode)
+  if (roundtableDone) {
+    appendSystemEvent(match, '🎙️', roundtableDone.summary)
+    appendRoomMessage(match, roundtableDone.summary, 'judge')
+    match = await matchService.save(match)
+    return finishMatch(match, roundtableDone.summary, null)
+  }
+
+  if (deferPhaseAdvance) {
+    match.runtime.stepAdvanceState = 'ready'
+    match = await matchService.save(match)
+    void deferSnapshot(match, '遗言阶段')
+    notifyDelta(match, options, true)
+    return match
+  }
+
+  if (match.runtime.currentPhaseId === 'last-words') {
+    match.runtime.pendingLastWordsIds = undefined
+  }
+
+  if (isRoundtableMode(mode)) advanceRoundtablePhase(match, mode)
+  else advanceToNextPhase(match, mode)
   const phaseText = '进入' + match.runtime.currentPhaseName + '。'
   appendSystemEvent(match, '🔔', phaseText)
   appendRoomMessage(match, phaseText + (match.runtime.waitingHint ? '\n' + match.runtime.waitingHint : ''), 'judge')
   match.runtime.stepAdvanceState = 'ready'
   match.runtime.waitingHint = '阶段已切换，可以继续推进。'
   match = await matchService.save(match)
-  await saveSnapshot(match, '阶段切换后')
-  notifyDelta(match, options)
+  void deferSnapshot(match, '阶段切换后')
+  notifyDelta(match, options, true)
   await arenaLog('info', 'engine', '阶段切换成功', match.runtime.currentPhaseName, { matchId })
+  return match
+}
+
+function recoverInterruptedStep(match: Match): Match {
+  if (match.runtime.stepAdvanceState !== 'waiting' && !hasIncompleteLiveMessages(match)) return match
+  rollbackInProgressStep(match)
+  match.runtime.waitingHint = '上次未完成的步骤已回滚，可以继续推进。'
   return match
 }
 
 export const matchEngine = {
   async load(matchId: string): Promise<Match> {
-    return matchService.get(matchId)
+    let match = await matchService.get(matchId)
+    if (
+      (match.runtime.stepAdvanceState === 'waiting' || hasIncompleteLiveMessages(match)) &&
+      (match.status === 'active' || match.status === 'paused')
+    ) {
+      match = recoverInterruptedStep(structuredClone(match))
+      return matchService.save(match)
+    }
+    return match
+  },
+
+  async abortAndRollback(matchId: string): Promise<Match> {
+    await abortInProgressStep(matchId)
+    let match = await matchService.get(matchId)
+    if (match.runtime.stepAdvanceState === 'waiting' || hasIncompleteLiveMessages(match)) {
+      match = rollbackInProgressStep(match)
+      if (match.status === 'active') {
+        match.runtime.stepAdvanceState = 'ready'
+      } else if (match.status === 'paused') {
+        match.runtime.stepAdvanceState = 'paused'
+      }
+      match.runtime.modelCallStatus = null
+      match = await matchService.save(match)
+    }
+    return match
+  },
+
+  async pause(matchId: string, reason: string): Promise<Match> {
+    await abortInProgressStep(matchId)
+    let match = await matchService.get(matchId)
+    match = rollbackInProgressStep(match)
+    match.status = 'paused'
+    match.runtime.stepAdvanceState = 'paused'
+    match.runtime.waitingHint = reason
+    match.runtime.modelCallStatus = null
+    match.anomalies.push({
+      id: randomUUID(),
+      matchId,
+      type: 'paused',
+      message: reason,
+      createdAt: new Date().toISOString(),
+      resolved: false,
+      resolution: null,
+    })
+    return matchService.save(match)
   },
 
   async advanceStep(matchId: string, options?: AdvanceStepOptions): Promise<Match> {
@@ -234,30 +554,49 @@ export const matchEngine = {
     if (match.status === 'paused') throw new ArenaError('ENGINE_PAUSED', '对局已暂停，请在 ESC 菜单中继续对局。', 'engine')
     if (match.runtime.stepAdvanceState === 'waiting') throw new ArenaError('ENGINE_PAUSED', '当前步骤尚未完成', 'engine')
 
+    const advanceToken = beginAdvance(matchId)
     const mode = gameModeService.get(match.gameModeId)
     if (!mode) throw new ArenaError('VALIDATION', '玩法不存在', 'engine')
-    appendSetupMessage(match)
-    await saveSnapshot(match, '步骤开始前')
+    const setupAdded = appendSetupMessage(match)
+    void deferSnapshot(match, '步骤开始前')
     match.runtime.stepAdvanceState = 'waiting'
     match.runtime.modelCallStatus = 'calling'
     match.runtime.waitingHint = '裁判正在处理当前阶段...'
     match = await matchService.save(match)
+    if (setupAdded) notifyDelta(match, options, true)
 
     try {
       if (match.runtime.currentActionKind === 'night') {
         const result = resolveNightAction(match, mode)
         appendSystemEvent(match, result.icon, result.text)
-        appendRoomMessage(match, result.text + (result.details.length ? '\n' + result.details.join('\n') : ''), 'resource')
-        for (const detail of result.details) appendSystemEvent(match, '✦', detail)
+        const publicBody = result.text + (result.publicDetails.length ? '\n' + result.publicDetails.join('\n') : '')
+        const godViewContent = result.godDetails.length
+          ? '夜间各角色行动如下：\n' + result.godDetails.join('\n')
+          : undefined
+        appendRoomMessage(match, publicBody, 'resource', 'judge', '裁判', { godViewContent })
+        for (const detail of result.publicDetails) appendSystemEvent(match, '✦', detail)
         markActorDone(match, 'night-' + match.runtime.currentPhaseId + '-' + match.runtime.currentRound)
         match.runtime.modelCallStatus = 'success'
         setSpeaking(match, null)
+        const lastWordsIds = collectNightLastWordsTargets(match, result.eliminated)
+        if (lastWordsIds.length && !checkWinCondition(match, mode)) {
+          startLastWordsPhase(match, lastWordsIds)
+          appendRoomMessage(match, match.runtime.waitingHint || '请发表遗言。', 'judge')
+          match.runtime.stepAdvanceState = 'ready'
+          match = await matchService.save(match)
+          notifyDelta(match, options)
+          return match
+        }
         match = await matchService.save(match)
         return afterActorStep(match, matchId, options)
       }
 
       if (match.runtime.currentActionKind === 'system' || match.runtime.currentActionKind === 'judge') {
-        const text = resolveSystemPhase(match, mode)
+        let text = resolveSystemPhase(match, mode)
+        if (isRoundtableMode(mode) && match.runtime.currentPhaseId === 'opening') {
+          const topic = match.runtime.roundtableState?.discussionTopic || '自由讨论'
+          text = `主持人：欢迎参加圆桌讨论。今日议题——「${topic}」。请各位依次发表观点。`
+        }
         appendSystemEvent(match, '⚖️', text)
         appendRoomMessage(match, text, 'judge')
         markActorDone(match, 'judge-' + match.runtime.currentPhaseId + '-' + match.runtime.currentRound)
@@ -284,11 +623,10 @@ export const matchEngine = {
             const result = await modelCallService.performVote(structuredClone(voteBase), voter.characterId)
             match.votes.push(result.vote)
             match.totalCostCents += result.costCents
-            match.modelCalls.push(result.callRecord)
+            for (const record of result.callRecords) match.modelCalls.push(record)
             markActorDone(match, result.participant.characterId)
-            updateLiveVoteMessage(match)
+            updateLiveVoteMessage(match, options)
             match = await matchService.save(match)
-            notifyDelta(match, options)
           })
         )
         finalizeLiveVoteMessage(match)
@@ -326,17 +664,26 @@ export const matchEngine = {
       }
       match.messages.push(placeholder)
       match = await matchService.save(match)
-      notifyDelta(match, options)
+      notifyDelta(match, options, true)
 
       if (match.runtime.currentActionKind === 'speech') {
         const result = await modelCallService.performSpeechStream(match, actorId, (delta) => {
+          if (isAdvanceCancelled(matchId, advanceToken)) return
           const msg = match.messages.find((m) => m.id === messageId)
           if (!msg) return
           msg.content = delta.content
           msg.thought = delta.thought
           msg.streamStatus = delta.streamStatus
-          notifyDelta(match, options)
+          options?.onStream?.({
+            messageId,
+            content: delta.content,
+            thought: delta.thought,
+            streamStatus: delta.streamStatus,
+          })
         })
+        if (isAdvanceCancelled(matchId, advanceToken)) {
+          throw new ArenaError('ENGINE_ABORTED', '步骤已取消', 'engine')
+        }
         match = result.match
 
         const msg = match.messages.find((m) => m.id === messageId)
@@ -350,43 +697,36 @@ export const matchEngine = {
 
         match.totalCostCents += result.costCents
         match.modelCalls.push(result.callRecord)
+        if (msg?.content && match.runtime.currentPhaseId !== 'last-words') {
+          registerSheriffCampaign(match, actorId, msg.content)
+        }
+        queueSpeechReview(matchId, messageId, result.participant, match, result.content, result.thought)
         match = await matchService.save(match)
-        notifyDelta(match, options)
-
-        const review = await modelCallService.reviewSpeech(match, result.participant, result.content, result.thought)
-        if (msg) {
-          msg.content = review.content
-          if (review.thought) msg.thought = review.thought
-        }
-        for (const record of review.callRecords) match.modelCalls.push(record)
-        match.totalCostCents += review.costCents
-        if (review.review.warning) {
-          match.anomalies.push({
-            id: randomUUID(),
-            matchId,
-            type: 'judge_warning',
-            message: review.review.warning,
-            createdAt: new Date().toISOString(),
-            resolved: false,
-            resolution: null,
-            characterId: result.participant.characterId,
-            severity: review.review.severity,
-          })
-          appendSystemEvent(match, '⚠️', result.participant.characterName + ' 收到裁判提醒：' + review.review.warning)
-          appendRoomMessage(match, result.participant.characterName + '，' + review.review.warning, 'warning')
-        } else {
-          appendSystemEvent(match, '✓', result.participant.characterName + ' 发言通过裁判审阅。')
-        }
+        notifyDelta(match, options, true)
       }
 
       markActorDone(match, actorId)
       setSpeaking(match, null)
       match.runtime.modelCallStatus = 'success'
       match = await matchService.save(match)
-      notifyDelta(match, options)
+      notifyDelta(match, options, true)
       return afterActorStep(match, matchId, options)
     } catch (error) {
       match = await matchService.get(matchId)
+      if (error instanceof ArenaError && error.code === 'ENGINE_ABORTED') {
+        rollbackInProgressStep(match)
+        match.runtime.modelCallStatus = null
+        match.runtime.stepAdvanceState = match.status === 'paused' ? 'paused' : 'ready'
+        await matchService.save(match)
+        throw error
+      }
+      if (error instanceof ArenaError && error.code === 'ENGINE_PAUSED') {
+        setSpeaking(match, null)
+        match.runtime.modelCallStatus = null
+        match.runtime.stepAdvanceState = 'paused'
+        await matchService.save(match)
+        throw error
+      }
       match.runtime.modelCallStatus = 'failed'
       match.runtime.stepAdvanceState = 'paused'
       match.status = 'paused'
@@ -403,6 +743,8 @@ export const matchEngine = {
       setSpeaking(match, null)
       await matchService.save(match)
       throw error
+    } finally {
+      endAdvance(matchId, advanceToken)
     }
   },
 

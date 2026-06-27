@@ -7,17 +7,24 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "pack:assets": "node scripts/pack-initial-assets.mjs",
+    "init:dev-assets": "node scripts/init-dev-assets.mjs",
+    "repair:dev-assets": "node scripts/repair-dev-asset-cache.mjs",
+    "install:asset-pack-local": "node scripts/install-asset-pack-local.mjs",
+    "icons": "node scripts/generate-app-icons.mjs",
     "typecheck": "vue-tsc --noEmit -p tsconfig.web.json",
     "preview": "electron-vite preview",
-    "build:unpack": "pnpm run build && electron-builder --dir",
-    "build:win": "pnpm run build && electron-builder --win",
-    "build:mac": "pnpm run build && electron-builder --mac"
+    "build:unpack": "pnpm run icons && pnpm run build && electron-builder --dir --config electron-builder.config.cjs",
+    "build:win": "pnpm run icons && pnpm run build && electron-builder --win --config electron-builder.config.cjs",
+    "build:mac": "pnpm run icons && pnpm run build && electron-builder --mac --config electron-builder.config.cjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.0",
     "@electron-toolkit/utils": "^3.0.0",
     "@fontsource/noto-sans-sc": "^5.2.9",
     "electron-store": "8.2.0",
+    "extract-zip": "^2.0.1",
+    "archiver": "^7.0.1",
     "lucide-vue-next": "^1.0.0",
     "naive-ui": "^2.41.0",
     "echarts": "^5.6.0",
@@ -33,6 +40,7 @@
     "electron": "^39.2.6",
     "electron-builder": "^24.9.1",
     "electron-vite": "^2.0.0",
+    "rcedit": "^4.0.1",
     "typescript": "^5.6.3",
     "vite": "^5.0.12",
     "vue-tsc": "^2.2.12"

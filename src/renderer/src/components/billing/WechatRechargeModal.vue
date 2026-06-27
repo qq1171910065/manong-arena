@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import { CheckCircle2, Loader2, QrCode, RefreshCw, Wallet } from 'lucide-vue-next'
+import { CheckCircle2, Loader2, QrCode, Wallet } from 'lucide-vue-next'
 import { NAlert, NButton, NModal, NSpin } from '../../ui'
 import { useWechatRecharge } from '@renderer/composables/useWechatRecharge'
 import { yuanToPoints, tierAppPoints } from '@renderer/composables/fee-points'
@@ -48,10 +48,9 @@ const orderPoints = computed(() => {
   return yuanToPoints(orderAmountYuan.value)
 })
 
-const pointsPerYuanLabel = computed(() => {
-  const rate = Number(config.value?.pointsPerYuan) || 0
-  return rate > 0 ? rate.toLocaleString() : ''
-})
+const orderNo = computed(() => String(order.value?.order_no || order.value?.outTradeNo || '—'))
+
+const payStatusText = computed(() => (polling.value ? '等待支付确认…' : '请使用微信扫码'))
 
 watch(show, async (open, wasOpen) => {
   if (open) {
@@ -116,12 +115,8 @@ function close() {
         </div>
 
         <template v-else>
-          <div class="recharge-modal-summary">
-            <div class="recharge-modal-summary__amount">¥{{ orderAmountYuan || amountYuan }}</div>
-            <div class="recharge-modal-summary__meta">
-              <span>到账 {{ orderPoints.toLocaleString() }} 积分</span>
-              <span v-if="pointsPerYuanLabel">1 元 = {{ pointsPerYuanLabel }} 积分</span>
-            </div>
+          <div v-if="step === 'pick' && amountYuan" class="recharge-modal-summary">
+            <div class="recharge-modal-summary__amount">¥{{ amountYuan }}</div>
           </div>
 
           <section v-if="step === 'pick'" class="recharge-modal-section">
@@ -137,25 +132,26 @@ function close() {
                 @click="amountYuan = tier.yuan"
               >
                 <strong>{{ tier.label || `${tier.yuan} 元` }}</strong>
-                <span>{{ tierAppPoints(tier, config?.pointsPerYuan).toLocaleString() }} 积分</span>
               </button>
             </div>
           </section>
 
           <section v-else class="recharge-modal-section recharge-modal-pay">
-            <p class="recharge-modal-section__label">微信扫码支付</p>
             <div class="recharge-modal-pay__layout">
-              <div class="recharge-modal-pay__qr-wrap">
-                <img
-                  v-if="qrDataUrl"
-                  :src="qrDataUrl"
-                  alt="微信支付二维码"
-                  class="recharge-modal-pay__qr"
-                />
-                <div v-else class="recharge-modal-pay__qr recharge-modal-pay__qr--skeleton" aria-hidden="true">
-                  <QrCode :size="28" />
+              <div class="recharge-modal-pay__qr-col">
+                <div class="recharge-modal-pay__qr-wrap">
+                  <img
+                    v-if="qrDataUrl"
+                    :src="qrDataUrl"
+                    alt="微信支付二维码"
+                    class="recharge-modal-pay__qr"
+                  />
+                  <div v-else class="recharge-modal-pay__qr recharge-modal-pay__qr--skeleton" aria-hidden="true">
+                    <QrCode :size="28" />
+                  </div>
+                  <div v-if="polling" class="recharge-modal-pay__pulse" aria-hidden="true" />
                 </div>
-                <div v-if="polling" class="recharge-modal-pay__pulse" aria-hidden="true" />
+                <p class="recharge-modal-pay__hint text-muted">二维码有效约 5 分钟，超时请重新下单</p>
               </div>
               <ul class="recharge-modal-pay__meta">
                 <li>
@@ -163,16 +159,12 @@ function close() {
                   <strong>¥{{ orderAmountYuan.toFixed(2) }}</strong>
                 </li>
                 <li>
-                  <span>到账积分</span>
-                  <strong>{{ orderPoints.toLocaleString() }}</strong>
-                </li>
-                <li>
                   <span>订单号</span>
-                  <code>{{ order?.order_no || order?.outTradeNo || '—' }}</code>
+                  <code>{{ orderNo }}</code>
                 </li>
                 <li>
                   <span>状态</span>
-                  <strong>{{ polling ? '等待支付确认…' : '请使用微信扫码' }}</strong>
+                  <strong>{{ payStatusText }}</strong>
                 </li>
               </ul>
             </div>
@@ -198,13 +190,6 @@ function close() {
             </template>
             生成支付二维码
           </NButton>
-          <template v-else>
-            <NButton block :disabled="submitting" @click="resetOrder">
-              <template #icon><RefreshCw :size="15" /></template>
-              重新选择档位
-            </NButton>
-            <p class="recharge-modal-actions__hint text-muted">二维码有效约 5 分钟，超时请重新下单</p>
-          </template>
         </template>
       </div>
     </template>
@@ -335,12 +320,27 @@ function close() {
 .recharge-modal-pay__layout {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 18px;
+  gap: 20px;
   align-items: center;
-  padding: 14px;
+  padding: 16px 18px;
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
   background: var(--surface-soft);
+}
+
+.recharge-modal-pay__qr-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.recharge-modal-pay__hint {
+  margin: 0;
+  max-width: 168px;
+  text-align: center;
+  font-size: var(--text-xs);
+  line-height: 1.45;
 }
 
 .recharge-modal-pay__qr-wrap {
@@ -408,6 +408,11 @@ function close() {
   font-size: var(--text-lg);
 }
 
+.recharge-modal-pay__meta code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+}
+
 .recharge-modal-success {
   display: flex;
   flex-direction: column;
@@ -472,11 +477,14 @@ function close() {
   .recharge-modal-pay__layout {
     grid-template-columns: 1fr;
     justify-items: center;
-    text-align: center;
+  }
+
+  .recharge-modal-pay__meta {
+    width: 100%;
   }
 
   .recharge-modal-pay__meta li {
-    align-items: center;
+    align-items: flex-start;
   }
 }
 </style>

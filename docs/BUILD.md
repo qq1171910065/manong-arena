@@ -3,11 +3,62 @@
 ## 命令
 
 ```bash
-pnpm build              # electron-vite → out/
-pnpm build:unpack       # 当前平台未打包目录 → dist/
-pnpm build:win          # Windows NSIS 安装包（仅 Windows）
-pnpm build:mac          # macOS DMG（仅 macOS）
+pnpm pack:assets              # 打包初始素材 zip → .tmp/asset-pack/，更新内置 manifest
+pnpm install:asset-pack-local # 将 zip 复制到 userData 安装目录（本地 dev 测试）
+pnpm build                    # electron-vite → out/
+pnpm build:unpack             # 当前平台未打包目录 → dist/
+pnpm build:win                # Windows NSIS 安装包（不含素材 zip）
+pnpm build:mac                # macOS DMG（不含素材 zip）
 ```
+
+## 初始素材外置
+
+角色立绘等大体积 PNG **不打进安装包**。安装包仅含登录页与壳层必要素材（背景、品牌 logo 等），以及**内置素材清单**（`src/shared/arena/bundled-asset-pack-manifest.json`，随应用版本编译进主进程）。
+
+素材 zip 包含 `character-packs/` 与 `game-mode-packs/`，由用户主动载入：
+
+1. **首次初始化向导** — 按内置清单从 OSS/CDN 下载并解压
+2. **设置中心 → 数据管理** — 重新下载，或选择本地 zip 载入
+
+运行时目录（`userData/{appId}/`）：
+
+- zip 缓存：`arena-asset-pack/{fileName}`
+- 解压素材：`arena-assets/`
+
+**发布步骤：**
+
+1. 设置 OSS 地址并执行 `pnpm pack:assets`（可用 `ARENA_ASSETS_BASE_URL` 覆盖 `downloadUrl`）
+2. 将 `.tmp/asset-pack/` 中的 **zip 上传到 OSS**（无需单独上传 manifest）
+3. 提交 `src/shared/arena/bundled-asset-pack-manifest.json`（含 sha256 / downloadUrl）
+4. 执行 `pnpm build:win` / `pnpm build:mac` 打安装包（**不含**素材 zip，**含**内置 manifest）
+
+**本地开发：**
+
+```bash
+pnpm pack:assets
+pnpm install:asset-pack-local   # 可选：预置 zip 到 userData 缓存
+pnpm dev
+```
+
+或在应用内走 **初始化向导** / **设置中心** 下载。开发素材工作区见下文 `.dev-assets/`。
+
+## 开发素材工作区（`.dev-assets/`）
+
+开发环境专用目录，**已 gitignore**。首次可通过：
+
+```bash
+pnpm init:dev-assets
+```
+
+或在应用底部 **素材管理** 中自动初始化（若 userData 已有素材会复制到 `.dev-assets/`）。
+
+目录内各文件夹均含 `README.md` 说明子目录结构。素材管理页**仅管理** `character-packs/` 与 `game-mode-packs/`。壳层静态图请直接维护 `src/renderer/src/assets/home/`、`characters/`。
+
+- 平铺浏览 / 删除文件
+- **同步运行时** — 复制素材包到 userData 安装目录
+- **打包导出** — 打包为 initial 素材 zip，并更新 `bundled-asset-pack-manifest.json`
+
+`pnpm pack:assets` 会优先从 `.dev-assets/` 打包角色视觉素材。
 
 ## 平台说明
 

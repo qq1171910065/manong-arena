@@ -41,7 +41,7 @@ export const featureRegistry: FeatureRegistry = [
   {
     key: 'settings-center',
     route: 'settings',
-    path: '/settings',
+    path: '/settings/display',
     label: '设置中心',
     group: 'main',
     order: 5,

@@ -1,5 +1,6 @@
 import { getRuntimeConfig } from '@renderer/composables/runtime-config'
 import { portalApi } from './portal-api'
+import { DEFAULT_SYSTEM_ROLE_MODEL_ID, MIMO_TTS_MODEL_ID } from '@shared/arena/constants'
 import type { PortalGatewayConfig } from './portal-api'
 
 const GATEWAY_KEY_STORAGE = 'wb_gateway_api_key'
@@ -196,7 +197,9 @@ async function gatewayFetch(
     const msg =
       (data as { error?: { message?: string }; message?: string })?.error?.message ||
       (data as { message?: string })?.message ||
-      `HTTP ${status}`
+      (status === 503
+        ? '模型网关暂时不可用（503），请确认 Platform「New API → 网关配置」上游已启动，且对应模型渠道已启用'
+        : `HTTP ${status}`)
     return { ok: false, status, data, error: msg }
   }
   return { ok: true, status, data }
@@ -267,12 +270,225 @@ export async function listGatewayModelIds(force = false): Promise<string[]> {
   return models.map((m) => m.id)
 }
 
+export async function listChatGatewayModels(force = false): Promise<GatewayModelInfo[]> {
+  const models = await listGatewayModels(force)
+  return models.filter(isLikelyChatModel)
+}
+
+/** 从网关可用模型中解析对话模型。
+ * 优先级：explicit（玩法/角色已选）> preferred > 设置中的默认模型（兜底）> 内置常量 > 网关列表 */
+export interface ResolveChatModelOptions {
+  /** 玩法或角色已绑定的模型 ID，优先级最高 */
+  explicit?: string
+  /** 额外候选，排在 explicit 之后、默认模型之前 */
+  preferred?: string[]
+}
+
+export async function resolveChatModelId(
+  options?: string[] | ResolveChatModelOptions
+): Promise<string> {
+  let explicit: string | undefined
+  let preferred: string[] | undefined
+  if (Array.isArray(options)) {
+    preferred = options
+  } else if (options) {
+    explicit = options.explicit?.trim() || undefined
+    preferred = options.preferred
+  }
+
+  let fallbackDefault: string
+  try {
+    const { settingsService } = await import('./arena/settings-service')
+    fallbackDefault = await settingsService.getDefaultModelId()
+  } catch {
+    fallbackDefault = DEFAULT_SYSTEM_ROLE_MODEL_ID
+  }
+
+  const chatModels = await listChatGatewayModels()
+  if (!chatModels.length) {
+    throw new Error('网关暂无可用对话模型，请在「模型概览」中确认连接与余额')
+  }
+  const available = chatModels.map((m) => m.id)
+  const availableSet = new Set(available)
+  const dedupe = (ids: string[]) => {
+    const seen = new Set<string>()
+    return ids.filter((id) => {
+      const key = id.trim()
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+  const candidates = dedupe([
+    ...(explicit ? [explicit] : []),
+    ...(preferred || []),
+    fallbackDefault,
+    DEFAULT_SYSTEM_ROLE_MODEL_ID,
+    ...available.slice(0, 8),
+  ])
+
+  for (const id of candidates) {
+    if (availableSet.has(id)) return id
+  }
+
+  for (const id of candidates) {
+    const needle = id.toLowerCase()
+    const hit = available.find(
+      (modelId) =>
+        modelId.toLowerCase() === needle ||
+        modelId.toLowerCase().endsWith(`/${needle}`) ||
+        modelId.toLowerCase().includes(needle)
+    )
+    if (hit) return hit
+  }
+
+  return available[0]!
+}
+
 function isLikelyChatModel(model: GatewayModelInfo): boolean {
   const hay = `${model.id} ${model.tags.join(' ')} ${model.endpointTypes.join(' ')}`.toLowerCase()
   if (/image|video|audio|tts|whisper|embedding|rerank|dall|midjourney|flux|sdxl|suno/.test(hay)) {
     return false
   }
   return true
+}
+
+export interface GatewayTtsOptions {
+  text: string
+  voice: string
+  styleInstruction?: string
+}
+
+function normalizeBase64(input: string): string {
+  let s = input.trim()
+  const match = s.match(/^data:[^;,]+;base64,(.+)$/is)
+  if (match) s = match[1]
+  s = s.replace(/\s/g, '')
+  s = s.replace(/-/g, '+').replace(/_/g, '/')
+  const pad = s.length % 4
+  if (pad) s += '='.repeat(4 - pad)
+  return s
+}
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const normalized = normalizeBase64(base64)
+  try {
+    const binary = atob(normalized)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes.buffer
+  } catch {
+    throw new Error('语音数据解码失败，网关返回格式异常')
+  }
+}
+
+function isWavBuffer(buffer: ArrayBuffer): boolean {
+  if (buffer.byteLength < 12) return false
+  return new DataView(buffer).getUint32(0, false) === 0x52494646
+}
+
+function isLikelyMp3(buffer: ArrayBuffer): boolean {
+  if (buffer.byteLength < 3) return false
+  const bytes = new Uint8Array(buffer)
+  if (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) return true
+  return bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0
+}
+
+function pcm16LeToWav(pcm: ArrayBuffer, sampleRate = 24000, channels = 1): ArrayBuffer {
+  const pcmBytes = new Uint8Array(pcm)
+  const dataSize = pcmBytes.length
+  const blockAlign = channels * 2
+  const byteRate = sampleRate * blockAlign
+  const wav = new ArrayBuffer(44 + dataSize)
+  const view = new DataView(wav)
+  const bytes = new Uint8Array(wav)
+
+  const writeTag = (offset: number, tag: string) => {
+    for (let i = 0; i < tag.length; i++) bytes[offset + i] = tag.charCodeAt(i)
+  }
+
+  writeTag(0, 'RIFF')
+  view.setUint32(4, 36 + dataSize, true)
+  writeTag(8, 'WAVE')
+  writeTag(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, channels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, byteRate, true)
+  view.setUint16(32, blockAlign, true)
+  view.setUint16(34, 16, true)
+  writeTag(36, 'data')
+  view.setUint32(40, dataSize, true)
+  bytes.set(pcmBytes, 44)
+  return wav
+}
+
+function normalizeTtsAudioBuffer(buffer: ArrayBuffer): ArrayBuffer {
+  if (buffer.byteLength < 2) {
+    throw new Error('语音数据无效或过小，请检查网关 TTS 配置')
+  }
+  if (isWavBuffer(buffer) || isLikelyMp3(buffer)) return buffer
+  if (buffer.byteLength % 2 === 0) return pcm16LeToWav(buffer)
+  throw new Error('语音数据格式无法识别，请确认网关 TTS 返回 WAV 或 PCM')
+}
+
+function decodeGatewayAudio(data: unknown): ArrayBuffer | null {
+  if (!data || typeof data !== 'object') return null
+  const root = data as Record<string, unknown>
+  const choice = (root.choices as Array<{ message?: Record<string, unknown> }> | undefined)?.[0]
+  const message = choice?.message
+  if (!message) return null
+
+  const audio = message.audio
+  if (typeof audio === 'string' && audio.trim()) {
+    return base64ToArrayBuffer(audio)
+  }
+  if (audio && typeof audio === 'object') {
+    const audioData = (audio as { data?: string; b64?: string }).data ?? (audio as { b64?: string }).b64
+    if (typeof audioData === 'string' && audioData.trim()) return base64ToArrayBuffer(audioData)
+  }
+  if (typeof message.content === 'string') {
+    const content = message.content.trim()
+    if (content.startsWith('data:audio')) {
+      const comma = content.indexOf(',')
+      if (comma >= 0) return base64ToArrayBuffer(content.slice(comma + 1))
+    }
+  }
+  return null
+}
+
+/** MiMo-V2.5-TTS 非流式合成，返回 WAV ArrayBuffer */
+export async function gatewayTtsSynthesize(options: GatewayTtsOptions): Promise<ArrayBuffer> {
+  const text = String(options.text || '').trim()
+  if (!text) throw new Error('TTS 文本为空')
+
+  const res = await gatewayFetch('chat/completions', {
+    method: 'POST',
+    timeoutMs: 90_000,
+    body: {
+      model: MIMO_TTS_MODEL_ID,
+      messages: [
+        {
+          role: 'user',
+          content: options.styleInstruction || '用自然清晰的中文语调朗读以下内容，语速偏快，节奏紧凑。',
+        },
+        { role: 'assistant', content: text },
+      ],
+      audio: {
+        format: 'wav',
+        voice: options.voice,
+      },
+    },
+  })
+
+  if (!res.ok) throw new Error(res.error || '语音合成失败')
+  const raw = decodeGatewayAudio(res.data)
+  if (!raw) {
+    const hint = (res.data as { error?: { message?: string } })?.error?.message
+    throw new Error(hint || '语音合成响应缺少音频数据，请确认网关已启用 mimo-v2.5-tts')
+  }
+  return normalizeTtsAudioBuffer(raw)
 }
 
 export async function testGatewayModel(
@@ -392,6 +608,7 @@ export async function gatewayChatCompletion(
 
 export type StreamChatHandlers = {
   onChunk: (text: string) => void
+  onReasoningChunk?: (text: string) => void
   onUsage?: (usage: GatewayTokenUsage) => void
   onEnd: () => void
   onError: (err: string) => void
@@ -451,7 +668,7 @@ export async function gatewayChatStream(
     const endpoints = await resolveGatewayEndpoints(forceRefreshKey)
     const key = await ensureGatewayKey(getAppKeyName(), forceRefreshKey)
     const url = `${endpoints.chatBaseUrl}/chat/completions`
-    const body = JSON.stringify({ model, messages, stream: true })
+    const body = JSON.stringify({ model, messages, stream: true, stream_options: { include_usage: true } })
 
     const offChunk = window.api.onSSEChunk((line: string) => {
       if (!line.startsWith('data:')) return
@@ -459,11 +676,12 @@ export async function gatewayChatStream(
       if (payload === '[DONE]') return
       try {
         const parsed = JSON.parse(payload) as {
-          choices?: Array<{ delta?: { content?: string } }>
+          choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>
           usage?: GatewayTokenUsage
         }
-        const delta = parsed.choices?.[0]?.delta?.content
-        if (delta) handlers.onChunk(delta)
+        const delta = parsed.choices?.[0]?.delta
+        if (delta?.content) handlers.onChunk(delta.content)
+        if (delta?.reasoning_content) handlers.onReasoningChunk?.(delta.reasoning_content)
         if (parsed.usage) handlers.onUsage?.(parsed.usage)
       } catch {
         /* ignore partial json */
@@ -484,7 +702,11 @@ export async function gatewayChatStream(
       handlers.onError(
         /401/.test(err)
           ? 'API Key 无效或已过期，已尝试自动刷新。请在用户中心检查 Key 与邮箱验证状态'
-          : err
+          : /503|网关暂时不可用|无可用渠道|no available channel/i.test(err)
+            ? (err.includes('503') && err.length < 80
+              ? '模型网关暂时不可用（503），请确认 Platform「New API → 网关配置」上游已启动，且对应模型渠道已启用'
+              : err)
+            : err
       )
     })
 
@@ -497,7 +719,7 @@ export async function gatewayChatStream(
     cleanupFns = [cleanup]
 
     try {
-      await window.api.fetchSSE({ url, method: 'POST', body, token: key })
+      await window.api.fetchSSE({ url, method: 'POST', body, token: key, timeoutMs: 120_000 })
     } catch (err) {
       cleanup()
       const msg = err instanceof Error ? err.message : '流式请求失败'

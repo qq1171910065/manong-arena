@@ -1,6 +1,7 @@
 import { randomUUID } from '@renderer/utils/id'
 import { gameModeService } from './character-service'
 import type { GameMode, GameModePhase, Match, MatchParticipant, PhaseActionKind, WerewolfRuntimeState } from '@shared/arena/types'
+import { checkWerewolfWinCondition } from '@shared/arena/werewolf-win-condition'
 
 function aliveParticipants(match: Match): MatchParticipant[] {
   return match.participants.filter((p) => p.alive === 'alive')
@@ -35,9 +36,9 @@ function buildSpeechQueue(match: Match): string[] {
 }
 
 function phaseHint(actionKind: PhaseActionKind, phase: GameModePhase): string {
-  if (phase.id === 'sheriff-speech') return '警上发言阶段，所有玩家依次表态是否竞选警长，并说明自己的归票思路。'
-  if (phase.id === 'sheriff-vote') return '警长投票阶段，所有存活玩家投票选出警长，最高票获得警徽。'
-  if (actionKind === 'speech') return '白天发言阶段，存活角色按席位顺序发言；警长通常最后归票。'
+  if (phase.id === 'sheriff-speech') return '警上发言阶段：严格按席位顺序依次发言；可竞选警长并说明警徽流。'
+  if (phase.id === 'sheriff-vote') return '警长投票阶段：只有警上宣布竞选的玩家可获票，全体存活玩家从中投票选出警长。'
+  if (actionKind === 'speech') return '发言须严格按席位顺序进行（被 @ 不会提前你的顺位）；警长归票阶段通常最后发言。'
   if (actionKind === 'vote') return '放逐投票阶段，存活且有投票权的角色依次提交投票；警长票按 1.5 票计算。'
   if (actionKind === 'night') return '夜晚行动阶段，守卫、狼人、预言家、女巫依次行动，裁判只公开天亮结果。'
   if (actionKind === 'judge') return '裁判复核胜负、技能触发和警徽流转，准备进入下一阶段。'
@@ -48,6 +49,7 @@ export function createWerewolfState(): WerewolfRuntimeState {
   return {
     sheriffId: null,
     sheriffHistory: [],
+    sheriffCandidates: [],
     antidoteUsed: false,
     poisonUsed: false,
     guardedLastNightId: null,
@@ -62,6 +64,7 @@ export function createWerewolfState(): WerewolfRuntimeState {
     gravediggerLastDeathCamp: null,
     wolfKingShotIds: [],
     whiteWolfKingShotIds: [],
+    wolfTeamRevealed: false,
   }
 }
 
@@ -93,6 +96,10 @@ export function initRuntimeForMode(mode: GameMode): Match['runtime'] {
     waitingHint: '裁判已就位，点击推进开始首个阶段。',
     sheriffId: null,
     werewolfState: mode.id === 'werewolf' ? createWerewolfState() : undefined,
+    roundtableState:
+      mode.engineKind === 'roundtable' || mode.id === 'roundtable'
+        ? { discussionTopic: '待设置议题', totalRounds: 3, hostEnabled: true, narratorEnabled: false }
+        : undefined,
   }
 }
 
@@ -153,6 +160,9 @@ export function isPhaseStepComplete(match: Match): boolean {
   const { runtime } = match
   if (runtime.currentActionKind === 'night' || runtime.currentActionKind === 'judge' || runtime.currentActionKind === 'system') return true
   if (runtime.currentActionKind === 'speech') {
+    if (runtime.currentPhaseId === 'last-words' && runtime.speechQueue.length) {
+      return runtime.speechQueue.every((id) => runtime.actedCharacterIds.includes(id))
+    }
     const aliveIds = aliveParticipants(match).map((p) => p.characterId)
     return aliveIds.every((id) => runtime.actedCharacterIds.includes(id))
   }
@@ -218,6 +228,15 @@ export function resolveSheriffElection(match: Match): { icon: string; text: stri
     return { icon: '⭐', text: '警长投票已完成，警徽由 ' + (match.participants.find((p) => p.characterId === state.sheriffId)?.characterName || '未知角色') + ' 持有。' }
   }
 
+  const candidateIds = new Set(state.sheriffCandidates || [])
+  const candidates = aliveParticipants(match).filter((p) => candidateIds.has(p.characterId))
+  if (!candidates.length) {
+    state.sheriffId = null
+    match.runtime.sheriffId = null
+    match.participants = match.participants.map((p) => ({ ...p, isSheriff: false }))
+    return { icon: '⭐', text: '无人竞选警长，本局暂时没有警长。' }
+  }
+
   const { targetId, tied } = tallyVotes(match)
   if (!targetId || tied) {
     state.sheriffId = null
@@ -226,7 +245,7 @@ export function resolveSheriffElection(match: Match): { icon: string; text: stri
     return { icon: '⭐', text: tied ? '警长投票平票，本局暂时没有警长。' : '警长投票无人当选，本局暂时没有警长。' }
   }
 
-  const sheriff = match.participants.find((p) => p.characterId === targetId && p.alive === 'alive')
+  const sheriff = match.participants.find((p) => p.characterId === targetId && p.alive === 'alive' && candidateIds.has(p.characterId))
   if (!sheriff) return { icon: '⭐', text: '警长投票目标无效，本局暂时没有警长。' }
 
   state.sheriffId = sheriff.characterId
@@ -257,14 +276,30 @@ export function transferSheriffIfNeeded(match: Match, eliminated: MatchParticipa
 function chooseWerewolfNightTarget(match: Match): MatchParticipant | null {
   const alive = aliveParticipants(match)
   const wolves = alive.filter((p) => p.roleCamp === 'wolf')
-  const targets = alive.filter((p) => p.roleCamp !== 'wolf')
-  if (!wolves.length || !targets.length) return null
+  if (!wolves.length) return null
+
+  const goodTargets = alive.filter((p) => p.roleCamp !== 'wolf')
+
+  // 高级战术：自刀骗女巫解药 — 狼人可刀队友（含自己），规则允许
+  const maySelfKnife =
+    match.runtime.currentRound >= 2 &&
+    wolves.length >= 2 &&
+    (match.runtime.currentRound + wolves.length) % 4 === 0
+  if (maySelfKnife) {
+    const sacrificial = wolves.find((p) => !p.isSheriff) || wolves[0]
+    if (sacrificial) return sacrificial
+  }
+
+  if (!goodTargets.length) {
+    return wolves[(match.runtime.currentRound - 1) % wolves.length] ?? wolves[0]
+  }
+
   const sheriffId = match.runtime.werewolfState?.sheriffId
-  const sheriffTarget = targets.find((p) => p.characterId === sheriffId)
+  const sheriffTarget = goodTargets.find((p) => p.characterId === sheriffId)
   if (sheriffTarget) return sheriffTarget
-  const god = targets.find((p) => p.roleId && ['seer', 'witch', 'guard', 'hunter', 'knight'].includes(p.roleId))
+  const god = goodTargets.find((p) => p.roleId && ['seer', 'witch', 'guard', 'hunter', 'knight'].includes(p.roleId))
   if (god) return god
-  return targets[(match.runtime.currentRound + wolves.length - 1) % targets.length] ?? targets[0]
+  return goodTargets[(match.runtime.currentRound + wolves.length - 1) % goodTargets.length] ?? goodTargets[0]
 }
 
 function chooseGuardTarget(match: Match): MatchParticipant | null {
@@ -304,6 +339,16 @@ function chooseWolfBeautyTarget(match: Match): MatchParticipant | null {
   if (!beauty) return null
   const targets = aliveParticipants(match).filter((p) => p.roleCamp !== 'wolf' && p.characterId !== beauty.characterId)
   return targets[(match.runtime.currentRound - 1) % Math.max(targets.length, 1)] ?? targets[0] ?? null
+}
+
+function nightActorLabel(participant: MatchParticipant): string {
+  return participant.seatOrder + '号' + participant.characterName + (participant.roleName ? '（' + participant.roleName + '）' : '')
+}
+
+function campResultLabel(camp: string | null | undefined): string {
+  if (camp === 'wolf') return '狼人阵营'
+  if (camp === 'good') return '好人阵营'
+  return '未知'
 }
 
 function triggerWolfBeautyDeath(match: Match, eliminated: MatchParticipant, state: WerewolfRuntimeState, events: string[]): void {
@@ -411,32 +456,71 @@ export function resolveIdiotExile(match: Match, targetId: string): { prevented: 
   return { prevented: true, text: participant.characterName + ' 被投票放逐时翻开白痴身份，本次免死，但之后失去投票权。' }
 }
 
-export function resolveNightAction(match: Match, mode: GameMode): { icon: string; text: string; eliminated: MatchParticipant[]; details: string[] } {
-  if (mode.id !== 'werewolf') return { icon: '🌙', text: '第 ' + match.runtime.currentRound + ' 夜结束。', eliminated: [], details: [] }
+export function resolveNightAction(match: Match, mode: GameMode): {
+  icon: string
+  text: string
+  eliminated: MatchParticipant[]
+  publicDetails: string[]
+  godDetails: string[]
+} {
+  if (mode.id !== 'werewolf') {
+    return { icon: '🌙', text: '第 ' + match.runtime.currentRound + ' 夜结束。', eliminated: [], publicDetails: [], godDetails: [] }
+  }
   const state = ensureWerewolfState(match)
-  const details: string[] = []
+  const publicDetails: string[] = []
+  const godDetails: string[] = []
   const eliminated: MatchParticipant[] = []
 
+  const guard = aliveParticipants(match).find((p) => p.roleId === 'guard')
   const guardTarget = chooseGuardTarget(match)
   state.guardedThisNightId = guardTarget?.characterId || null
-  if (guardTarget) details.push('守卫完成守护。')
+  if (guard) {
+    if (guardTarget) {
+      godDetails.push('守卫 ' + nightActorLabel(guard) + ' 守护 ' + nightActorLabel(guardTarget))
+    } else {
+      godDetails.push('守卫 ' + nightActorLabel(guard) + ' 本夜未发动守护（可能因不可连续守同一人）')
+    }
+  }
 
   const wolfTarget = chooseWerewolfNightTarget(match)
-  if (wolfTarget) details.push('狼人阵营完成夜袭选择。')
+  if (wolfTarget) {
+    const selfKnife = wolfTarget.roleCamp === 'wolf'
+    godDetails.push(
+      selfKnife
+        ? '狼人发动自刀，袭击 ' + nightActorLabel(wolfTarget) + '（骗女巫解药等高级战术）'
+        : '狼人袭击 ' + nightActorLabel(wolfTarget)
+    )
+  } else {
+    godDetails.push('狼人本夜无有效袭击目标')
+  }
 
   const wolfBeauty = aliveParticipants(match).find((p) => p.roleId === 'wolf_beauty')
   const charmTarget = wolfBeauty ? chooseWolfBeautyTarget(match) : null
   if (wolfBeauty && charmTarget) {
     state.charmedTargetId = charmTarget.characterId
     state.charmedById = wolfBeauty.characterId
-    details.push('狼美人完成魅惑。')
+    godDetails.push('狼美人 ' + nightActorLabel(wolfBeauty) + ' 魅惑 ' + nightActorLabel(charmTarget))
   }
 
   const seer = aliveParticipants(match).find((p) => p.roleId === 'seer')
   const seerTarget = seer ? chooseSeerTarget(match) : null
   if (seer && seerTarget) {
-    state.seerChecks.push({ round: match.runtime.currentRound, seerId: seer.characterId, targetId: seerTarget.characterId, camp: seerTarget.roleCamp || 'unknown' })
-    details.push('预言家完成查验。')
+    state.seerChecks.push({
+      round: match.runtime.currentRound,
+      seerId: seer.characterId,
+      targetId: seerTarget.characterId,
+      camp: seerTarget.roleCamp || 'unknown',
+    })
+    godDetails.push(
+      '预言家 ' +
+        nightActorLabel(seer) +
+        ' 查验 ' +
+        nightActorLabel(seerTarget) +
+        '，结果：' +
+        campResultLabel(seerTarget.roleCamp)
+    )
+  } else if (seer) {
+    godDetails.push('预言家 ' + nightActorLabel(seer) + ' 本夜未查验（无可用目标）')
   }
 
   let savedByWitch = false
@@ -444,17 +528,24 @@ export function resolveNightAction(match: Match, mode: GameMode): { icon: string
   if (witch && wolfTarget && !state.antidoteUsed && wolfTarget.roleId && ['seer', 'witch', 'guard', 'hunter'].includes(wolfTarget.roleId)) {
     savedByWitch = true
     state.antidoteUsed = true
-    details.push('女巫使用了解药。')
+    godDetails.push('女巫 ' + nightActorLabel(witch) + ' 对 ' + nightActorLabel(wolfTarget) + ' 使用解药')
+  } else if (witch) {
+    if (state.antidoteUsed) godDetails.push('女巫解药已用尽，本夜未使用解药')
+    else if (wolfTarget) godDetails.push('女巫 ' + nightActorLabel(witch) + ' 本夜未使用解药')
   }
 
   const guarded = Boolean(wolfTarget && state.guardedThisNightId === wolfTarget.characterId)
+  if (wolfTarget && guarded) {
+    godDetails.push('守卫与狼刀指向同一人，该目标免疫狼刀')
+  }
+
   if (wolfTarget && !guarded && !savedByWitch) {
     const victim = eliminateParticipant(match, wolfTarget.characterId)
     if (victim) {
       eliminated.push(victim)
-      details.push(...triggerDeathSkill(match, victim, 'night'))
+      publicDetails.push(...triggerDeathSkill(match, victim, 'night'))
       const transferText = transferSheriffIfNeeded(match, victim)
-      if (transferText) details.push(transferText)
+      if (transferText) publicDetails.push(transferText)
     }
   }
 
@@ -464,15 +555,22 @@ export function resolveNightAction(match: Match, mode: GameMode): { icon: string
       state.poisonUsed = true
       if (!state.poisonedCharacterIds) state.poisonedCharacterIds = []
       state.poisonedCharacterIds.push(poisonTarget.characterId)
+      godDetails.push('女巫 ' + nightActorLabel(witch) + ' 对 ' + nightActorLabel(poisonTarget) + ' 使用毒药')
       const poisoned = eliminateParticipant(match, poisonTarget.characterId)
       if (poisoned) {
         eliminated.push(poisoned)
-        details.push('女巫使用毒药，' + poisoned.characterName + ' 中毒出局。')
-        details.push(...triggerDeathSkill(match, poisoned, 'poison'))
+        publicDetails.push('女巫使用毒药，' + poisoned.characterName + ' 中毒出局。')
+        publicDetails.push(...triggerDeathSkill(match, poisoned, 'poison'))
         const transferText = transferSheriffIfNeeded(match, poisoned)
-        if (transferText) details.push(transferText)
+        if (transferText) publicDetails.push(transferText)
       }
+    } else {
+      godDetails.push('女巫 ' + nightActorLabel(witch) + ' 本夜未使用毒药')
     }
+  } else if (witch && state.poisonUsed) {
+    godDetails.push('女巫毒药已用尽')
+  } else if (witch) {
+    godDetails.push('女巫 ' + nightActorLabel(witch) + ' 本夜未使用毒药')
   }
 
   state.guardedLastNightId = state.guardedThisNightId
@@ -487,28 +585,34 @@ export function resolveNightAction(match: Match, mode: GameMode): { icon: string
     state.nightDeaths = []
   }
 
+  state.wolfTeamRevealed = true
+
   if (!eliminated.length) {
-    return { icon: '🌙', text: '第 ' + match.runtime.currentRound + ' 夜结束，昨夜平安夜。', eliminated, details }
+    return { icon: '🌙', text: '第 ' + match.runtime.currentRound + ' 夜结束，昨夜平安夜。', eliminated, publicDetails, godDetails }
   }
-  return { icon: '🌘', text: '第 ' + match.runtime.currentRound + ' 夜结束，' + eliminated.map((p) => p.characterName).join('、') + ' 倒在黎明前。', eliminated, details }
+  return {
+    icon: '🌘',
+    text: '第 ' + match.runtime.currentRound + ' 夜结束，' + eliminated.map((p) => p.characterName).join('、') + ' 倒在黎明前。',
+    eliminated,
+    publicDetails,
+    godDetails,
+  }
 }
 
 export function checkWinCondition(match: Match, mode: GameMode): { winnerCamp: string; summary: string } | null {
-  const alive = aliveParticipants(match)
-  const camps = new Map<string, number>()
-  for (const p of alive) camps.set(p.roleCamp || 'neutral', (camps.get(p.roleCamp || 'neutral') || 0) + 1)
-  if (mode.id === 'werewolf') {
-    const wolves = camps.get('wolf') || 0
-    const good = camps.get('good') || 0
-    if (wolves === 0 && good > 0) return { winnerCamp: 'good', summary: '好人阵营获胜：所有狼人已经出局。' }
-    if (wolves >= good && wolves > 0) return { winnerCamp: 'wolf', summary: '狼人阵营获胜：狼人数量已不少于存活好人。' }
-  }
+  if (mode.id === 'werewolf') return checkWerewolfWinCondition(match, mode)
   return null
 }
 
 export function advanceToNextPhase(match: Match, mode: GameMode): Match {
   const sorted = [...mode.phases].sort((a, b) => a.order - b.order)
+  const skipSheriff = mode.id === 'werewolf' && match.runtime.sheriffEnabled === false
   let nextIndex = match.runtime.phaseIndex + 1
+  if (skipSheriff) {
+    while (nextIndex < sorted.length && (sorted[nextIndex].id === 'sheriff-speech' || sorted[nextIndex].id === 'sheriff-vote')) {
+      nextIndex += 1
+    }
+  }
   if (nextIndex >= sorted.length) {
     nextIndex = mode.id === 'werewolf' ? sorted.findIndex((p) => p.id === 'night') : 0
     if (nextIndex < 0) nextIndex = 0

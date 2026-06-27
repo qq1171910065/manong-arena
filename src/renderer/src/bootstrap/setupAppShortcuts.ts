@@ -18,7 +18,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 function executeShortcutAction(id: ShortcutActionId): void {
   switch (id) {
     case 'goSettings':
-      navigate('/settings')
+      navigate('/settings/display')
       break
     case 'focusSearch':
       requestSidebarSearchFocus()

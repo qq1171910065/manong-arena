@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart, LineChart, PieChart } from 'echarts/charts'
@@ -36,24 +36,7 @@ const props = withDefaults(
   }
 )
 
-const themeRevision = ref(0)
-
-function bumpTheme() {
-  themeRevision.value += 1
-}
-
-onMounted(() => {
-  window.addEventListener('mntools:theme-change', bumpTheme)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('mntools:theme-change', bumpTheme)
-})
-
-const themedOption = computed(() => {
-  themeRevision.value
-  return mergeChartTheme(props.option)
-})
+const themedOption = computed(() => mergeChartTheme(props.option))
 
 const chartStyle = computed(() => ({
   height: props.height,

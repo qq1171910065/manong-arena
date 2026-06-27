@@ -4,13 +4,8 @@
  */
 export { default as UiProvider } from './UiProvider.vue'
 export { default as AppChart } from './charts/AppChart.vue'
-export { default as AppChartCard } from './AppChartCard.vue'
 export { buildChartBaseOption, mergeChartTheme } from './charts/chart-theme'
-export { default as AppButton } from './AppButton.vue'
-export { default as AppPageHeader } from './AppPageHeader.vue'
-export { default as AppStatCard } from './AppStatCard.vue'
 export { default as AppEmptyState } from './AppEmptyState.vue'
-export { default as AppFilterBar } from './AppFilterBar.vue'
 export { buildNaiveThemeOverrides, isDarkMode } from './naive-theme'
 
 export {

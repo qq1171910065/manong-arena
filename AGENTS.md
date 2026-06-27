@@ -21,12 +21,7 @@ src/shared/         跨进程类型
 
 ## 同步脚手架更新
 
-在项目根目录执行（不覆盖 `data/`、`app.config.ts` 与 `HomePage`）：
-
-```bash
-create-mntools-app update
-create-mntools-app update --config --deps
-```
+本项目已独立定制，不再依赖 `.mntools-scaffold.json`。如需对齐 mntools 脚手架能力，请手动 cherry-pick 相关模块。
 
 ## 添加页面
 

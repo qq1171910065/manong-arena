@@ -1,10 +1,17 @@
 import { randomUUID } from '@renderer/utils/id'
-import { BUILTIN_GAME_MODES } from '@shared/arena/constants'
+import { BUILTIN_GAME_MODES, DEFAULT_ARENA_MODEL_ID } from '@shared/arena/constants'
+import { isUserGameModeId } from '@shared/arena/export-packages'
+import { buildPackVisualPatch, normalizeCharacterVisuals } from '@shared/arena/character-visuals'
+import { resolveTtsVoiceId } from '@shared/arena/voice-presets'
 import { arenaInvoke, ensureArenaReady } from './client'
+import { estimateMatchCost } from './match-cost-estimator'
 import { ArenaError } from './errors'
 import type { Character, CharacterFilter, CreateMatchInput, GameMode, GameModeOverride } from '@shared/arena/types'
 
 let gameModeOverrides: Record<string, GameModeOverride> = {}
+let customGameModes: GameMode[] = []
+let installedGameModeIds: string[] = []
+let storeSeededAt: string | null = null
 
 function mergeGameMode(mode: GameMode): GameMode {
   const override = gameModeOverrides[mode.id]
@@ -14,7 +21,25 @@ function mergeGameMode(mode: GameMode): GameMode {
 
 export async function loadGameModeOverrides(): Promise<void> {
   await ensureArenaReady()
-  gameModeOverrides = await arenaInvoke('storage', 'getGameModeOverrides', () => window.api.getGameModeOverrides())
+  const [overrides, stats, customModes] = await Promise.all([
+    arenaInvoke('storage', 'getGameModeOverrides', () => window.api.getGameModeOverrides()),
+    arenaInvoke('storage', 'getStoreStats', () => window.api.getStoreStats()),
+    arenaInvoke('storage', 'listCustomGameModes', () => window.api.listCustomGameModes()),
+  ])
+  gameModeOverrides = overrides
+  customGameModes = customModes
+  storeSeededAt = stats.seededAt
+  installedGameModeIds = [...stats.installedGameModeIds]
+}
+
+function listInstalledBuiltinModes(): GameMode[] {
+  if (!storeSeededAt || installedGameModeIds.length === 0) return []
+  const allowed = new Set(installedGameModeIds)
+  return BUILTIN_GAME_MODES.filter((mode) => allowed.has(mode.id)).map(mergeGameMode)
+}
+
+function listInstalledCustomModes(): GameMode[] {
+  return customGameModes.filter((mode) => installedGameModeIds.includes(mode.id)).map(mergeGameMode)
 }
 
 export function getBuiltinGameMode(id: string): GameMode | undefined {
@@ -66,18 +91,23 @@ function filterCharacters(items: Character[], filter: CharacterFilter = {}): Cha
 
 export function createEmptyCharacter(partial?: Partial<Character>): Character {
   const now = new Date().toISOString()
-  return {
+  const visualDefaults = buildPackVisualPatch('doubao', '#6366f1')
+  const speechStyle = partial?.speechStyle || '温柔'
+  const gender = partial?.gender || 'female'
+  return normalizeCharacterVisuals({
     id: randomUUID(),
     name: '新角色',
     subtitle: '一句话设定',
-    modelId: 'doubao',
-    avatarUrl: 'asset://avatar/doubao',
-    portraitUrl: 'asset://portrait/doubao',
-    gender: 'female',
+    modelId: partial?.modelId || DEFAULT_ARENA_MODEL_ID,
+    gender,
     ageLabel: '18岁',
     bio: '',
     tags: [],
-    speechStyle: '温柔',
+    speechStyle,
+    ttsVoiceId: partial?.ttsVoiceId || resolveTtsVoiceId({ speechStyle, gender }),
+    ttsOpeningStyleTags: partial?.ttsOpeningStyleTags || [],
+    ttsAutoStyleTags: partial?.ttsAutoStyleTags ?? true,
+    ttsAutoStyleInstruction: partial?.ttsAutoStyleInstruction ?? true,
     commonPhrases: [],
     behaviorPrinciples: [],
     tabooBehaviors: [],
@@ -86,13 +116,15 @@ export function createEmptyCharacter(partial?: Partial<Character>): Character {
     weaknesses: [],
     gameModePreferences: [],
     roleStrategies: [],
+    gameSkills: [],
     status: 'enabled',
     accentColor: '#6366f1',
     stats: { matchCount: 0, winCount: 0, avgCostCents: 0, lastMatchAt: null },
     createdAt: now,
     updatedAt: now,
+    ...visualDefaults,
     ...partial,
-  }
+  }) as Character
 }
 
 export const characterService = {
@@ -104,14 +136,16 @@ export const characterService = {
 
   async get(id: string): Promise<Character> {
     await ensureArenaReady()
-    return arenaInvoke('character', 'getCharacter', () => window.api.getCharacter(id))
+    const character = await arenaInvoke('character', 'getCharacter', () => window.api.getCharacter(id))
+    return normalizeCharacterVisuals(character)
   },
 
   async save(character: Character): Promise<Character> {
     if (!character.name.trim()) throw new ArenaError('VALIDATION', '角色名称不能为空', 'character')
     await ensureArenaReady()
-    const plain = toPlainCharacter(character)
-    return arenaInvoke('character', 'saveCharacter', () => window.api.saveCharacter(plain))
+    const plain = toPlainCharacter(normalizeCharacterVisuals(character))
+    const saved = await arenaInvoke('character', 'saveCharacter', () => window.api.saveCharacter(plain))
+    return normalizeCharacterVisuals(saved)
   },
 
   async remove(id: string): Promise<void> {
@@ -133,18 +167,27 @@ export const characterService = {
 
 export const gameModeService = {
   list(): GameMode[] {
-    return BUILTIN_GAME_MODES.map(mergeGameMode)
+    return [...listInstalledBuiltinModes(), ...listInstalledCustomModes()]
   },
 
   get(id: string): GameMode | undefined {
+    const custom = customGameModes.find((mode) => mode.id === id)
+    if (custom) return mergeGameMode(custom)
+    if (!storeSeededAt || !installedGameModeIds.includes(id)) return undefined
     const base = BUILTIN_GAME_MODES.find((m) => m.id === id)
     return base ? mergeGameMode(base) : undefined
   },
 
+  isCustom(modeId: string): boolean {
+    return isUserGameModeId(modeId) || customGameModes.some((mode) => mode.id === modeId)
+  },
+
   estimateCost(modeId: string, playerCount: number): number {
-    const mode = this.get(modeId)
-    if (!mode) return 0
-    return mode.estimatedCostPerPlayerCents * playerCount
+    return estimateMatchCost(modeId, playerCount).totalCents
+  },
+
+  estimateCostDetail(modeId: string, playerCount: number) {
+    return estimateMatchCost(modeId, playerCount)
   },
 
   async saveOverride(modeId: string, override: GameModeOverride): Promise<GameMode> {
@@ -152,7 +195,7 @@ export const gameModeService = {
     gameModeOverrides = await arenaInvoke('storage', 'saveGameModeOverride', () =>
       window.api.saveGameModeOverride(modeId, override)
     )
-    const base = BUILTIN_GAME_MODES.find((m) => m.id === modeId)
+    const base = BUILTIN_GAME_MODES.find((m) => m.id === modeId) || customGameModes.find((m) => m.id === modeId)
     if (!base) throw new ArenaError('NOT_FOUND', '玩法不存在', 'match')
     return mergeGameMode(base)
   },
@@ -162,7 +205,7 @@ export const gameModeService = {
     gameModeOverrides = await arenaInvoke('storage', 'clearGameModeOverride', () =>
       window.api.clearGameModeOverride(modeId)
     )
-    const base = BUILTIN_GAME_MODES.find((m) => m.id === modeId)
+    const base = BUILTIN_GAME_MODES.find((m) => m.id === modeId) || customGameModes.find((m) => m.id === modeId)
     if (!base) throw new ArenaError('NOT_FOUND', '玩法不存在', 'match')
     return structuredClone(base)
   },

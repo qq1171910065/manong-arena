@@ -16,7 +16,7 @@ export const requestDomain = {
       timeoutMs: opts?.timeoutMs,
     }),
 
-  fetchSSE: (payload: { url: string; method?: string; body?: string; token?: string }) =>
+  fetchSSE: (payload: { url: string; method?: string; body?: string; token?: string; timeoutMs?: number }) =>
     ipcRenderer.invoke('request:fetch-sse', payload),
 
   cancelSSE: () => ipcRenderer.invoke('request:cancel-sse'),
@@ -67,8 +67,10 @@ export const appDomain = {
 }
 
 export const fileDomain = {
-  openFileDialog: () => ipcRenderer.invoke('file:open-dialog'),
-  saveFileDialog: (defaultName?: string) => ipcRenderer.invoke('file:save-dialog', defaultName),
+  openFileDialog: (options?: { filters?: Array<{ name: string; extensions: string[] }> }) =>
+    ipcRenderer.invoke('file:open-dialog', options),
+  saveFileDialog: (defaultName?: string, options?: { filters?: Array<{ name: string; extensions: string[] }> }) =>
+    ipcRenderer.invoke('file:save-dialog', defaultName, options),
   readTextFile: (path: string) => ipcRenderer.invoke('file:read-text', path),
   writeTextFile: (path: string, content: string) => ipcRenderer.invoke('file:write-text', path, content),
 }
@@ -115,6 +117,41 @@ export const shellDomain = {
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url) as Promise<{ ok: boolean; error?: string }>,
   showItemInFolder: (path: string) => ipcRenderer.invoke('shell:show-item-in-folder', path) as Promise<{ ok: boolean; error?: string }>,
   openPath: (path: string) => ipcRenderer.invoke('shell:open-path', path) as Promise<{ ok: boolean; error?: string }>,
+}
+
+export const clientUpdateDomain = {
+  getRuntimeMeta: () =>
+    ipcRenderer.invoke('app:get-runtime-meta') as Promise<{
+      appVersion: string
+      platform: string
+      arch: string
+      electronVersion: string
+    }>,
+  downloadAndInstallClientUpdate: (payload: { url: string; suggestedName?: string }) =>
+    ipcRenderer.invoke('client-update:download-and-install', payload) as Promise<{
+      success: boolean
+      error?: string
+    }>,
+  onClientUpdateProgress: (
+    callback: (payload: {
+      phase: 'download' | 'install'
+      percent?: number
+      receivedBytes?: number
+      totalBytes?: number | null
+    }) => void
+  ) => {
+    const handler = (
+      _event: unknown,
+      data: {
+        phase: 'download' | 'install'
+        percent?: number
+        receivedBytes?: number
+        totalBytes?: number | null
+      }
+    ) => callback(data)
+    ipcRenderer.on('client-update:progress', handler)
+    return () => ipcRenderer.removeListener('client-update:progress', handler)
+  },
 }
 
 export const shortcutDomain = {
@@ -191,6 +228,7 @@ export const windowControls = {
 export type MntoolsApi = typeof requestDomain &
   typeof authDomain &
   typeof appDomain &
+  typeof clientUpdateDomain &
   Partial<typeof fileDomain> &
   Partial<typeof notificationDomain> &
   Partial<typeof storageDomain> &
@@ -208,7 +246,7 @@ export type MntoolsApi = typeof requestDomain &
   Partial<typeof deeplinkDomain>
 
 export function buildApi(modules: string[]): MntoolsApi {
-  const api: Record<string, unknown> = { ...requestDomain, ...authDomain, ...appDomain }
+  const api: Record<string, unknown> = { ...requestDomain, ...authDomain, ...appDomain, ...clientUpdateDomain }
 
   if (modules.includes('file')) Object.assign(api, fileDomain)
   if (modules.includes('notification')) Object.assign(api, notificationDomain)

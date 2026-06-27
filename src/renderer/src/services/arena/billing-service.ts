@@ -1,5 +1,6 @@
 import { portalApi } from '../portal-api'
 import { arenaLog } from './logger'
+import { gatewayPricingService } from '../gateway-pricing'
 
 let cachedBalanceCents: number | null = null
 let cachedAt = 0
@@ -26,21 +27,16 @@ export const billingService = {
   invalidateCache(): void {
     cachedBalanceCents = null
     cachedAt = 0
+    gatewayPricingService.invalidate()
   },
 
-  estimateCallCostCents(
+  /** 按网关定价表 + 实际 token 估算费用（与 New API 计费公式一致） */
+  async estimateCallCostCents(
+    modelId: string,
     usage?: { prompt_tokens?: number; completion_tokens?: number },
     fallback?: { promptChars?: number; completionChars?: number }
-  ): number {
-    let prompt = usage?.prompt_tokens || 0
-    let completion = usage?.completion_tokens || 0
-    if (!prompt && !completion && fallback) {
-      prompt = Math.ceil((fallback.promptChars || 0) / 2.5)
-      completion = Math.ceil((fallback.completionChars || 0) / 2.5)
-    }
-    const totalTokens = prompt + completion
-    if (totalTokens <= 0) return 1
-    return Math.max(1, Math.round(totalTokens * 0.02))
+  ): Promise<number> {
+    return gatewayPricingService.estimateCostCents(modelId, usage, fallback)
   },
 
   formatBalance(cents: number | null): string {

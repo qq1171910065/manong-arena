@@ -1,97 +1,111 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { MessageSquare, Send } from 'lucide-vue-next'
-import { askHelpAssistant } from '@renderer/services/help-assistant'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { Loader2, Send, SquarePen } from 'lucide-vue-next'
+import ArenaChatBubble from '@renderer/components/arena/ArenaChatBubble.vue'
+import { formatUserMessage } from '@renderer/services/arena'
+import { createHelpWelcomeMessage, helpChatService } from '@renderer/services/help-chat-service'
 import ProfileSectionLayout from './ProfileSectionLayout.vue'
-import { NButton, NCard, NInput, NSpace } from '../../ui'
-
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  text: string
-  sectionTitle?: string
-  suggestions?: string[]
-}
+import { NButton, NInput } from '../../ui'
+import type { CharacterChatMessage } from '@shared/arena/types'
 
 const input = ref('')
 const sending = ref(false)
-const messages = ref<ChatMessage[]>([
-  {
-    id: 'welcome',
-    role: 'assistant',
-    text: '你好，我是帮助助手。你可以问我关于角色、对局、模型服务、钱包充值等问题，我会基于项目文档回答。',
-    suggestions: ['模型无法回复怎么办？', '如何充值？', '对局怎么创建？'],
-  },
-])
+const loading = ref(false)
+const error = ref('')
+const logRef = ref<HTMLElement | null>(null)
+const messages = ref<CharacterChatMessage[]>([])
 
-const canSend = computed(() => input.value.trim().length > 0 && !sending.value)
+const canSend = computed(() => input.value.trim().length > 0 && !sending.value && !loading.value)
 
-function pushMessage(message: ChatMessage) {
-  messages.value = [...messages.value, message]
+async function scrollToBottom() {
+  await nextTick()
+  const el = logRef.value
+  if (el) el.scrollTop = el.scrollHeight
 }
 
-async function sendQuestion(question?: string) {
-  const text = (question ?? input.value).trim()
-  if (!text || sending.value) return
+async function loadHistory() {
+  loading.value = true
+  error.value = ''
+  try {
+    const stored = await helpChatService.listMessages()
+    messages.value = stored.length ? stored : [createHelpWelcomeMessage()]
+    await scrollToBottom()
+  } catch (err) {
+    error.value = formatUserMessage(err)
+    messages.value = [createHelpWelcomeMessage()]
+  } finally {
+    loading.value = false
+  }
+}
+
+async function startNewConversation() {
+  if (sending.value) return
+  input.value = ''
+  error.value = ''
+  await helpChatService.clearMessages()
+  messages.value = [createHelpWelcomeMessage()]
+  await scrollToBottom()
+}
+
+async function sendQuestion() {
+  const text = input.value.trim()
+  if (!text || sending.value || loading.value) return
 
   input.value = ''
-  pushMessage({ id: `u-${Date.now()}`, role: 'user', text })
   sending.value = true
+  error.value = ''
 
-  await new Promise((resolve) => setTimeout(resolve, 180))
-
-  const reply = askHelpAssistant(text)
-  pushMessage({
-    id: `a-${Date.now()}`,
-    role: 'assistant',
-    text: reply.answer,
-    sectionTitle: reply.sectionTitle,
-    suggestions: reply.suggestions,
-  })
-  sending.value = false
+  try {
+    const result = await helpChatService.askStream(text, (next) => {
+      messages.value = next
+      void scrollToBottom()
+    })
+    messages.value = result.messages
+    await scrollToBottom()
+  } catch (err) {
+    error.value = formatUserMessage(err)
+  } finally {
+    sending.value = false
+  }
 }
+
+onMounted(() => {
+  void loadHistory()
+})
 </script>
 
 <template>
-  <ProfileSectionLayout
-    title="帮助中心"
-    desc="对话式问答，基于项目文档智能匹配相关说明。"
-  >
-    <NCard class="mntools-panel help-chat-card">
-      <div class="help-chat-log">
-        <div
+  <ProfileSectionLayout title="帮助中心" class="help-chat-section">
+    <template #actions>
+      <NButton quaternary size="small" :disabled="sending || loading" @click="startNewConversation">
+        <template #icon><SquarePen :size="14" /></template>
+        新问题
+      </NButton>
+    </template>
+
+    <div class="help-chat-window">
+      <div ref="logRef" class="help-chat-log">
+        <div v-if="loading" class="help-chat-loading">
+          <Loader2 :size="18" class="spin" />
+          加载会话…
+        </div>
+        <ArenaChatBubble
           v-for="item in messages"
           :key="item.id"
-          class="help-chat-message"
-          :class="`help-chat-message--${item.role}`"
-        >
-          <div class="help-chat-message__bubble">
-            <p v-if="item.sectionTitle" class="help-chat-message__section">
-              参考：{{ item.sectionTitle }}
-            </p>
-            <p class="help-chat-message__text">{{ item.text }}</p>
-            <NSpace v-if="item.suggestions?.length" :size="6" class="help-chat-message__suggestions">
-              <NButton
-                v-for="suggestion in item.suggestions"
-                :key="suggestion"
-                size="tiny"
-                quaternary
-                @click="sendQuestion(suggestion)"
-              >
-                {{ suggestion }}
-              </NButton>
-            </NSpace>
-          </div>
-        </div>
+          :message="item"
+          thinking-label="正在查阅项目文档…"
+        />
       </div>
+
+      <p v-if="error" class="help-chat-error">{{ error }}</p>
 
       <div class="help-chat-input">
         <NInput
           v-model:value="input"
           type="textarea"
           :rows="2"
-          placeholder="描述你的问题，例如：模型无法回复怎么办？"
-          :disabled="sending"
+          placeholder="输入你的问题..."
+          :disabled="sending || loading"
           @keydown.enter.exact.prevent="sendQuestion()"
         />
         <NButton type="primary" :disabled="!canSend" :loading="sending" @click="sendQuestion()">
@@ -99,79 +113,85 @@ async function sendQuestion(question?: string) {
           发送
         </NButton>
       </div>
-    </NCard>
-
-    <NCard class="mntools-panel help-chat-tip" title="提示">
-      <p class="text-muted">
-        <MessageSquare :size="14" style="vertical-align: -2px" />
-        如需查看完整说明，请前往「项目文档」Tab。复杂问题可在「报 Bug」中提交反馈。
-      </p>
-    </NCard>
+    </div>
   </ProfileSectionLayout>
 </template>
 
 <style scoped>
-.help-chat-card :deep(.n-card__content) {
+.help-chat-section {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.help-chat-section :deep(.profile-section) {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.help-chat-section :deep(.profile-section__body) {
+  flex: 1 1 0;
+  min-height: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  overflow: hidden;
+}
+
+.help-chat-window {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--profile-head-border);
+  background: color-mix(in srgb, var(--surface) 42%, transparent);
 }
 
 .help-chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: 420px;
-  overflow: auto;
-  padding-right: 4px;
+  gap: 12px;
+  padding: 20px var(--profile-body-padding-inline);
 }
 
-.help-chat-message {
+.help-chat-loading {
   display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: var(--text-sm);
 }
 
-.help-chat-message--user {
-  justify-content: flex-end;
-}
-
-.help-chat-message__bubble {
-  max-width: min(640px, 92%);
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(130, 142, 207, 0.14);
-}
-
-.help-chat-message--user .help-chat-message__bubble {
-  background: rgba(98, 92, 240, 0.12);
-  border-color: rgba(98, 92, 240, 0.18);
-}
-
-.help-chat-message__section {
-  margin: 0 0 6px;
-  color: #625cf0;
-  font-size: 12px;
-}
-
-.help-chat-message__text {
+.help-chat-error {
   margin: 0;
-  white-space: pre-wrap;
-  line-height: 1.6;
-}
-
-.help-chat-message__suggestions {
-  margin-top: 8px;
+  padding: 0 var(--profile-body-padding-inline) 8px;
+  color: #c2410c;
+  font-size: var(--text-xs);
 }
 
 .help-chat-input {
+  flex-shrink: 0;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: end;
+  padding: 14px var(--profile-body-padding-inline) var(--profile-body-padding-block);
+  border-top: 1px solid var(--profile-head-border);
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
 }
 
-.help-chat-tip p {
-  margin: 0;
-  font-size: 13px;
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

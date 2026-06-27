@@ -3,7 +3,6 @@ import { onMounted, ref } from 'vue'
 import { Copy, ExternalLink } from 'lucide-vue-next'
 import { getRuntimeConfig } from '@renderer/composables/runtime-config'
 import { getApiBaseUrl } from '@renderer/services/config'
-import { getStoredThemeId, THEME_PRESETS } from '@renderer/composables/useTheme'
 import { formatAcceleratorLabel } from '@renderer/composables/shortcut-utils'
 import { SHORTCUT_CATALOG, getShortcutBinding } from '@renderer/composables/useShortcutSettings'
 import { NButton, NCard, useMessage } from '../../ui'
@@ -18,11 +17,9 @@ async function loadVersion() {
 }
 
 async function copyDiagnostics() {
-  const themeId = getStoredThemeId(config.themeId)
   const lines = [
     `应用: ${config.displayName} (${config.appId})`,
     `版本: ${version.value}`,
-    `主题: ${THEME_PRESETS[themeId]?.label ?? themeId}`,
     `平台地址: ${getApiBaseUrl()}`,
     `系统: ${navigator.platform}`,
     `语言: ${navigator.language}`,

@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { ChevronRight, Play, Sparkles, Users } from 'lucide-vue-next'
+import { ChevronRight, Play, Sparkles } from 'lucide-vue-next'
 import ArenaPageState from '@renderer/components/arena/ArenaPageState.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { navigate } from '../router'
 import {
   arenaSession,
   dashboardService,
+  mapCharacterActivityFeed,
   mapCharactersForHome,
   mapMatchesForHome,
-  mapModesForHome,
   matchWindowService,
 } from '@renderer/services/arena'
-import type { HomeCharacterCard, HomeMatchRow, HomeModeCard } from '@renderer/services/arena/home-mapper'
+import type { HomeCharacterActivity, HomeCharacterCard, HomeMatchRow } from '@renderer/services/arena/home-mapper'
 
 const characters = ref<HomeCharacterCard[]>([])
 const recentMatches = ref<HomeMatchRow[]>([])
-const gameModes = ref<HomeModeCard[]>([])
+const characterActivities = ref<HomeCharacterActivity[]>([])
 
 const sloganLines = [
   { lead: '我的 AI 角色', highlight: '已就位', mark: '✦' },
@@ -49,6 +49,9 @@ const activeBubbleIndex = ref<number | null>(null)
 const activeBubbleText = ref('')
 const activeBubbleTyped = ref('')
 const speakingCharacterIndex = ref<number | null>(null)
+const carouselIndex = ref(0)
+const hoveredCardIndex = ref<number | null>(null)
+const deckHovered = ref(false)
 const canCreateMatch = ref(true)
 const resumableMatchId = ref('')
 const homeLoading = ref(true)
@@ -59,26 +62,94 @@ let bubbleTimer: number | undefined
 let bubbleHideTimer: number | undefined
 let bubbleRevealTimer: number | undefined
 let bubbleTypingTimer: number | undefined
+let carouselTimer: number | undefined
 
 const activeSlogan = computed(() => sloganLines[sloganIndex.value])
 const hasResumeMatch = computed(() => Boolean(resumableMatchId.value))
-const matchListClass = computed(() => ({
-  'match-list--single': recentMatches.value.length === 1,
-  'match-list--compact': recentMatches.value.length >= 3,
-}))
+const MAX_RECENT_MATCHES = 10
+const MAX_CHARACTER_ACTIVITIES = 20
+
+const visibleMatches = computed(() => recentMatches.value.slice(0, MAX_RECENT_MATCHES))
+const visibleActivities = computed(() => characterActivities.value.slice(0, MAX_CHARACTER_ACTIVITIES))
+
+function getCardRelativeIndex(index: number, count = characters.value.length): number {
+  if (count <= 1) return 0
+  const center = ((carouselIndex.value % count) + count) % count
+  let rel = index - center
+  const half = count / 2
+  if (rel >= half) rel -= count
+  if (rel < -half) rel += count
+  return rel
+}
+
+function advanceCarousel() {
+  const count = characters.value.length
+  if (count <= 1) return
+  carouselIndex.value = (carouselIndex.value + 1) % count
+}
+
+function getCardDeckStyle(index: number): Record<string, string | number> {
+  const count = characters.value.length
+  if (!count) return {}
+
+  const rel = getCardRelativeIndex(index, count)
+  const isHovered = hoveredCardIndex.value === index
+  const isSpeaking = speakingCharacterIndex.value === index
+  const spread = count > 4 ? 124 : 138
+  const translateX = rel * spread
+  const rotate = rel * 4.2
+  const lift = isSpeaking ? 24 : isHovered ? 20 : rel === 0 ? 16 : Math.max(0, 4 - Math.abs(rel))
+  const scale = isSpeaking ? 1.14 : isHovered ? 1.1 : rel === 0 ? 1.07 : Math.max(0.88, 1 - Math.abs(rel) * 0.032)
+  const zIndex = isSpeaking ? 30 : isHovered ? 24 : 16 - Math.abs(rel)
+  const opacity = Math.max(0.78, 1 - Math.abs(rel) * 0.045)
+
+  return {
+    zIndex,
+    opacity,
+    transform: `translateX(${translateX}px) translateY(${-lift}px) rotate(${rotate}deg) scale(${scale})`,
+  }
+}
+
+function speechSide(index: number): 'left' | 'right' {
+  const count = characters.value.length
+  if (count <= 1) return 'right'
+  return getCardRelativeIndex(index, count) >= 0 ? 'right' : 'left'
+}
+
+function startCarousel() {
+  if (carouselTimer) window.clearInterval(carouselTimer)
+  carouselTimer = window.setInterval(() => {
+    if (deckHovered.value) return
+    if (speakingCharacterIndex.value !== null) return
+    advanceCarousel()
+  }, 4200)
+}
 
 async function loadDashboard() {
   homeLoading.value = true
   try {
     const dashboard = await dashboardService.load()
     characters.value = mapCharactersForHome(dashboard.characters)
-    recentMatches.value = mapMatchesForHome(dashboard.recentMatches, dashboard.characters)
-    gameModes.value = mapModesForHome(dashboard.gameModes)
+    recentMatches.value = mapMatchesForHome(dashboard.recentMatches, dashboard.allCharacters)
+    characterActivities.value = mapCharacterActivityFeed({
+      characters: dashboard.allCharacters,
+      behaviorChanges: dashboard.behaviorChanges,
+      growthRecords: dashboard.growthRecords,
+      limit: MAX_CHARACTER_ACTIVITIES,
+    })
     resumableMatchId.value = dashboard.resumableMatch?.id || ''
-    canCreateMatch.value = dashboard.characters.length > 0
+    canCreateMatch.value = dashboard.allCharacters.some((c) => c.status === 'enabled')
+    carouselIndex.value = 0
+    startCarousel()
+    if (characters.value.length) scheduleCharacterBubble(900)
   } catch {
     characters.value = mapCharactersForHome([])
-    gameModes.value = mapModesForHome([])
+    characterActivities.value = mapCharacterActivityFeed({
+      characters: [],
+      behaviorChanges: [],
+      growthRecords: [],
+      limit: MAX_CHARACTER_ACTIVITIES,
+    })
   } finally {
     homeLoading.value = false
   }
@@ -90,7 +161,7 @@ async function openMatchRoom(matchId: string) {
 
 function openCreateMatch(modeId?: string) {
   if (!canCreateMatch.value) {
-    navigate('/character-edit/new')
+    navigate('/characters?create=1')
     return
   }
   if (modeId) arenaSession.setSelectedMode(modeId)
@@ -100,6 +171,11 @@ function openCreateMatch(modeId?: string) {
 function openCharacter(character: HomeCharacterCard) {
   if (!character.clickable) return
   navigate(`/character-detail/${character.id}`)
+}
+
+function openCharacterActivity(activity: HomeCharacterActivity) {
+  if (!activity.clickable) return
+  navigate(`/character-detail/${activity.characterId}`)
 }
 
 function openMatch(match: HomeMatchRow) {
@@ -143,20 +219,25 @@ function startCharacterBubble() {
   if (bubbleHideTimer) window.clearTimeout(bubbleHideTimer)
   if (bubbleRevealTimer) window.clearTimeout(bubbleRevealTimer)
   if (bubbleTypingTimer) window.clearInterval(bubbleTypingTimer)
-  if (!characters.value.length) return
+  if (!characters.value.length) {
+    scheduleCharacterBubble(600)
+    return
+  }
 
-  const nextIndex = Math.floor(Math.random() * characters.value.length)
+  const count = characters.value.length
+  const speakIndex = ((carouselIndex.value % count) + count) % count
+  const character = characters.value[speakIndex]
   const nextText =
     Math.random() > 0.34
-      ? characters.value[nextIndex].speech
+      ? character.speech
       : bubbleLines[Math.floor(Math.random() * bubbleLines.length)]
-  speakingCharacterIndex.value = nextIndex
+  speakingCharacterIndex.value = speakIndex
   activeBubbleIndex.value = null
   activeBubbleText.value = nextText
   activeBubbleTyped.value = ''
 
   bubbleRevealTimer = window.setTimeout(() => {
-    activeBubbleIndex.value = nextIndex
+    activeBubbleIndex.value = speakIndex
     let cursor = 0
     bubbleTypingTimer = window.setInterval(() => {
       if (cursor <= nextText.length) {
@@ -184,11 +265,13 @@ onMounted(() => {
   }, 4200)
   typingTimer = window.setInterval(tickTyping, 52)
   scheduleCharacterBubble(1400)
+  startCarousel()
 })
 
 onUnmounted(() => {
   if (sloganTimer) window.clearInterval(sloganTimer)
   if (typingTimer) window.clearInterval(typingTimer)
+  if (carouselTimer) window.clearInterval(carouselTimer)
   clearBubbleTimers()
 })
 </script>
@@ -213,7 +296,7 @@ onUnmounted(() => {
               <Sparkles :size="25" />
               <span>创建对局</span>
             </button>
-            <button v-else type="button" class="primary-action" @click="navigate('/character-edit/new')">
+            <button v-else type="button" class="primary-action" @click="navigate('/characters?create=1')">
               <Sparkles :size="25" />
               <span>先创建角色</span>
             </button>
@@ -229,13 +312,30 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div class="character-stage" aria-label="模型角色">
+        <div
+          class="character-stage"
+          :class="{ 'character-stage--paused': deckHovered }"
+          aria-label="AI 角色"
+          @mouseenter="deckHovered = true"
+          @mouseleave="deckHovered = false"
+        >
           <article
             v-for="(character, index) in characters"
             :key="character.id"
             class="character-card"
-            :class="{ 'character-card--speaking': speakingCharacterIndex === index }"
-            :style="{ '--accent': character.accent, '--badge-bg': character.badge, cursor: character.clickable ? 'pointer' : undefined }"
+            :class="{
+              'character-card--speaking': speakingCharacterIndex === index,
+              'character-card--center': getCardRelativeIndex(index) === 0,
+              'character-card--hovered': hoveredCardIndex === index,
+            }"
+            :style="{
+              '--accent': character.accent,
+              '--badge-bg': character.badge,
+              cursor: character.clickable ? 'pointer' : undefined,
+              ...getCardDeckStyle(index),
+            }"
+            @mouseenter="hoveredCardIndex = index"
+            @mouseleave="hoveredCardIndex = null"
             @click="openCharacter(character)"
           >
             <Transition name="bubble-pop">
@@ -244,8 +344,8 @@ onUnmounted(() => {
                 :key="`${character.name}-${activeBubbleIndex}`"
                 class="speech"
                 :class="{
-                  'speech--left': index >= 3,
-                  'speech--right': index < 3,
+                  'speech--left': speechSide(index) === 'left',
+                  'speech--right': speechSide(index) === 'right',
                 }"
               >
                 {{ activeBubbleTyped }}<span class="speech-caret"></span>
@@ -253,8 +353,16 @@ onUnmounted(() => {
             </Transition>
             <div class="portrait">
               <img :src="character.image" :alt="character.name" />
+              <div class="character-card__caption">
+                <strong class="character-card__name">{{ character.name }}</strong>
+                <p v-if="character.subtitle" class="character-card__subtitle">{{ character.subtitle }}</p>
+                <p v-if="character.bio" class="character-card__bio">{{ character.bio }}</p>
+                <div v-if="character.tags.length" class="character-card__tags">
+                  <span v-for="tag in character.tags" :key="tag">{{ tag }}</span>
+                </div>
+                <span class="character-card__stat">{{ character.matchLabel }}</span>
+              </div>
             </div>
-            <strong>{{ character.name }}</strong>
           </article>
         </div>
       </section>
@@ -269,63 +377,56 @@ onUnmounted(() => {
             </button>
           </header>
 
-          <div v-if="!recentMatches.length" class="match-list-empty">
+          <div v-if="!recentMatches.length" class="arena-page-state__panel arena-page-state__empty panel-slot-empty">
             <strong>还没有对局记录</strong>
             <span>创建一场新对局，让角色开始留下推理轨迹。</span>
-            <button type="button" @click="openCreateMatch()">创建对局</button>
           </div>
-          <div v-else class="match-list" :class="matchListClass">
-            <article
-              v-for="match in recentMatches"
-              :key="match.id"
-              class="match-row"
-              @click="openMatch(match)"
-            >
-              <div class="match-emblem">
-                <img :src="match.emblem" alt="" />
-              </div>
-              <div class="match-body">
-                <div class="match-top">
-                  <div class="match-title">
-                    <strong>{{ match.name }}</strong>
-                    <span :class="`tag tag--${match.tone}`">{{ match.mode }}</span>
-                  </div>
+          <ul v-else class="simple-list match-list">
+            <li v-for="match in visibleMatches" :key="match.id">
+              <button type="button" class="simple-line" @click="openMatch(match)">
+                <span class="simple-line__main">
+                  <strong>{{ match.name }}</strong>
+                  <span class="simple-line__muted">{{ match.mode }}</span>
+                </span>
+                <span class="simple-line__meta">
+                  <b :class="{ 'is-active': match.status !== '已完成' }">{{ match.status }}</b>
                   <time>{{ match.date }}</time>
-                </div>
-                <div class="match-meta">
-                  <div class="mini-avatars">
-                    <img v-for="avatar in match.avatars" :key="avatar" :src="avatar" alt="" />
-                  </div>
-                  <span>{{ match.players }}</span>
-                  <b :class="{ 'is-paused': match.status !== '已完成' }">{{ match.status }}</b>
-                </div>
-              </div>
-            </article>
-          </div>
+                </span>
+              </button>
+            </li>
+          </ul>
         </div>
 
-        <div class="panel modes-panel">
+        <div class="panel activity-panel">
           <header class="panel__header">
-            <h2>常用玩法场景</h2>
-            <button type="button" @click="navigate('/game-modes')">
-              更多场景
+            <h2>角色动态</h2>
+            <button type="button" @click="navigate('/characters')">
+              角色库
               <ChevronRight :size="20" />
             </button>
           </header>
 
-          <div class="mode-grid">
-            <article v-for="mode in gameModes" :key="mode.id" class="mode-card" @click="openCreateMatch(mode.id)">
-              <img :src="mode.image" :alt="mode.name" />
-              <div class="mode-card__body">
-                <h3>{{ mode.name }}</h3>
-                <p>{{ mode.desc }}</p>
-                <span>
-                  <Users :size="18" />
-                  {{ mode.players }}
-                </span>
-              </div>
-            </article>
+          <div v-if="!visibleActivities.length" class="arena-page-state__panel arena-page-state__empty panel-slot-empty">
+            <strong>还没有角色动态</strong>
+            <span>角色参与对局或调整行为后，成长记录会显示在这里。</span>
           </div>
+          <ul v-else class="simple-list activity-list">
+            <li v-for="activity in visibleActivities" :key="activity.id">
+              <button
+                type="button"
+                class="simple-line simple-line--activity"
+                :class="{ 'simple-line--static': !activity.clickable }"
+                @click="openCharacterActivity(activity)"
+              >
+                <img class="simple-line__avatar" :src="activity.avatar" :alt="activity.characterName" />
+                <span class="simple-line__main">
+                  <strong>{{ activity.characterName }}</strong>
+                  <span class="simple-line__muted">{{ activity.title }}</span>
+                </span>
+                <time>{{ activity.timeLabel }}</time>
+              </button>
+            </li>
+          </ul>
         </div>
       </section>
     </main>
@@ -340,9 +441,12 @@ onUnmounted(() => {
   --line: rgba(132, 142, 204, 0.2);
   position: relative;
   width: 100%;
+  flex: 1 1 auto;
+  min-height: 100%;
   height: 100%;
   min-width: 0;
-  min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   color: var(--ink);
   background: transparent;
@@ -387,23 +491,39 @@ button {
   font: inherit;
 }
 
+.home :deep(.arena-page-state),
+.home :deep(.arena-page-state__frame),
+.home :deep(.arena-page-state__revealed),
+.home :deep(.arena-page-state__content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .home-main {
+  --home-bottom-height: 340px;
   position: relative;
   z-index: 2;
+  flex: 1 1 auto;
+  min-height: 0;
   height: 100%;
-  padding: clamp(20px, 2.5vh, 28px) clamp(30px, 2.2vw, 38px) clamp(12px, 1.5vh, 16px);
+  padding: clamp(16px, 2vh, 24px) clamp(28px, 2.2vw, 36px) clamp(12px, 1.4vh, 18px);
   display: grid;
-  grid-template-rows: minmax(320px, 0.92fr) minmax(0, 1fr);
-  gap: clamp(12px, 1.5vh, 16px);
+  grid-template-rows: minmax(0, 1fr) var(--home-bottom-height);
+  gap: clamp(12px, 1.4vh, 16px);
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(390px, 0.58fr) minmax(0, 1.42fr);
-  align-items: end;
-  gap: 16px;
-  min-height: clamp(318px, 36vh, 354px);
+  grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+  align-items: stretch;
+  gap: clamp(10px, 1.2vw, 20px);
+  min-height: 0;
   height: 100%;
+  overflow: visible;
 }
 
 .hero-copy {
@@ -411,23 +531,26 @@ button {
   display: grid;
   align-content: center;
   min-width: 0;
-  min-height: 290px;
-  padding: clamp(22px, 4vh, 42px) 0 clamp(26px, 4.2vh, 44px) clamp(20px, 2.1vw, 34px);
+  min-height: 0;
+  padding:
+    clamp(16px, 3vh, 36px)
+    clamp(12px, 1.5vw, 24px)
+    clamp(16px, 3vh, 32px)
+    clamp(52px, 6vw, 96px);
 }
 
 .hero-copy h1 {
-  display: grid;
-  grid-template-columns: 178px 154px 28px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
-  width: 386px;
+  gap: 0.22em 0.28em;
+  width: min(100%, 520px);
   min-height: 54px;
   margin: 0;
   color: #10194e;
-  font-size: clamp(28px, 2.28vw, 36px);
+  font-size: clamp(30px, 2.6vw, 38px);
   font-weight: 700;
-  line-height: 1.08;
-  white-space: nowrap;
+  line-height: 1.12;
   text-shadow: 0 8px 22px rgba(84, 87, 175, 0.08);
 }
 
@@ -458,13 +581,13 @@ button {
 .hero-type {
   display: flex;
   align-items: center;
-  width: min(430px, 100%);
+  width: min(480px, 100%);
   min-height: 34px;
-  margin: 18px 0 0;
+  margin: clamp(14px, 2vh, 20px) 0 0;
   color: #526099;
   font-size: clamp(15px, 1.12vw, 18px);
   font-weight: 400;
-  letter-spacing: 0;
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
@@ -489,12 +612,12 @@ button {
 }
 
 .hero-actions {
-  display: grid;
-  grid-template-columns: 192px 182px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  min-height: 70px;
-  margin-top: clamp(28px, 3.5vh, 36px);
+  min-height: 58px;
+  margin-top: clamp(22px, 3vh, 32px);
 }
 
 .primary-action,
@@ -503,10 +626,11 @@ button {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  height: clamp(58px, 7vh, 68px);
+  height: clamp(54px, 6.2vh, 62px);
+  padding: 0 28px;
   border-radius: 999px;
   border: 1px solid rgba(123, 128, 209, 0.22);
-  font-size: clamp(16px, 1.18vw, 20px);
+  font-size: clamp(16px, 1.12vw, 19px);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -514,14 +638,14 @@ button {
 }
 
 .primary-action {
-  width: 192px;
+  min-width: 176px;
   color: white;
   background: linear-gradient(180deg, #7774ff 0%, #5757f2 100%);
   box-shadow: 0 16px 28px rgba(88, 80, 239, 0.28);
 }
 
 .secondary-action {
-  width: 182px;
+  min-width: 168px;
   color: #35417f;
   background: rgba(255, 255, 255, 0.62);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
@@ -544,35 +668,71 @@ button {
 }
 
 .character-stage {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(126px, 1fr));
-  align-items: end;
-  gap: 8px;
-  padding-bottom: 12px;
+  --deck-card-width: clamp(240px, 19vw, 300px);
+  --deck-card-ratio: 0.76;
+  --deck-spread: clamp(96px, 7.6vw, 128px);
+  position: relative;
+  align-self: stretch;
+  justify-self: stretch;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   overflow: visible;
+}
+
+.character-stage::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: clamp(4px, 0.8vh, 12px);
+  width: min(88%, 640px);
+  height: 34px;
+  margin-left: calc(min(88%, 640px) / -2);
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, rgba(113, 103, 255, 0.18), transparent 72%);
+  filter: blur(10px);
+  pointer-events: none;
 }
 
 .character-card {
   --accent: #7568ff;
   --badge-bg: #fff;
-  position: relative;
+  position: absolute;
+  left: 50%;
+  bottom: clamp(8px, 1.4vh, 18px);
   display: block;
-  min-width: 0;
-  height: clamp(238px, 28vh, 278px);
+  width: var(--deck-card-width);
+  height: min(calc(var(--deck-card-width) / var(--deck-card-ratio)), calc(100% - 12px));
+  margin-left: calc(var(--deck-card-width) / -2);
   perspective: 900px;
-  transform-origin: 50% 86%;
-  transition: transform 0.62s cubic-bezier(0.16, 1, 0.3, 1), filter 0.42s ease, z-index 0s linear;
+  transform-origin: 50% 92%;
+  transition:
+    transform 0.72s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.52s ease,
+    filter 0.42s ease,
+    z-index 0s linear 0.08s;
+  will-change: transform, opacity;
 }
 
-.character-card:hover {
-  transform: translateY(-8px) scale(1.045) rotateX(2deg);
-  filter: drop-shadow(0 18px 24px rgba(82, 91, 168, 0.18));
+.character-card--center .portrait {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 20px 34px rgba(90, 102, 174, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.42);
 }
 
+.character-card--hovered,
 .character-card--speaking {
-  z-index: 6;
-  transform: translateY(-17px) scale(1.16);
-  filter: drop-shadow(0 24px 30px rgba(82, 91, 168, 0.22));
+  filter: drop-shadow(0 24px 30px rgba(82, 91, 168, 0.24));
+  transition:
+    transform 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.38s ease,
+    filter 0.32s ease,
+    z-index 0s;
+}
+
+.character-card--center:not(.character-card--hovered):not(.character-card--speaking) {
+  filter: drop-shadow(0 16px 24px rgba(82, 91, 168, 0.14));
 }
 
 .speech {
@@ -700,14 +860,15 @@ button {
 
 .portrait img {
   width: 100%;
-  height: 114%;
+  height: 100%;
   object-fit: cover;
-  object-position: center 10%;
-  transform: scale(1.06);
+  object-position: center 8%;
+  transform: scale(1.04);
   transition: transform 0.24s ease;
   filter: saturate(1.04);
 }
 
+.character-card--hovered .portrait img,
 .character-card:hover .portrait img {
   transform: scale(1.13);
 }
@@ -721,31 +882,102 @@ button {
   transform: translateX(38%) rotate(4deg);
 }
 
-.character-card strong {
+.character-card__caption {
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
+  inset: auto 0 0;
   z-index: 3;
   display: grid;
-  place-items: center;
-  height: 31px;
-  color: var(--accent);
-  font-size: clamp(11px, 0.82vw, 13px);
-  font-weight: 560;
-  opacity: 0.78;
-  border: 1px solid color-mix(in srgb, var(--accent) 32%, white);
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.22)), var(--badge-bg);
-  backdrop-filter: blur(12px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 10px 18px rgba(84, 93, 166, 0.12);
+  gap: 3px;
+  padding: 28px 12px 12px;
+  border-radius: 0 0 18px 18px;
+  background: linear-gradient(
+    180deg,
+    rgba(18, 24, 58, 0) 0%,
+    rgba(18, 24, 58, 0.42) 28%,
+    rgba(18, 24, 58, 0.78) 100%
+  );
+  pointer-events: none;
+}
+
+.character-card__name {
+  overflow: hidden;
+  color: #fff;
+  font-size: clamp(12px, 0.88vw, 14px);
+  font-weight: 680;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 8px rgba(8, 12, 36, 0.45);
+}
+
+.character-card__subtitle {
+  margin: 0;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: clamp(10px, 0.72vw, 11px);
+  font-weight: 500;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 6px rgba(8, 12, 36, 0.38);
+}
+
+.character-card__bio {
+  margin: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: rgba(236, 240, 255, 0.88);
+  font-size: clamp(10px, 0.68vw, 11px);
+  line-height: 1.35;
+  text-shadow: 0 1px 5px rgba(8, 12, 36, 0.34);
+}
+
+.character-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.character-card__tags span {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 7px;
+  overflow: hidden;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 520;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 72%, rgba(18, 24, 58, 0.72));
+  box-shadow: 0 2px 8px rgba(8, 12, 36, 0.18);
+}
+
+.character-card__stat {
+  color: rgba(220, 228, 255, 0.82);
+  font-size: 10px;
+  line-height: 1.2;
+  text-shadow: 0 1px 4px rgba(8, 12, 36, 0.32);
+}
+
+.character-card:not(.character-card--center):not(.character-card--hovered):not(.character-card--speaking) .character-card__bio,
+.character-card:not(.character-card--center):not(.character-card--hovered):not(.character-card--speaking) .character-card__tags,
+.character-card:not(.character-card--center):not(.character-card--hovered):not(.character-card--speaking) .character-card__stat {
+  display: none;
 }
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(500px, 0.62fr) minmax(0, 1fr);
-  gap: 18px;
-  min-height: 0;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
+  gap: 16px;
+  height: var(--home-bottom-height);
+  min-height: var(--home-bottom-height);
+  max-height: var(--home-bottom-height);
+  overflow: hidden;
 }
 
 .panel {
@@ -754,26 +986,31 @@ button {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
-  padding: clamp(16px, 2.2vh, 22px) clamp(18px, 1.5vw, 24px);
+  padding: 16px 18px 14px;
   border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 20px 44px rgba(91, 101, 174, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 16px 36px rgba(91, 101, 174, 0.08);
   backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .panel__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+  flex: 0 0 auto;
 }
 
 .panel__header h2 {
   margin: 0;
-  font-size: 21px;
+  font-size: 16px;
   line-height: 1;
-  font-weight: 680;
+  font-weight: 640;
   color: #151e55;
 }
 
@@ -795,285 +1032,135 @@ button {
   transform: translateX(2px);
 }
 
-.match-list {
-  display: grid;
-  gap: 12px;
+.panel-slot-empty {
+  height: 100%;
   min-height: 0;
-  align-content: start;
-  overflow: hidden;
-}
-
-.match-list--single {
-  grid-template-rows: max-content max-content;
-  align-content: start;
-}
-
-.match-list--single::after {
-  content: '继续最近一场，或者从右侧选择一个玩法开新局。';
-  display: grid;
-  place-items: center;
-  min-height: 64px;
-  padding: 12px 14px;
-  border: 1px dashed rgba(115, 110, 240, 0.22);
-  border-radius: 16px;
-  color: rgba(82, 96, 153, 0.72);
+  padding: 16px 12px;
   font-size: 13px;
-  background: rgba(255, 255, 255, 0.38);
 }
 
-.match-list--compact {
-  gap: 10px;
-}
-
-.match-list-empty {
-  display: grid;
-  align-content: center;
-  justify-items: start;
-  gap: 10px;
-  height: 100%;
-  padding: 12px;
-  color: var(--muted);
-  font-size: 14px;
-}
-
-.match-list-empty strong {
-  color: #17205a;
-  font-size: 17px;
-}
-
-.match-list-empty button {
-  height: 34px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 999px;
-  color: #fff;
-  background: linear-gradient(180deg, #7774ff, #5b57f3);
-  cursor: pointer;
-}
-
-.match-row {
-  display: grid;
-  grid-template-columns: 60px minmax(0, 1fr);
-  gap: 14px;
-  align-items: center;
-  align-self: start;
-  min-height: 86px;
-  padding: 12px 13px;
-  border: 1px solid rgba(130, 142, 207, 0.16);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.62);
-  cursor: pointer;
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
-}
-
-.match-list--single .match-row {
-  min-height: 94px;
-}
-
-.match-list--compact .match-row {
-  min-height: 78px;
-  padding-block: 10px;
-}
-
-.match-row:hover {
-  transform: translateX(2px);
-  border-color: rgba(103, 98, 240, 0.32);
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 10px 18px rgba(79, 88, 161, 0.08);
-}
-
-.match-emblem {
-  display: grid;
-  place-items: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  overflow: hidden;
-  background: #1a2758;
-  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.18), 0 10px 16px rgba(36, 42, 91, 0.14);
-}
-
-.match-emblem img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.match-body {
-  min-width: 0;
-}
-
-.match-top,
-.match-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.match-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.match-title strong {
-  overflow: hidden;
-  color: #17205a;
+.panel-slot-empty strong {
   font-size: 16px;
-  font-weight: 620;
+}
+
+.panel-slot-empty span {
+  max-width: 280px;
+  line-height: 1.55;
+}
+
+.simple-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.simple-list::-webkit-scrollbar {
+  display: none;
+}
+
+.simple-list li {
+  margin: 0;
+}
+
+.simple-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 2px;
+  border: 0;
+  border-bottom: 1px solid rgba(132, 142, 204, 0.12);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.16s ease, background 0.16s ease;
+}
+
+.simple-list li:last-child .simple-line {
+  border-bottom: 0;
+}
+
+.simple-line--static {
+  cursor: default;
+}
+
+.simple-line:not(.simple-line--static):hover {
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.simple-line__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.simple-line__main strong {
+  overflow: hidden;
+  color: #17205a;
+  font-size: 14px;
+  font-weight: 560;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tag {
-  flex: 0 0 auto;
-  padding: 4px 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.tag--classic {
-  color: #7060f4;
-  background: #eee9ff;
-}
-
-.tag--advanced,
-.tag--fun {
-  color: #ec7c2e;
-  background: #fff0df;
-}
-
-.match-top time {
-  flex: 0 0 auto;
-  color: #6973a1;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.match-meta {
-  justify-content: flex-start;
-  margin-top: 13px;
+.simple-line__muted {
+  overflow: hidden;
+  flex: 1 1 auto;
+  min-width: 0;
   color: #6973a1;
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.match-meta b {
-  margin-left: auto;
+.simple-line__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.simple-line__meta b {
   color: #24b66a;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 560;
 }
 
-.match-meta b.is-paused {
+.simple-line__meta b.is-active {
   color: #f07836;
 }
 
-.mini-avatars {
-  display: flex;
-  align-items: center;
+.simple-line time,
+.simple-line > time {
+  flex: 0 0 auto;
+  color: #8a94bd;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
-.mini-avatars img {
-  width: 23px;
-  height: 23px;
-  margin-left: -5px;
-  border: 2px solid #fff;
+.simple-line--activity {
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.simple-line__avatar {
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   object-fit: cover;
   background: #fff;
-}
-
-.mini-avatars img:first-child {
-  margin-left: 0;
-}
-
-.mode-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(135px, 1fr));
-  gap: 12px;
-  min-height: 0;
-}
-
-.mode-card {
-  overflow: hidden;
-  min-width: 0;
-  position: relative;
-  border: 1px solid rgba(130, 142, 207, 0.2);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.7);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-}
-
-.mode-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  box-shadow: inset 0 0 0 0 rgba(113, 103, 255, 0);
-  transition: box-shadow 0.22s ease;
-}
-
-.mode-card:hover {
-  transform: translateY(-5px) scale(1.01);
-  box-shadow: 0 18px 34px rgba(85, 95, 165, 0.18);
-  border-color: rgba(103, 98, 240, 0.28);
-}
-
-.mode-card:hover::after {
-  box-shadow: inset 0 0 0 2px rgba(113, 103, 255, 0.18);
-}
-
-.mode-card:hover h3,
-.mode-card:hover span {
-  color: #4f4bf1;
-}
-
-.mode-card img {
-  display: block;
-  width: 100%;
-  height: min(56%, 184px);
-  flex: 0 0 auto;
-  object-fit: cover;
-  transition: transform 0.25s ease;
-}
-
-.mode-card:hover img {
-  transform: scale(1.045);
-}
-
-.mode-card__body {
-  flex: 1;
-  min-height: 100px;
-  padding: clamp(12px, 1.6vh, 16px) 16px clamp(10px, 1.4vh, 14px);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.68));
-}
-
-.mode-card h3 {
-  margin: 0;
-  color: #17205a;
-  font-size: 19px;
-  font-weight: 700;
-}
-
-.mode-card p {
-  margin: 8px 0 15px;
-  color: #6973a1;
-  font-size: 13px;
-}
-
-.mode-card span {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #6973a1;
-  font-size: 13px;
 }
 
 @keyframes caretBlink {
@@ -1089,30 +1176,32 @@ button {
 
 @media (max-width: 1320px) {
   .hero {
-    grid-template-columns: 430px 1fr;
+    grid-template-columns: minmax(260px, 36%) minmax(0, 1fr);
   }
 
-  .character-stage {
-    gap: 6px;
-  }
-
-  .mode-card img {
-    height: 170px;
+  .hero-copy {
+    padding-left: clamp(40px, 5vw, 72px);
   }
 }
 
 @media (max-width: 1120px) {
-  .hero,
-  .content-grid {
+  .home-main {
+    --home-bottom-height: 380px;
+    grid-template-rows: minmax(0, 1fr) var(--home-bottom-height);
+  }
+
+  .hero {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .hero-copy {
+    padding-bottom: 0;
+    padding-left: clamp(24px, 4vw, 48px);
   }
 
   .character-stage {
-    grid-template-columns: repeat(3, minmax(150px, 1fr));
-  }
-
-  .mode-grid {
-    grid-template-columns: repeat(2, minmax(180px, 1fr));
+    min-height: 280px;
   }
 }
 </style>

@@ -6,12 +6,12 @@ declare module '*.md?raw' {
 }
 
 import type { MntoolsApi } from '../../preload/domains'
-import type { ArenaApi } from '@renderer/types/arena-api'
+import type { ArenaApi, AssetPackApi, DevAssetsApi } from '@renderer/types/arena-api'
 
 declare global {
   interface Window {
     electron: typeof import('@electron-toolkit/preload').electronAPI
-    api: MntoolsApi & ArenaApi
+    api: MntoolsApi & ArenaApi & AssetPackApi & DevAssetsApi
     windowControls: {
       minimize: () => Promise<void>
       maximize: () => Promise<boolean>

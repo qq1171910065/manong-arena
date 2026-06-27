@@ -1,12 +1,18 @@
 import type { ArenaSettings, GameMode } from './types'
+import { DEFAULT_ROUNDTABLE_SPEECH_DISPLAY, DEFAULT_WEREWOLF_SPEECH_DISPLAY } from './speech-display'
+import { DEFAULT_JUDGE_TTS_VOICE_ID, DEFAULT_TTS_VOICE_ID, MIMO_TTS_MODEL_ID } from './voice-presets'
 
-export const ARENA_STORE_VERSION = 1
+export { MIMO_TTS_MODEL_ID, DEFAULT_TTS_VOICE_ID, DEFAULT_JUDGE_TTS_VOICE_ID }
+
+export const ARENA_STORE_VERSION = 2
 export const ARENA_STORE_KEY = 'arena-store'
 export const ARENA_LOG_MAX = 500
 
+/** 裁判、解说等系统角色未单独配置时使用的默认模型 */
+export const DEFAULT_ARENA_MODEL_ID = 'mimo-v2.5'
+export const DEFAULT_SYSTEM_ROLE_MODEL_ID = DEFAULT_ARENA_MODEL_ID
+
 export const DEFAULT_ARENA_SETTINGS: ArenaSettings = {
-  themeId: 'enterprise-light',
-  themeMode: 'light',
   uiScale: 100,
   animationEnabled: true,
   compactLayout: false,
@@ -15,20 +21,30 @@ export const DEFAULT_ARENA_SETTINGS: ArenaSettings = {
   sfxEnabled: true,
   bgmVolume: 60,
   sfxVolume: 70,
+  ttsEnabled: true,
+  ttsVolume: 80,
+  judgeVoiceId: DEFAULT_JUDGE_TTS_VOICE_ID,
   autoSaveMatch: true,
   modelCallHints: true,
   balanceReminder: true,
   balanceReminderThresholdCents: 500,
   dataRetentionDays: 90,
   defaultIdentityAssignMode: 'random',
+  defaultModelId: DEFAULT_ARENA_MODEL_ID,
   matchDefaults: {
     confirmBeforeStart: true,
     pauseOnLowBalance: true,
     autoAdvance: true,
     autoNextRound: true,
     narratorEnabled: true,
+    judgeTtsEnabled: true,
     fastMode: false,
     showEmotionTags: true,
+    matchRoomLayout: 'classic',
+  },
+  characterEvolution: {
+    postGameReviewEnabled: true,
+    autoApplyBehaviorChanges: true,
   },
 }
 
@@ -43,20 +59,26 @@ export const BUILTIN_GAME_MODES: GameMode[] = [
     recommendedPlayers: 10,
     hasHiddenRoles: true,
     hasVoting: true,
-    estimatedCostPerPlayerCents: 180,
+    estimatedCostPerPlayerCents: 186,
     estimatedDurationMinutes: 40,
     imageKey: 'werewolf',
+    scenarioId: 'werewolf',
+    engineKind: 'werewolf',
+    speechDisplay: DEFAULT_WEREWOLF_SPEECH_DISPLAY,
     setupSummary: '本局公开使用标准狼人杀流程：警上发言 → 警长投票 → 夜晚行动 → 白天发言 → 放逐投票 → 裁判结算。身份仅对对应 AI 生效，公开频道只展示规则允许的信息。',
-    sheriffRule: '首轮进入警长竞选。警长拥有 1.5 票归票权，死亡后裁判会自动移交警徽；若无人可接任则警徽流失。',
+    sheriffRule: '首轮进入警长竞选（警上），位于首夜行动之前。此阶段预言家尚未查验，跳预言家只能报身份与警徽流，无法公布验人；勿仅因发言模糊或缺少查验就质疑其为假预言家。警长拥有 1.5 票归票权，死亡后裁判会自动移交警徽；若无人可接任则警徽流失。',
     ruleHighlights: [
       '狼人夜晚共同选择一名非狼人目标出局。',
-      '预言家每晚查验一名玩家阵营，结果只进入其私有视角。',
+      '警上发生在首夜行动之前：此阶段预言家尚未查验，警上跳预言家只能谈身份与警徽流，无法也不应公布验人结果；发言偏模糊属正常，勿仅因缺少查验就判定假预言家。',
+      '预言家每晚查验一名玩家阵营，结果只进入其私有视角；首夜查验在警长产生后的第一个夜晚进行。',
       '女巫拥有一次解药和一次毒药，解药救刀口，毒药可额外毒杀一人。',
       '守卫每晚守护一名玩家，不能连续两晚守同一人。守护与狼人刀口相同则免死。',
+      '标准规则下仅首夜（第一个夜晚）出局者可发表遗言；白天放逐、次夜及以后出局默认无遗言，可在创建对局时勾选规则扩展。',
+      '狼人夜晚可袭击好人，亦可在战术需要时自刀或刀队友（骗女巫解药等高级玩法，规则允许）。',
       '猎人被放逐或夜晚死亡时可开枪带走一人；被毒死时不能开枪。',
       '白痴被投票放逐时翻牌免死，但之后失去投票权。',
       '狼王/白狼王出局时可带走一名玩家；狼美人死亡时魅惑对象殉情；骑士可在放逐投票前决斗一次；守墓人知晓上一夜出局者阵营。',
-      '胜负：狼人清零则好人胜；狼人数量不少于存活好人则狼人胜。',
+      '胜负：狼人全部出局则好人胜；屠边模式下杀光平民或神职则狼人胜，屠城模式下杀光所有好人则狼人胜（创建对局可选）。',
     ],
     roles: [
       {
@@ -66,7 +88,7 @@ export const BUILTIN_GAME_MODES: GameMode[] = [
         hidden: true,
         description: '狼人阵营成员，夜晚共同刀人，白天隐藏身份并干扰好人推理。',
         skillName: '夜袭',
-        skillDescription: '每晚由狼人阵营选择一名非狼人目标。若未被守卫保护或女巫救起，目标在天亮时出局。',
+        skillDescription: '每晚由狼人阵营选择袭击目标，通常为好人；亦允许自刀或刀队友（骗女巫解药等高级战术）。若未被守卫保护或女巫救起，目标在天亮时出局。',
         timing: '夜晚',
         publicInfo: '夜晚只公开死亡结果，不公开狼人身份。',
         nightOrder: 10,
@@ -90,7 +112,7 @@ export const BUILTIN_GAME_MODES: GameMode[] = [
         isGod: true,
         description: '神职。每晚查验一名玩家属于好人阵营或狼人阵营。',
         skillName: '查验',
-        skillDescription: '每晚选择一名玩家，得到其阵营结果。结果只进入预言家私有判断，不直接公开。',
+        skillDescription: '每晚选择一名玩家，得到其阵营结果。结果只进入预言家私有判断，不直接公开。首夜查验在警长产生后的第一个夜晚进行，警上阶段尚未查验。',
         timing: '夜晚',
         publicInfo: '公开频道只显示预言家已完成行动，不公开查验结果。',
         nightOrder: 20,
@@ -206,11 +228,11 @@ export const BUILTIN_GAME_MODES: GameMode[] = [
       },
     ],
     phases: [
-      { id: 'sheriff-speech', name: '警上发言', kind: 'discussion', order: 1, description: '所有存活玩家依次发表是否竞选警长及归票思路。' },
-      { id: 'sheriff-vote', name: '警长投票', kind: 'vote', order: 2, description: '全体存活玩家投票选出警长，最高票获得警徽。' },
+      { id: 'sheriff-speech', name: '警上发言', kind: 'discussion', order: 1, description: '首夜行动前的警长竞选发言。预言家此阶段尚未查验，跳预言家者只能说明身份与警徽流，无法公布验人；勿因缺少查验信息而判定假预言家。' },
+      { id: 'sheriff-vote', name: '警长投票', kind: 'vote', order: 2, description: '全体存活玩家从警上竞选者中投票选出警长，最高票获得警徽。' },
       { id: 'night', name: '夜晚行动', kind: 'night', order: 3, description: '守卫、狼人、预言家、女巫依次行动，裁判结算刀口与技能。' },
       { id: 'day-discuss', name: '白天发言', kind: 'discussion', order: 4, description: '存活玩家按席位发言，警长可引导归票。' },
-      { id: 'day-vote', name: '放逐投票', kind: 'vote', order: 5, description: '存活且有投票权的玩家投票，警长票按 1.5 票计入。' },
+      { id: 'day-vote', name: '放逐投票', kind: 'vote', order: 5, description: '存活且有投票权的玩家投票，警长票按 1.5 票计入。标准规则下被放逐者无遗言。' },
       { id: 'result', name: '裁判结算', kind: 'result', order: 6, description: '裁判检查胜负、警徽移交与下一轮准备。' },
     ],
   },
@@ -262,10 +284,39 @@ export const BUILTIN_GAME_MODES: GameMode[] = [
     ],
   },
   {
+    id: 'roundtable',
+    name: '自定义圆桌讨论',
+    subtitle: '多 AI 议题讨论',
+    description: '围绕自定义议题进行多轮圆桌发言，可选主持人与解说。',
+    minPlayers: 2,
+    maxPlayers: 12,
+    recommendedPlayers: 4,
+    hasHiddenRoles: false,
+    hasVoting: false,
+    estimatedCostPerPlayerCents: 112,
+    estimatedDurationMinutes: 20,
+    imageKey: 'custom',
+    scenarioId: 'roundtable',
+    engineKind: 'roundtable',
+    speechDisplay: DEFAULT_ROUNDTABLE_SPEECH_DISPLAY,
+    setupSummary: '多轮圆桌发言，按席位轮流讨论自定义议题。无身份隐藏与投票出局。',
+    ruleHighlights: [
+      '围绕用户设定的议题自由讨论。',
+      '可选 AI 主持人引导流程、解说概括氛围。',
+      '保持角色人设与发言风格，回应他人观点。',
+    ],
+    roles: [{ id: 'participant', name: '参与者', camp: 'neutral', hidden: false, description: '圆桌讨论参与者。' }],
+    phases: [
+      { id: 'opening', name: '开场', kind: 'action', order: 1, description: '主持人介绍议题与规则（可选）。' },
+      { id: 'round-discuss', name: '圆桌发言', kind: 'discussion', order: 2, description: '按席位轮流发言，多轮进行。' },
+      { id: 'closing', name: '总结', kind: 'result', order: 3, description: '讨论结束，可选总结陈词。' },
+    ],
+  },
+  {
     id: 'custom',
     name: '自定义',
     subtitle: '自由规则创作',
-    description: '自定义人数、身份与阶段。当前版本暂未开放。',
+    description: '完全自定义规则与提示词。当前版本暂未开放。',
     minPlayers: 2,
     maxPlayers: 20,
     recommendedPlayers: 6,
@@ -274,12 +325,15 @@ export const BUILTIN_GAME_MODES: GameMode[] = [
     estimatedCostPerPlayerCents: 400,
     estimatedDurationMinutes: 30,
     imageKey: 'custom',
+    engineKind: 'prompt-only',
     roles: [{ id: 'player', name: '玩家', camp: 'neutral', hidden: false }],
     phases: [{ id: 'custom-discuss', name: '讨论', kind: 'discussion', order: 1, description: '自由讨论阶段。' }],
   },
 ]
 
 export const CHARACTER_MODEL_OPTIONS = [
+  { id: 'mimo-v2.5', label: 'MiMo v2.5' },
+  { id: 'mimo-v2.5-pro', label: 'MiMo v2.5 Pro' },
   { id: 'doubao', label: '豆包' },
   { id: 'gpt-4o', label: 'GPT-4o' },
   { id: 'claude-3-5-sonnet', label: 'Claude 3.5' },

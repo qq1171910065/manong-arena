@@ -1,5 +1,6 @@
 import { getApiBaseUrl } from './config'
-import { isSuccessBusinessCode, parseCoolApiEnvelope, refreshSessionFromStorage } from './api'
+import { isSuccessBusinessCode, parseCoolApiEnvelope, refreshSessionFromStorage, isAuthError } from './api'
+import { handleAuthFailure } from './auth-session'
 import { FEE_YUAN_TO_POINTS, yuanToPoints } from '../composables/fee-points'
 import type { PortalSession } from '@shared/types'
 
@@ -58,7 +59,27 @@ export interface PortalGatewayConfig {
   baseUrl: string
   chatBaseUrl: string
   pricingUrl: string
+  quotaPerYuan?: number
   hint?: string
+}
+
+export interface PortalGatewayModelRow {
+  id: string
+  tags: string[]
+  endpointTypes: string[]
+  group?: string
+  modelRatio?: number
+  completionRatio?: number
+  modelPrice?: number
+  quotaType?: number
+}
+
+export interface PortalGatewayCatalog {
+  configured: boolean
+  baseUrl: string
+  chatBaseUrl: string
+  quotaPerYuan: number
+  models: PortalGatewayModelRow[]
 }
 
 export interface PortalUsageRecord {
@@ -243,6 +264,14 @@ async function portalRequest<T>(
   const base = getApiBaseUrl().replace(/\/+$/, '')
   if (!base) throw new Error('未配置平台服务地址')
 
+  const shouldExitOnAuthFail =
+    auth && !path.includes('/portal/comm/logout') && !path.includes('/portal/open/refreshToken')
+
+  async function rejectAuth(message: string): Promise<never> {
+    if (shouldExitOnAuthFail) void handleAuthFailure()
+    throw new Error(message || '登录已失效，请重新登录')
+  }
+
   let url = `${base}${path.startsWith('/') ? path : `/${path}`}`
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
 
@@ -265,22 +294,47 @@ async function portalRequest<T>(
   }
 
   const result = await window.api.fetchUrl(url, method, headers, reqBody, { timeoutMs: 12_000 })
-  if (!result.success) throw new Error(result.error || '请求失败')
-
+  const status = result.status ?? 0
   const envelope = parseCoolApiEnvelope(result.data)
+
+  if (!result.success) {
+    const msg = result.error || envelope?.message || '请求失败'
+    if (shouldExitOnAuthFail && isAuthError(status, envelope?.code, msg)) {
+      if (!retried) {
+        const refresh = await refreshSessionFromStorage()
+        if (refresh === 'ok') {
+          return portalRequest<T>(path, method, body, auth, true)
+        }
+      }
+      return rejectAuth(envelope?.message || msg)
+    }
+    throw new Error(msg)
+  }
+
   if (!envelope) throw new Error('接口返回格式异常')
 
-  if (result.status === 401 || envelope.code === 1002) {
-    if (auth && !retried) {
+  if (shouldExitOnAuthFail && isAuthError(status, envelope.code, envelope.message)) {
+    if (!retried) {
       const refresh = await refreshSessionFromStorage()
       if (refresh === 'ok') {
         return portalRequest<T>(path, method, body, auth, true)
       }
     }
-    throw new Error(envelope.message || '未登录')
+    return rejectAuth(envelope.message || '登录已失效，请重新登录')
   }
+
   if (!isSuccessBusinessCode(envelope.code)) {
-    throw new Error(envelope.message || '接口错误')
+    const msg = envelope.message || '接口错误'
+    if (shouldExitOnAuthFail && isAuthError(status, envelope.code, msg)) {
+      if (!retried) {
+        const refresh = await refreshSessionFromStorage()
+        if (refresh === 'ok') {
+          return portalRequest<T>(path, method, body, auth, true)
+        }
+      }
+      return rejectAuth(msg)
+    }
+    throw new Error(msg)
   }
   return envelope.data as T
 }
@@ -319,9 +373,9 @@ export const portalApi = {
 
   register(payload: {
     email: string
-    username: string
-    password: string
     verifyCode: string
+    username?: string
+    password?: string
     name?: string
   }) {
     return portalRequest<PortalSession>('/portal/open/register', 'POST', payload, false)
@@ -357,7 +411,8 @@ export const portalApi = {
   oauthStart(channel: string, lang: string) {
     return portalRequest<{
       state: string
-      authorizeUrl: string
+      authorizeUrl?: string
+      qrImageUrl?: string
       expiresIn: number
       mode?: string
     }>('/portal/open/oauth/start', 'POST', { channel, lang }, false)
@@ -421,8 +476,12 @@ export const portalApi = {
     return portalRequest<void>('/portal/comm/logout', 'POST', {})
   },
 
-  keys() {
-    return portalRequest<PortalUserKey[]>('/portal/key/list')
+  keys(page = 1, size = 100) {
+    return portalRequest<{
+      list: PortalUserKey[]
+      pagination: { page: number; size: number; total: number }
+      activeCount?: number
+    }>('/portal/key/list', 'GET', { page, size }).then((res) => res.list ?? [])
   },
 
   ensureDefaultKey(name?: string) {
@@ -446,6 +505,10 @@ export const portalApi = {
 
   gatewayConfig() {
     return portalRequest<PortalGatewayConfig>('/portal/key/gatewayConfig')
+  },
+
+  gatewayModels() {
+    return portalRequest<PortalGatewayCatalog>('/portal/gateway/models')
   },
 
   sendBindEmailCode(email: string) {

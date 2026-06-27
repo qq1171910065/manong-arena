@@ -27,5 +27,8 @@ export function formatUserMessage(error: unknown): string {
     ENGINE_PAUSED: '对局已暂停，请处理异常后重试',
     INTERNAL: '系统内部错误，请稍后重试',
   }
+  if (arenaError.code === 'MODEL_FAILED' && arenaError.message && arenaError.message !== '模型调用失败') {
+    return arenaError.message
+  }
   return map[arenaError.code] || arenaError.message || '操作失败'
 }

@@ -2,7 +2,7 @@
 
 import { onMounted, onUnmounted, ref } from 'vue'
 
-import { Copy, Edit3, MoreHorizontal, Power, Trash2 } from 'lucide-vue-next'
+import { Copy, Download, Edit3, MoreHorizontal, Power, Trash2 } from 'lucide-vue-next'
 
 import type { CharacterStatus } from '@shared/arena/types'
 
@@ -23,6 +23,8 @@ const emit = defineEmits<{
   edit: []
 
   duplicate: []
+
+  exportProfile: []
 
   toggleStatus: []
 
@@ -56,12 +58,13 @@ function closeMenu() {
 
 
 
-function run(action: 'edit' | 'duplicate' | 'toggleStatus' | 'remove') {
-
+function run(action: 'edit' | 'duplicate' | 'exportProfile' | 'toggleStatus' | 'remove') {
   closeMenu()
-
-  emit(action)
-
+  if (action === 'edit') emit('edit')
+  else if (action === 'duplicate') emit('duplicate')
+  else if (action === 'exportProfile') emit('exportProfile')
+  else if (action === 'toggleStatus') emit('toggleStatus')
+  else emit('remove')
 }
 
 
@@ -115,6 +118,7 @@ onUnmounted(() => {
       <button type="button" @click="run('edit')"><Edit3 :size="15" /> 编辑角色</button>
 
       <button type="button" @click="run('duplicate')"><Copy :size="15" /> 复制角色</button>
+      <button type="button" @click="run('exportProfile')"><Download :size="15" /> 导出角色</button>
 
       <button type="button" @click="run('toggleStatus')">
 

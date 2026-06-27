@@ -1,18 +1,14 @@
 <script setup lang="ts">
-import { CheckCircle2, Lock, Mail, QrCode, RefreshCw, Server, X } from 'lucide-vue-next'
+import { CheckCircle2, Lock, Mail, QrCode, Server, X } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NAlert, NButton, NInput, NInputGroup } from '../../ui'
 import { authApi, completeAuthSession, fetchPlatformPing, getPortalSession } from '@renderer/services'
 import { toWechatLoginQrDataUrl } from './wechat-qr'
 import { isWebRuntime } from '@renderer/composables/useRuntime'
-import { getApiBaseUrl, saveApiBaseUrlFromInput } from '@renderer/services/config'
+import { getApiBaseUrl, getDefaultApiBaseUrl, saveApiBaseUrlFromInput } from '@renderer/services/config'
 import type { LoginCapabilities, PortalSession } from '@shared/types'
-import bgImage from '../../assets/home/home-bg-clean.png'
-import brandLockup from '../../assets/home/brand-lockup-v2.png'
-import mascotCat from '../../assets/home/mascot-cat-v2.png'
-import avatarDoubao from '../../assets/characters/avatars/avatar-doubao.png'
-import avatarGpt from '../../assets/characters/avatars/avatar-gpt.png'
-import avatarClaude from '../../assets/characters/avatars/avatar-claude.png'
+import { loginBundledAssets } from '@renderer/data/login-bundled-assets'
+import SleepyCatWidget from '@renderer/components/support/SleepyCatWidget.vue'
 
 const props = defineProps<{
   appName: string
@@ -56,7 +52,6 @@ const code = ref('')
 const username = ref(cached.account || cached.email || '')
 const password = ref('')
 const regEmail = ref('')
-const regUsername = ref('')
 const regPassword = ref('')
 const regCode = ref('')
 const regCountdown = ref(0)
@@ -79,9 +74,6 @@ const wechatState = ref('')
 const wechatQr = ref('')
 const wechatQrLoading = ref(false)
 const wechatScanned = ref(false)
-const wechatExpired = ref(false)
-const wechatExpiresIn = ref(0)
-const wechatCountdownSec = ref(0)
 const wechatAvailable = ref(props.login.wechatOAuth)
 const wechatLinkEmail = ref('')
 const wechatLinkCode = ref('')
@@ -90,7 +82,7 @@ const wechatCountdown = ref(0)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 let wechatCountdownTimer: ReturnType<typeof setInterval> | null = null
-let wechatQrExpiryTimer: ReturnType<typeof setInterval> | null = null
+let wechatQrExpiryTimer: ReturnType<typeof setTimeout> | null = null
 let regCountdownTimer: ReturnType<typeof setInterval> | null = null
 
 const isWeb = isWebRuntime()
@@ -172,13 +164,11 @@ const viewEyebrow = computed(() => {
 const wechatHint = computed(() => {
   if (wechatNeedEmail.value) return ''
   if (wechatScanned.value) return '已扫码,请在手机上确认授权'
-  if (wechatExpired.value) return '二维码已过期,请刷新后重试'
-  if (wechatCountdownSec.value > 0) return `请使用微信扫码登录,${wechatCountdownSec.value}s 内有效`
   return '请使用微信扫码登录'
 })
 
 const loginBgStyle = computed(() => ({
-  '--arena-login-bg': `url(${bgImage})`,
+  '--arena-login-bg': `url(${loginBundledAssets.bgClean})`,
 }))
 
 const canSendCode = computed(() => countdown.value <= 0 && email.value.trim().length > 0 && !loading.value)
@@ -202,7 +192,6 @@ const canPasswordLogin = computed(
 const canRegister = computed(
   () =>
     regEmail.value.trim().length > 0 &&
-    regUsername.value.trim().length > 0 &&
     regPassword.value.length >= 6 &&
     regCode.value.trim().length > 0 &&
     !loading.value
@@ -290,7 +279,7 @@ async function completeLogin(session: PortalSession) {
 
 async function onEmailLogin() {
   if (!syncApiBaseForRequest()) return
-  error.value = '微信登录模块未安装'
+  error.value = ''
   loading.value = true
   try {
     const result = await authApi.emailLogin(email.value.trim(), code.value.trim())
@@ -343,8 +332,6 @@ async function onRegister() {
   try {
     await authApi.register({
       email: regEmail.value.trim(),
-      username: regUsername.value.trim(),
-      password: regPassword.value,
       verifyCode: regCode.value.trim(),
     })
     const session = getPortalSession()
@@ -387,24 +374,19 @@ function stopWechatPoll() {
 
 function stopWechatQrExpiry() {
   if (wechatQrExpiryTimer) {
-    clearInterval(wechatQrExpiryTimer)
+    clearTimeout(wechatQrExpiryTimer)
     wechatQrExpiryTimer = null
   }
 }
 
 function startWechatQrExpiry(sec = 180) {
   stopWechatQrExpiry()
-  wechatExpiresIn.value = sec
-  wechatCountdownSec.value = sec
-  wechatQrExpiryTimer = setInterval(() => {
-    wechatCountdownSec.value -= 1
-    if (wechatCountdownSec.value <= 0) {
-      stopWechatQrExpiry()
-      stopWechatPoll()
-      wechatExpired.value = true
-      error.value = '二维码已过期,请刷新后重试'
+  wechatQrExpiryTimer = setTimeout(() => {
+    wechatQrExpiryTimer = null
+    if (!wechatScanned.value && !wechatNeedEmail.value) {
+      void startWechat()
     }
-  }, 1000)
+  }, sec * 1000)
 }
 
 async function detectWechatAvailability() {
@@ -421,12 +403,16 @@ async function detectWechatAvailability() {
   }
 }
 
+function refreshWechatQr() {
+  if (wechatQrLoading.value || wechatScanned.value) return
+  void startWechat()
+}
+
 async function startWechat() {
   if (!syncApiBaseForRequest()) return
   error.value = ''
   wechatNeedEmail.value = false
   wechatScanned.value = false
-  wechatExpired.value = false
   wechatLinkEmail.value = ''
   wechatLinkCode.value = ''
   wechatCountdown.value = 0
@@ -435,15 +421,20 @@ async function startWechat() {
   stopWechatPoll()
   stopWechatQrExpiry()
   try {
-    const { state, authorizeUrl, expiresIn } = await authApi.startOfficeWechatLogin()
+    const { state, authorizeUrl, qrImageUrl, expiresIn } = await authApi.startOfficeWechatLogin()
     wechatState.value = state
-    if (wechatAvailable.value) {
+    if (qrImageUrl) {
+      wechatQr.value = qrImageUrl
+    } else if (authorizeUrl) {
       try {
         wechatQr.value = await toWechatLoginQrDataUrl(authorizeUrl)
       } catch {
-        error.value = '微信登录模块未安装'
+        error.value = '二维码生成失败，请刷新后重试'
         return
       }
+    } else {
+      error.value = '微信登录配置不完整，请联系管理员'
+      return
     }
     startWechatQrExpiry(expiresIn)
     pollTimer = setInterval(() => void pollWechat(), 2000)
@@ -462,6 +453,10 @@ async function pollWechat() {
       stopWechatPoll()
       stopWechatQrExpiry()
       const session = getPortalSession()
+      if (session?.needsEmailBind) {
+        wechatNeedEmail.value = true
+        return
+      }
       if (session) await completeLogin(session)
     } else if (r.status === 'need_email') {
       stopWechatPoll()
@@ -469,13 +464,11 @@ async function pollWechat() {
       wechatNeedEmail.value = true
     } else if (r.status === 'scanned') {
       wechatScanned.value = true
-      wechatExpired.value = false
       error.value = ''
     } else if (r.status === 'expired') {
-      stopWechatPoll()
-      stopWechatQrExpiry()
-      wechatExpired.value = true
-      error.value = r.message || '微信登录失败'
+      if (!wechatScanned.value && !wechatNeedEmail.value) {
+        void startWechat()
+      }
     } else if (r.status === 'error') {
       stopWechatPoll()
       stopWechatQrExpiry()
@@ -596,7 +589,6 @@ function openLogin() {
   stopWechatQrExpiry()
   wechatNeedEmail.value = false
   wechatScanned.value = false
-  wechatExpired.value = false
   authView.value = 'login'
   error.value = ''
 }
@@ -627,6 +619,9 @@ onMounted(async () => {
   if (!loginMethods.value.some((item) => item.id === loginMethod.value)) {
     loginMethod.value = loginMethods.value[0]?.id ?? 'email'
   }
+  if (props.login.wechatOAuth && wechatAvailable.value) {
+    await openWechatLogin()
+  }
 })
 
 onBeforeUnmount(() => {
@@ -645,7 +640,7 @@ onBeforeUnmount(() => {
   <div class="arena-login" :style="loginBgStyle">
     <header class="arena-login__nav">
       <div class="arena-login__brand" aria-label="登录方式">
-        <img :src="brandLockup" alt="验证码" />
+        <img :src="loginBundledAssets.brandLockup" alt="验证码" />
       </div>
       <div class="arena-login__window-actions">
         <div class="arena-login__service-popover" :class="{ 'is-open': configOpen }">
@@ -657,7 +652,7 @@ onBeforeUnmount(() => {
               <strong>服务地址</strong>
               <span>邮箱</span>
             </div>
-            <NInput v-model:value="apiBaseInput" placeholder="http://127.0.0.1:8010" spellcheck="false" />
+            <NInput v-model:value="apiBaseInput" :placeholder="getDefaultApiBaseUrl()" spellcheck="false" />
             <div class="arena-login__config-actions">
               <NButton size="small" type="primary" @click="saveApiBase">保存</NButton>
               <NButton size="small" :loading="pingLoading" @click="pingApi">测试连接</NButton>
@@ -686,16 +681,16 @@ onBeforeUnmount(() => {
           <span class="arena-login__stage-desc">{{ stageTypedText }}<i aria-hidden="true" /></span>
         </div>
         <div class="arena-login__avatar-stack">
-          <img :src="avatarDoubao" alt="" />
-          <img :src="avatarGpt" alt="" />
-          <img :src="avatarClaude" alt="" />
+            <img :src="loginBundledAssets.avatars.doubao" alt="" />
+            <img :src="loginBundledAssets.avatars.gpt" alt="" />
+            <img :src="loginBundledAssets.avatars.claude" alt="" />
         </div>
-        <img class="arena-login__mascot" :src="mascotCat" alt="" />
+        <SleepyCatWidget placement="stage" />
       </section>
 
       <section class="arena-login__panel" :class="{ 'is-wechat': authView === 'wechat' }">
         <button
-          v-if="props.login.wechatOAuth && authView !== 'register'"
+          v-if="props.login.wechatOAuth && authView !== 'register' && !wechatNeedEmail"
           type="button"
           class="arena-login__qr-corner"
           :class="{ 'is-account': authView === 'wechat' }"
@@ -751,15 +746,15 @@ onBeforeUnmount(() => {
 
             <template v-else-if="loginMethod === 'password'">
               <label class="arena-login__field">
-                <span>图形验证码</span>
-                <NInput v-model:value="username" autocomplete="username" placeholder="用户名或邮箱" :disabled="loading" @blur="checkPasswordCaptcha" />
+                <span>邮箱</span>
+                <NInput v-model:value="username" type="text" autocomplete="email" placeholder="name@example.com" :disabled="loading" @blur="checkPasswordCaptcha" />
               </label>
               <label class="arena-login__field">
-                <span>邮箱</span>
+                <span>密码</span>
                 <NInput v-model:value="password" type="password" autocomplete="current-password" placeholder="请输入密码" :disabled="loading" />
               </label>
               <label v-if="captchaRequired" class="arena-login__field">
-                <span>用户名</span>
+                <span>图形验证码</span>
                 <div class="arena-login__captcha">
                   <NInput v-model:value="captchaCode" placeholder="验证码" maxlength="6" :disabled="loading" />
                   <button type="button" class="arena-login__captcha-img" :disabled="captchaLoading" @click="loadCaptcha">
@@ -787,13 +782,11 @@ onBeforeUnmount(() => {
 
         <template v-else-if="authView === 'register'">
           <div class="arena-login__form" @keydown.enter="onLoginKeydown">
-            <label class="arena-login__field"><span>邮箱</span><NInput v-model:value="regEmail" type="text" autocomplete="email" placeholder="name@example.com" /></label>
-            <label class="arena-login__field"><span>用户名</span><NInput v-model:value="regUsername" autocomplete="username" placeholder="登录用户名" /></label>
-            <label class="arena-login__field"><span>密码</span><NInput v-model:value="regPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" /></label>
+            <label class="arena-login__field"><span>邮箱</span><NInput v-model:value="regEmail" type="text" autocomplete="email" placeholder="name@example.com" :disabled="loading" /></label>
             <label class="arena-login__field">
               <span>验证码</span>
               <NInputGroup>
-                <NInput v-model:value="regCode" inputmode="numeric" maxlength="6" placeholder="6 位数字" />
+                <NInput v-model:value="regCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位数字" :disabled="loading" />
                 <NButton :disabled="!canSendRegCode" @click="sendRegCode">{{ regCountdown > 0 ? `${regCountdown}s` : '获取验证码' }}</NButton>
               </NInputGroup>
             </label>
@@ -817,24 +810,23 @@ onBeforeUnmount(() => {
               </label>
               <NButton type="primary" block class="arena-login__submit" :loading="loading" :disabled="!canSubmitWechatLink" @click="submitWechatLink">完成绑定</NButton>
             </div>
-            <button type="button" class="arena-login__wechat-action" @click="openLogin">返回登录</button>
           </div>
 
           <div v-else class="arena-login__wechat">
-            <div class="arena-login__wechat-qr" :class="{ 'is-loading': wechatQrLoading, 'is-scanned': wechatScanned, 'is-expired': wechatExpired }">
+            <button
+              type="button"
+              class="arena-login__wechat-qr"
+              :class="{ 'is-loading': wechatQrLoading, 'is-scanned': wechatScanned }"
+              :disabled="wechatQrLoading || wechatScanned"
+              :title="wechatScanned ? undefined : '点击刷新二维码'"
+              @click="refreshWechatQr"
+            >
               <div v-if="wechatQrLoading" class="arena-login__wechat-qr-skeleton" aria-hidden="true" />
               <img v-if="wechatQr" class="arena-login__wechat-qr-img" :src="wechatQr" alt="微信扫码登录" />
-              <div v-else-if="!wechatQrLoading" class="arena-login__wechat-qr-empty"><QrCode :size="28" /></div>
-              <div v-if="wechatScanned && !wechatExpired" class="arena-login__wechat-qr-status">已扫码</div>
-              <div v-else-if="wechatExpired" class="arena-login__wechat-qr-status arena-login__wechat-qr-status--expired">已过期</div>
-            </div>
-            <p class="arena-login__wechat-hint" :class="{ 'is-scanned': wechatScanned, 'is-expired': wechatExpired }">{{ wechatHint }}</p>
-            <div class="arena-login__wechat-actions">
-              <button type="button" class="arena-login__wechat-action" :disabled="wechatQrLoading" @click="startWechat">
-                <RefreshCw :size="14" :class="{ 'is-spinning': wechatQrLoading }" />刷新二维码</button>
-              <span class="arena-login__wechat-action-sep" aria-hidden="true" />
-              <button type="button" class="arena-login__wechat-action" @click="openLogin">返回登录</button>
-            </div>
+              <div v-else-if="!wechatQrLoading" class="arena-login__wechat-qr-empty"><QrCode :size="36" /></div>
+              <div v-if="wechatScanned" class="arena-login__wechat-qr-status">已扫码</div>
+            </button>
+            <p class="arena-login__wechat-hint" :class="{ 'is-scanned': wechatScanned }">{{ wechatHint }}</p>
           </div>
           <NAlert v-if="error" type="error" :bordered="false" class="arena-login__error">{{ error }}</NAlert>
         </template>

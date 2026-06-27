@@ -6,8 +6,11 @@ const modules = ('request,sse,notification,storage,shell,window,file'.split(',')
 createMntoolsApp({
   appId: 'com.agentarena',
   appName: 'Agent Arena',
-  themeId: 'enterprise-light',
   modules,
+  features: {
+    autoUpdate: true,
+    platform: true,
+  },
   login: {
     emailCode: true,
     password: true,

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Clock, Coins, Search, SlidersHorizontal } from 'lucide-vue-next'
+import { Clock, Play, Search, SlidersHorizontal, Sparkles, Users } from 'lucide-vue-next'
+import { formatWinnerCampLabel } from '@shared/arena/camp-labels'
 import ArenaPageShell from '@renderer/components/arena/ArenaPageShell.vue'
 import ArenaPageState from '@renderer/components/arena/ArenaPageState.vue'
 import { characterAvatarByName, matchImageByModeId } from '@renderer/data/arena-visual-assets'
 import { navigate } from '../router'
 import { formatUserMessage, gameModeService, matchService, matchWindowService } from '@renderer/services/arena'
-import { formatTimeLabel, formatYuan } from '@renderer/utils/id'
+import { formatTimeLabel } from '@renderer/utils/id'
 import type { Match, MatchStatus } from '@shared/arena/types'
 
 const query = ref('')
@@ -60,9 +61,29 @@ async function load() {
 }
 
 function statusText(record: Match): string {
-  if (record.status === 'active') return `进行中 · 第${record.runtime.currentRound}夜 ${record.runtime.currentPhaseName}`
-  if (record.status === 'paused' || record.status === 'aborted') return '中断 · 房主主动中断'
-  return `已结束 · ${record.winnerCamp || '平民阵营'}胜利`
+  if (record.status === 'active') {
+    return `进行中 · 第${record.runtime.currentRound}轮 ${record.runtime.currentPhaseName}`
+  }
+  if (record.status === 'paused' || record.status === 'aborted') return '中断 · 可继续'
+  return `已结束 · ${formatWinnerCampLabel(record.winnerCamp)}胜利`
+}
+
+function recordTeaser(record: Match): string {
+  const text = record.recap?.summary || record.resultSummary
+  if (text) return text
+  return `${record.participants.length} 人局，点击查看详情与战报。`
+}
+
+function statusBadgeClass(record: Match): string {
+  if (record.status === 'active') return 'is-active'
+  if (record.status === 'paused' || record.status === 'aborted') return 'is-paused'
+  if (record.status === 'completed') return 'is-done'
+  return ''
+}
+
+function recordSubtitle(record: Match): string {
+  const extra = record.title.replace(record.gameModeName, '').replace('·', '').trim()
+  return extra || `${record.participants.length} 人局`
 }
 
 function openRecord(record: Match) {
@@ -79,7 +100,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <ArenaPageShell class="records-page">
+  <ArenaPageShell class="records-page" viewport-lock>
     <section class="list-toolbar" aria-label="对局筛选">
       <label class="search-pill">
         <Search :size="17" />
@@ -114,52 +135,72 @@ onMounted(() => {
       loading-label="加载对局记录..."
       @retry="load"
     >
+      <template #skeleton>
+        <div class="record-grid record-grid--skeleton">
+          <div v-for="i in 6" :key="i" class="record-card record-card--skeleton" />
+        </div>
+      </template>
       <template #empty>
         <strong>暂无符合条件的对局记录</strong>
         <span>试试调整搜索词或筛选条件。</span>
       </template>
 
-      <div class="record-list arena-stagger">
-      <article v-for="record in filteredRecords" :key="record.id" class="record-row" @click="openRecord(record)">
-        <img class="record-emblem" :src="matchImageByModeId(record.gameModeId)" :alt="record.gameModeName" />
-        <div class="record-main">
-          <h2>
-            {{ record.gameModeName }}
-            <span>{{ record.title.replace(record.gameModeName, '').replace('·', '').trim() || record.title }}</span>
-          </h2>
-          <div class="record-avatars">
-            <img
-              v-for="(participant, index) in record.participants.slice(0, 6)"
-              :key="participant.characterId"
-              :src="characterAvatarByName(participant.characterName, index, participant.modelId, participant.avatarUrl)"
-              :alt="participant.characterName"
-            />
-            <span v-if="record.participants.length > 6">+{{ record.participants.length - 6 }}</span>
-          </div>
-        </div>
-
-        <div class="record-time">
-          <p><Clock :size="17" /> {{ formatTimeLabel(record.updatedAt) }}</p>
-          <strong :class="{ active: record.status === 'active', paused: record.status === 'paused' || record.status === 'aborted' }">
-            {{ statusText(record) }}
-          </strong>
-        </div>
-
-        <div class="record-cost">
-          <Coins :size="18" />
-          -{{ formatYuan(record.totalCostCents).replace('¥', '') }}
-        </div>
-
-        <button
-          v-if="record.status === 'active' || record.status === 'paused'"
-          class="row-action primary"
-          type="button"
-          @click.stop="matchWindowService.open(record.id)"
+      <div class="record-grid arena-stagger">
+        <article
+          v-for="record in filteredRecords"
+          :key="record.id"
+          class="record-card"
+          @click="openRecord(record)"
         >
-          继续
-        </button>
-        <button class="row-action" type="button" @click.stop="navigate(`/match-detail/${record.id}`)">查看详情</button>
-      </article>
+          <div class="record-card__banner">
+            <img :src="matchImageByModeId(record.gameModeId)" :alt="record.gameModeName" />
+            <span class="record-card__badge" :class="statusBadgeClass(record)">{{ statusText(record) }}</span>
+          </div>
+
+          <div class="record-card__body">
+            <div class="record-card__head">
+              <div>
+                <p class="record-card__mode">{{ record.gameModeName }}</p>
+                <h2>{{ recordSubtitle(record) }}</h2>
+              </div>
+              <time><Clock :size="14" /> {{ formatTimeLabel(record.updatedAt) }}</time>
+            </div>
+
+            <p class="record-card__teaser" :title="recordTeaser(record)">{{ recordTeaser(record) }}</p>
+
+            <div class="record-card__foot">
+              <div class="record-card__avatars">
+                <img
+                  v-for="(participant, index) in record.participants.slice(0, 5)"
+                  :key="participant.characterId"
+                  :src="characterAvatarByName(participant.characterName, index, participant.modelId, participant.avatarUrl, participant.characterId)"
+                  :alt="participant.characterName"
+                />
+                <span v-if="record.participants.length > 5">+{{ record.participants.length - 5 }}</span>
+              </div>
+              <div class="record-card__meta">
+                <span><Users :size="14" /> {{ record.participants.length }} 人</span>
+                <span v-if="record.recap?.source === 'narrator'" class="record-card__recap-tag">
+                  <Sparkles :size="13" /> 解说战报
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="record.status === 'active' || record.status === 'paused'"
+            class="record-card__actions"
+          >
+            <button
+              class="record-card__btn record-card__btn--primary"
+              type="button"
+              @click.stop="matchWindowService.open(record.id)"
+            >
+              <Play :size="15" />
+              继续对局
+            </button>
+          </div>
+        </article>
       </div>
     </ArenaPageState>
   </ArenaPageShell>
@@ -168,12 +209,26 @@ onMounted(() => {
 <style scoped>
 .records-page :deep(.aa-page-inner) {
   max-width: none;
-  height: 100%;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 14px;
-  padding: 28px 38px 20px;
-  overflow: hidden;
+  padding: 28px 38px 0;
+  min-height: 0;
+}
+
+.records-page :deep(.arena-page-state) {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.records-page :deep(.arena-page-state__skeleton),
+.records-page :deep(.arena-page-state__content) {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .list-toolbar {
@@ -204,7 +259,7 @@ onMounted(() => {
 }
 
 .search-pill {
-  width: 360px;
+  width: min(360px, 100%);
   gap: 10px;
   padding: 0 16px;
 }
@@ -235,60 +290,30 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.list-state {
+.record-grid {
   display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 10px;
-  min-height: 0;
-  color: #65709f;
-  font-size: 15px;
-}
-
-.list-state button {
-  border: 0;
-  color: #5b57f3;
-  cursor: pointer;
-  font: inherit;
-  height: 34px;
-  padding: 0 16px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
-}
-
-.list-state.empty strong {
-  color: #17205a;
-  font-size: 18px;
-}
-
-.record-list {
-  min-height: 0;
-  overflow: auto;
-  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  padding: 2px 4px 20px;
   align-content: start;
-  gap: 10px;
-  padding: 2px 4px 10px;
-  scrollbar-width: none;
 }
 
-.record-list::-webkit-scrollbar {
-  display: none;
+.record-grid--skeleton {
+  padding-top: 4px;
 }
 
-.record-row {
-  display: grid;
-  grid-template-columns: 70px minmax(280px, 1fr) minmax(248px, 0.72fr) 96px 108px 116px;
-  align-items: center;
-  gap: 12px;
-  min-height: 84px;
-  padding: 9px 16px 9px 13px;
-  border: 1px solid rgba(255, 255, 255, 0.76);
-  border-radius: 17px;
-  background: rgba(255, 255, 255, 0.68);
+.record-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.72);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    0 12px 28px rgba(91, 101, 174, 0.08);
+    0 14px 32px rgba(91, 101, 174, 0.1);
   backdrop-filter: blur(18px);
+  overflow: hidden;
   cursor: pointer;
   transition:
     transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
@@ -296,139 +321,243 @@ onMounted(() => {
     background 0.22s ease;
 }
 
-.record-row:hover {
-  transform: translateY(-3px);
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 16px 28px rgba(91, 101, 174, 0.12);
+.record-card:hover {
+  transform: translateY(-4px);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 18px 36px rgba(91, 101, 174, 0.14);
 }
 
-.record-emblem {
-  width: 58px;
-  height: 58px;
-  border-radius: 14px;
+.record-card--skeleton {
+  min-height: 280px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(244, 246, 255, 0.72));
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.record-card__banner {
+  position: relative;
+  aspect-ratio: 16 / 8;
+  min-height: 156px;
+  max-height: 196px;
+  overflow: hidden;
+}
+
+.record-card__banner img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  box-shadow: 0 8px 14px rgba(45, 55, 116, 0.16);
+  transform: scale(1.02);
 }
 
-.record-main {
+.record-card__banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(18, 24, 68, 0.08), rgba(18, 24, 68, 0.42));
+}
+
+.record-card__badge {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 1;
+  max-width: calc(100% - 24px);
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #334078;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.record-card__badge.is-active {
+  color: #5b57f3;
+}
+
+.record-card__badge.is-paused {
+  color: #e07a2f;
+}
+
+.record-card__badge.is-done {
+  color: #1f9f65;
+}
+
+.record-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  padding: 14px 16px 16px;
   min-width: 0;
 }
 
-.record-main h2 {
+.record-card__head {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.record-card__head time {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
+  flex: none;
+  color: #7a84ad;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.record-card__mode {
+  margin: 0 0 4px;
+  color: #7a84ad;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.record-card__head h2 {
   margin: 0;
   color: #17205a;
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 680;
+  line-height: 1.25;
 }
 
-.record-main h2 span {
+.record-card__teaser {
+  margin: 0;
+  color: #526099;
+  font-size: 13px;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  color: #2a3268;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 520;
+  min-height: 2.9em;
 }
 
-.record-avatars {
+.record-card__foot {
   display: flex;
   align-items: center;
-  margin-top: 10px;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
 }
 
-.record-avatars img,
-.record-avatars span {
-  width: 26px;
-  height: 26px;
-  margin-left: -5px;
+.record-card__avatars {
+  display: flex;
+  align-items: center;
+}
+
+.record-card__avatars img,
+.record-card__avatars span {
+  width: 28px;
+  height: 28px;
+  margin-left: -6px;
   border: 2px solid rgba(255, 255, 255, 0.95);
   border-radius: 50%;
   object-fit: cover;
   background: #fff;
 }
 
-.record-avatars img:first-child {
+.record-card__avatars img:first-child {
   margin-left: 0;
 }
 
-.record-avatars span {
+.record-card__avatars span {
   display: grid;
   place-items: center;
   color: #625cf0;
   background: #f0eeff;
-  font-size: 13px;
+  font-size: 11px;
+  font-weight: 700;
 }
 
-.record-time {
-  color: #65709f;
-  font-size: 13px;
-}
-
-.record-time p {
+.record-card__meta {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  color: #7a84ad;
+  font-size: 12px;
+}
+
+.record-card__meta span {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 6px;
+  gap: 4px;
 }
 
-.record-time strong {
-  color: #24a967;
-  font-weight: 550;
+.record-card__recap-tag {
+  color: #7a5cff;
+  font-weight: 650;
 }
 
-.record-time strong.active {
-  color: #605cf1;
+.record-card__actions {
+  padding: 0 16px 16px;
 }
 
-.record-time strong.paused {
-  color: #f08435;
-}
-
-.record-cost {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #26305e;
-  font-size: 14px;
-  font-weight: 520;
-}
-
-.row-action {
-  min-width: 104px;
-  height: 40px;
-  padding: 0 14px;
+.record-card__btn {
+  width: 100%;
+  height: 38px;
   border: 1px solid rgba(130, 142, 207, 0.18);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.58);
   color: #334078;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 650;
   cursor: pointer;
-  transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  transition: transform 0.18s ease, background 0.18s ease;
 }
 
-.row-action.primary {
+.record-card__btn--primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   color: #fff;
   border-color: transparent;
   background: linear-gradient(180deg, #7774ff, #5b57f3);
-  box-shadow: 0 12px 20px rgba(88, 80, 239, 0.22);
+  box-shadow: 0 10px 18px rgba(88, 80, 239, 0.22);
 }
 
-.row-action:hover {
+.record-card__btn:hover {
   transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 10px 18px rgba(91, 101, 174, 0.09);
+  background: rgba(255, 255, 255, 0.82);
 }
 
-.spin {
-  animation: spin 1s linear infinite;
+.record-card__btn--primary:hover {
+  background: linear-gradient(180deg, #817dff, #635ff5);
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .records-page :deep(.aa-page-inner) {
+    padding-inline: 18px;
+  }
+
+  .list-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-pill {
+    width: 100%;
+  }
+
+  .record-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

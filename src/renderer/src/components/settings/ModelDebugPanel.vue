@@ -5,11 +5,10 @@ import type { DataTableColumns } from '../../ui'
 import { useModelService } from '@renderer/composables/useModelService'
 import type { GatewayModelInfo } from '@renderer/services'
 import ProfileSectionLayout from './ProfileSectionLayout.vue'
+import PortalDataTable from './PortalDataTable.vue'
 import {
   NAlert,
   NButton,
-  NCard,
-  NDataTable,
   NInput,
   NSpace,
   NSpin,
@@ -122,7 +121,7 @@ async function runBatch() {
     desc="浏览可用模型并执行 ping 测试，验证网关鉴权与模型可达性。"
   >
     <template #actions>
-      <NButton type="primary" :loading="batchTesting" @click="runBatch">
+      <NButton type="primary" size="small" :loading="batchTesting" @click="runBatch">
         <template #icon><Activity :size="14" /></template>
         批量连通性测试
       </NButton>
@@ -138,19 +137,32 @@ async function runBatch() {
       <span v-if="testReport.message"> · {{ testReport.message }}</span>
     </NAlert>
 
-    <NCard class="mntools-panel profile-table-card" title="可用模型">
-      <template #header-extra>
+    <section class="portal-plain-block profile-table-card profile-list-region">
+      <div class="model-debug-toolbar">
+        <h4 class="portal-plain-block__title">可用模型</h4>
         <NInput v-model:value="modelFilter" placeholder="搜索模型…" clearable style="width: 220px" />
-      </template>
-      <NDataTable
+      </div>
+      <PortalDataTable
         :columns="columns"
         :data="filteredModels"
         :loading="modelsLoading"
-        :bordered="false"
-        size="small"
         :max-height="420"
         :pagination="{ pageSize: 12 }"
       />
-    </NCard>
+    </section>
   </ProfileSectionLayout>
 </template>
+
+<style scoped>
+.model-debug-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.model-debug-toolbar .portal-plain-block__title {
+  margin: 0;
+}
+</style>

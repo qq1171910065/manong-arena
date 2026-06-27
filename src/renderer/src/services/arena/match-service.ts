@@ -1,4 +1,4 @@
-﻿import { randomRoomCode, randomUUID } from '@renderer/utils/id'
+import { randomRoomCode, randomUUID } from '@renderer/utils/id'
 import { arenaInvoke, ensureArenaReady } from './client'
 import { ArenaError } from './errors'
 import {
@@ -8,13 +8,23 @@ import {
   validateCreateMatchInput,
 } from './character-service'
 import { createWerewolfState, initRuntimeForMode, normalizeRuntime, preparePhaseStep } from './phase-engine'
+import { createRoundtableState } from './roundtable-engine'
+import { isModePlayable } from './game-engine-registry'
+import { gameScenarioService } from './game-scenario-service'
+import { canJoinScenario } from './character-learning-service'
+import { postGameReviewService } from './post-game-review-service'
 import { settingsService } from './settings-service'
+import { matchCostEstimator } from './match-cost-estimator'
+import { getFallbackModelId } from './settings-runtime'
+import { buildWerewolfRolePlanWithExpansions, normalizeWerewolfRuleModules, type WerewolfExpansionRoleId } from '@shared/arena/werewolf-dlc'
+import { normalizeWerewolfWinCondition } from '@shared/arena/werewolf-win-condition'
 import type {
   Character,
   CreateMatchInput,
   Match,
   MatchFilter,
   MatchParticipant,
+  MatchRecap,
 } from '@shared/arena/types'
 
 function shuffle<T>(items: T[]): T[] {
@@ -26,32 +36,28 @@ function shuffle<T>(items: T[]): T[] {
   return next
 }
 
-function buildWerewolfRolePool(mode: ReturnType<typeof gameModeService.get>, playerCount: number) {
+function buildWerewolfRolePool(
+  mode: ReturnType<typeof gameModeService.get>,
+  playerCount: number,
+  werewolfDlcs: WerewolfExpansionRoleId[] = []
+) {
   if (!mode) return []
   const byId = (id: string) => mode.roles.find((role) => role.id === id) || mode.roles[0]
-  const plans: Record<number, string[]> = {
-    6: ['werewolf', 'werewolf', 'seer', 'witch', 'hunter', 'villager'],
-    7: ['werewolf', 'werewolf', 'seer', 'witch', 'hunter', 'guard', 'villager'],
-    8: ['werewolf', 'werewolf', 'seer', 'witch', 'hunter', 'guard', 'villager', 'villager'],
-    9: ['werewolf', 'werewolf', 'werewolf', 'seer', 'witch', 'hunter', 'guard', 'villager', 'villager'],
-    10: ['werewolf', 'werewolf', 'wolf_king', 'seer', 'witch', 'hunter', 'guard', 'knight', 'villager', 'villager'],
-    11: ['werewolf', 'werewolf', 'wolf_king', 'seer', 'witch', 'hunter', 'guard', 'idiot', 'knight', 'gravedigger', 'villager'],
-    12: ['werewolf', 'wolf_king', 'wolf_beauty', 'white_wolf_king', 'seer', 'witch', 'guard', 'knight', 'gravedigger', 'villager', 'villager', 'villager'],
-  }
-  const template = plans[Math.min(12, Math.max(6, playerCount))] || plans[10]
-  const pool = template.slice(0, playerCount).map(byId)
-  while (pool.length < playerCount) pool.push(byId(pool.filter((role) => role.id === 'werewolf').length < Math.ceil(playerCount / 4) ? 'werewolf' : 'villager'))
-  return pool
+  return buildWerewolfRolePlanWithExpansions(playerCount, werewolfDlcs).map(byId)
 }
 
 function assignRoles(
   participants: MatchParticipant[],
   mode: ReturnType<typeof gameModeService.get>,
-  manualRoles: Record<string, string> = {}
+  manualRoles: Record<string, string> = {},
+  werewolfDlcs: WerewolfExpansionRoleId[] = []
 ): MatchParticipant[] {
   if (!mode) return participants
   const hasManual = Object.keys(manualRoles).length > 0
-  const rolePool = mode.id === 'werewolf' && !hasManual ? buildWerewolfRolePool(mode, participants.length) : [...mode.roles]
+  const rolePool =
+    mode.id === 'werewolf' && !hasManual
+      ? buildWerewolfRolePool(mode, participants.length, werewolfDlcs)
+      : [...mode.roles]
   while (rolePool.length < participants.length) {
     rolePool.push(mode.roles.find((r) => r.id === 'villager') || mode.roles[0])
   }
@@ -109,6 +115,14 @@ async function pruneExpiredMatches(items: Match[]): Promise<void> {
   }
 }
 
+function snapshotSystemRoleModels(scenario: ReturnType<typeof gameScenarioService.getByGameModeId>): Record<string, string> {
+  const models: Record<string, string> = {}
+  for (const role of scenario?.systemRoles || []) {
+    models[role.kind] = role.modelId || getFallbackModelId()
+  }
+  return models
+}
+
 function normalizeMatch(match: Match): Match {
   const mode = gameModeService.get(match.gameModeId)
   if (mode) match.runtime = normalizeRuntime(match.runtime, mode)
@@ -128,7 +142,14 @@ export const matchService = {
     await ensureArenaReady()
     const match = await arenaInvoke('match', 'getMatch', () => window.api.getMatch(id))
     if (!match) throw new ArenaError('NOT_FOUND', '\u5bf9\u5c40\u4e0d\u5b58\u5728', 'match')
-    return normalizeMatch(match)
+    const normalized = normalizeMatch(match)
+    if (!normalized.runtime.systemRoleModels) {
+      await gameScenarioService.refresh()
+      normalized.runtime.systemRoleModels = snapshotSystemRoleModels(
+        gameScenarioService.getByGameModeId(normalized.gameModeId)
+      )
+    }
+    return normalized
   },
 
   async save(match: Match): Promise<Match> {
@@ -156,7 +177,10 @@ export const matchService = {
     validateCreateMatchInput(input)
     const mode = gameModeService.get(input.gameModeId)
     if (!mode) throw new ArenaError('VALIDATION', '玩法不存在', 'match')
-    if (mode.id !== 'werewolf') throw new ArenaError('VALIDATION', '当前版本仅开放狼人杀，其他玩法正在筹备中', 'match')
+    if (!isModePlayable(mode)) throw new ArenaError('VALIDATION', '当前玩法尚未开放', 'match')
+
+    await gameScenarioService.refresh()
+    const scenario = gameScenarioService.getByGameModeId(mode.id)
 
     const characters: Character[] = []
     for (const id of input.characterIds) {
@@ -166,6 +190,13 @@ export const matchService = {
     const disabled = characters.find((c) => c.status !== 'enabled')
     if (disabled) {
       throw new ArenaError('VALIDATION', '角色「' + disabled.name + '」已停用，无法加入对局', 'match')
+    }
+
+    if (scenario?.requiresLearning && !input.skipLearningCheck) {
+      for (const character of characters) {
+        const check = canJoinScenario(character, scenario.id)
+        if (!check.ok) throw new ArenaError('VALIDATION', check.reason || '角色未完成玩法学习', 'match')
+      }
     }
 
     const now = new Date().toISOString()
@@ -184,9 +215,47 @@ export const matchService = {
       isSpeaking: false,
     }))
 
-    participants = assignRoles(participants, mode, input.manualRoles || {})
+    participants = assignRoles(
+      participants,
+      mode,
+      input.manualRoles || {},
+      (input.werewolfDlcs || []) as WerewolfExpansionRoleId[]
+    )
 
-    const estimatedCostCents = gameModeService.estimateCost(mode.id, participants.length)
+    const promptPackId = input.promptPackId || scenario?.defaultPromptPackId
+    const roundtableTopic = input.discussionTopic || scenario?.discussionTopic || '自由讨论'
+    const roundtableRounds = input.roundtableRounds || scenario?.defaultRounds || 3
+
+    await matchCostEstimator.refresh().catch(() => null)
+    const sheriffEnabled = input.sheriffEnabled !== false
+    const systemRoleModels = snapshotSystemRoleModels(scenario)
+    const estimatedCostCents = (
+      await matchCostEstimator.estimateAsync(mode.id, participants.length, {
+        participantModelIds: participants.map((item) => item.modelId),
+        systemRoleModelIds: systemRoleModels,
+        sheriffEnabled: mode.id === 'werewolf' ? sheriffEnabled : undefined,
+        roundtableRounds,
+        roundtableHostEnabled: scenario?.systemRoles.some((role) => role.kind === 'host' && role.enabled) ?? true,
+        roundtableNarratorEnabled: scenario?.systemRoles.some((role) => role.kind === 'narrator' && role.enabled) ?? false,
+      })
+    ).totalCents
+    const runtime = {
+      ...initRuntimeForMode(mode),
+      promptPackId,
+      systemRoleModels,
+      sheriffEnabled: mode.id === 'werewolf' ? sheriffEnabled : undefined,
+      werewolfState: mode.id === 'werewolf' ? createWerewolfState() : undefined,
+      roundtableState:
+        mode.engineKind === 'roundtable' || mode.id === 'roundtable'
+          ? createRoundtableState(
+              roundtableTopic,
+              roundtableRounds,
+              scenario?.systemRoles.some((r) => r.kind === 'host' && r.enabled) ?? true,
+              scenario?.systemRoles.some((r) => r.kind === 'narrator' && r.enabled) ?? false
+            )
+          : undefined,
+    }
+
     const match: Match = {
       id: randomUUID(),
       title: input.title || buildMatchTitle(mode, participants.length),
@@ -210,19 +279,32 @@ export const matchService = {
       ],
       modelCalls: [],
       anomalies: [],
-      runtime: { ...initRuntimeForMode(mode), werewolfState: mode.id === 'werewolf' ? createWerewolfState() : undefined },
+      runtime,
       totalCostCents: 0,
       estimatedCostCents,
       resultSummary: null,
       winnerCamp: null,
+      recap: null,
       roomCode: randomRoomCode(),
       createdAt: now,
       updatedAt: now,
       startedAt: now,
       endedAt: null,
+      werewolfRuleModules:
+        mode.id === 'werewolf' ? normalizeWerewolfRuleModules(input.werewolfRuleModules) : undefined,
+      werewolfWinCondition:
+        mode.id === 'werewolf' ? normalizeWerewolfWinCondition(input.werewolfWinCondition) : undefined,
     }
 
     preparePhaseStep(match, mode)
+    if (mode.id === 'werewolf' && !sheriffEnabled) {
+      const sorted = [...mode.phases].sort((a, b) => a.order - b.order)
+      const nightIndex = sorted.findIndex((p) => p.id === 'night')
+      if (nightIndex >= 0) {
+        match.runtime.phaseIndex = nightIndex
+        preparePhaseStep(match, mode)
+      }
+    }
     match.runtime.stepAdvanceState = 'ready'
     const saved = await this.save(match)
 
@@ -269,10 +351,20 @@ export const matchService = {
       round: match.runtime.currentRound,
     })
     const saved = await this.save(match)
+    void postGameReviewService.reviewMatchForAll(saved).catch(() => undefined)
+    void import('./match-recap-service')
+      .then(({ matchRecapService }) => matchRecapService.ensureRecap(saved.id))
+      .catch(() => undefined)
     const settings = await settingsService.get().catch(() => null)
     if (settings && !settings.autoSaveMatch) {
       await this.remove(saved.id).catch(() => undefined)
     }
     return saved
+  },
+
+  async updateRecap(id: string, recap: MatchRecap): Promise<Match> {
+    const match = await this.get(id)
+    match.recap = recap
+    return this.save(match)
   },
 }

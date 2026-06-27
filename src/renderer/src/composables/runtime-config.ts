@@ -1,4 +1,4 @@
-import type { ShellLayout, ThemeId } from '@shared/types'
+import type { ShellLayout } from '@shared/types'
 
 export type ExampleModuleId =
   | 'stream-demo'
@@ -28,9 +28,9 @@ export interface AppFeatures {
 
 export interface RuntimeConfig {
   appId: string
+  productCode: string
   displayName: string
   description: string
-  themeId: ThemeId
   shellLayout: ShellLayout
   exampleModules: ExampleModuleId[]
   features: AppFeatures
@@ -69,9 +69,9 @@ const DEFAULT_EXAMPLE_MODULES: ExampleModuleId[] = [
 
 let runtimeConfig: RuntimeConfig = {
   appId: 'mntools-app',
+  productCode: 'arena',
   displayName: 'Mntools App',
   description: 'Electron desktop tool',
-  themeId: 'enterprise-light',
   shellLayout: 'sidebar',
   exampleModules: DEFAULT_EXAMPLE_MODULES,
   features: { ...DEFAULT_FEATURES },
@@ -86,6 +86,10 @@ export function configureRuntime(partial: RuntimeConfigInput): void {
       partial.exampleModules !== undefined ? partial.exampleModules : runtimeConfig.exampleModules,
     features: partial.features ? { ...runtimeConfig.features, ...partial.features } : runtimeConfig.features,
   }
+}
+
+export function getProductCode(): string {
+  return runtimeConfig.productCode
 }
 
 export function getRuntimeConfig(): RuntimeConfig {

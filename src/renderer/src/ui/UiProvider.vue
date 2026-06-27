@@ -1,48 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed } from 'vue'
 import {
-  darkTheme,
   NConfigProvider,
   NDialogProvider,
   NMessageProvider,
   NNotificationProvider,
-  type GlobalTheme,
 } from 'naive-ui'
-import { buildNaiveThemeOverrides, isDarkMode } from './naive-theme'
+import { buildNaiveThemeOverrides } from './naive-theme'
 
-const dark = ref(isDarkMode())
-const themeRevision = ref(0)
-let observer: MutationObserver | null = null
-
-function syncTheme() {
-  dark.value = isDarkMode()
-  themeRevision.value += 1
-}
-
-onMounted(() => {
-  syncTheme()
-  observer = new MutationObserver(syncTheme)
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['class', 'data-theme-id'],
-  })
-  window.addEventListener('mntools:theme-change', syncTheme)
-})
-
-onBeforeUnmount(() => {
-  observer?.disconnect()
-  window.removeEventListener('mntools:theme-change', syncTheme)
-})
-
-const naiveTheme = computed<GlobalTheme | null>(() => (dark.value ? darkTheme : null))
-const themeOverrides = computed(() => {
-  themeRevision.value
-  return buildNaiveThemeOverrides()
-})
+const themeOverrides = computed(() => buildNaiveThemeOverrides())
 </script>
 
 <template>
-  <NConfigProvider :theme="naiveTheme" :theme-overrides="themeOverrides" class="mntools-ui-root">
+  <NConfigProvider :theme-overrides="themeOverrides" class="mntools-ui-root">
     <NNotificationProvider :max="4" placement="top-right">
       <NMessageProvider>
         <NDialogProvider>
@@ -68,6 +38,11 @@ const themeOverrides = computed(() => {
 
 .mntools-ui-root .n-card.mntools-panel .n-card-header {
   padding-bottom: var(--space-2);
+  background: transparent;
+}
+
+.mntools-ui-root .n-card.mntools-panel .n-card-header .n-card-header__main {
+  font-weight: 650;
 }
 
 .mntools-ui-root .n-data-table {

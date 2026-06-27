@@ -77,7 +77,7 @@ async function ping() {
       <code class="code-block">{{ displayUrl }}</code>
     </template>
     <template v-else>
-      <NInput v-model:value="apiBaseInput" type="text" placeholder="http://127.0.0.1:8010" />
+      <NInput v-model:value="apiBaseInput" type="text" :placeholder="defaultBase" />
       <NSpace style="margin-top: 12px">
         <NButton type="primary" @click="save">保存</NButton>
         <NButton @click="reset">恢复默认</NButton>
