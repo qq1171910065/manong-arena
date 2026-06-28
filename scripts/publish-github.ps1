@@ -34,9 +34,12 @@ Then run:
 "@
 }
 
-$pkg = Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json
+$version = (& node -p "require('./package.json').version" 2>$null).Trim()
+if (-not $version) {
+  throw 'Could not read version from package.json'
+}
 if (-not $Tag) {
-  $Tag = "v$($pkg.version)"
+  $Tag = "v$version"
 }
 if ($Tag -notmatch '^v') {
   $Tag = "v$Tag"
