@@ -25,6 +25,7 @@
     "typecheck": "vue-tsc --noEmit -p tsconfig.web.json",
     "push": "powershell -ExecutionPolicy Bypass -File scripts/push.ps1",
     "publish:github": "powershell -ExecutionPolicy Bypass -File scripts/publish-github.ps1",
+    "upload:release-assets": "powershell -ExecutionPolicy Bypass -File scripts/upload-release-asset-pack.ps1",
     "preview": "electron-vite preview",
     "build:unpack": "pnpm run icons && pnpm run build && electron-builder --dir --config electron-builder.config.cjs --publish never",
     "build:win": "pnpm run icons && pnpm run build && electron-builder --win --config electron-builder.config.cjs --publish never",

@@ -45,43 +45,43 @@ pnpm publish:github         # GitHub（需 Classic PAT，见下）
    pnpm publish:github
    ```
 
-脚本会自动：创建 `qq1171910065/manong-arena` 仓库 → 推送 `master` → 推送 tag `v0.1.0` → 触发 Release CI。
+脚本会自动：创建 `qq1171910065/manong-arena` 仓库 → 推送 `master` → 推送 tag `v0.1.0` → 触发 Release CI（仅构建 Win/Mac 安装包）。
 
-若未运行 setup 脚本，可用：
+## 发布新版本
 
-```bash
-pnpm push -- master
-pnpm push -- origin v0.1.0
-```
+### 1. 代码与安装包（CI）
 
-## 发布新版本（含安装包）
+1. 更新 `package.json` 的 `version`，提交并推送
+2. 打 tag 并推送，触发 GitHub Actions：
 
-1. 更新 `package.json` 的 `version`
-2. 提交并推送代码：
-
-   ```bash
-   git add .
-   git commit -m "chore: release v0.1.0"
-   git push origin master
-   ```
-
-3. 打 tag 并推送（触发 GitHub Actions 构建 Release）：
-
-   ```bash
+   ```powershell
    git tag v0.1.0
    pnpm publish:github
    ```
 
-4. 在 GitHub → **Actions** 查看 `Release` 工作流；完成后在 **Releases** 页面下载（按版本号分目录）：
+3. 在 **Actions** 等待 Win/Mac 构建完成；Release 页面会出现：
 
    ```
    v0.1.0/
-   ├── windows/arena-{version}-setup.exe
-   ├── macos/arena-{version}.dmg
-   └── assets/arena-initial-assets-{version}.zip
+   ├── windows/manong-arena-{version}-setup.exe
+   └── macos/manong-arena-{version}.dmg
    ```
 
-> 安装包内置**默认素材**（纯色占位角色与玩法封面）。完整立绘素材包可在首次启动时在线下载，或从 Release 的 `assets/` 目录手动导入 zip。
+### 2. 完整素材包（本地，不进 CI）
+
+`.dev-assets/` 被 gitignore，完整立绘素材包**只能在本地**从开发素材目录打包：
+
+```powershell
+# 确保已有 .dev-assets/（pnpm init:dev-assets 或应用内素材管理）
+$env:GITHUB_TOKEN = 'ghp_xxxxxxxx'
+pnpm upload:release-assets
+```
+
+脚本会：`pnpm pack:assets`（读取 `.dev-assets/`）→ 上传到 Release 的 `v0.1.0/assets/arena-initial-assets-0.1.0.zip`。
+
+若 `pack:assets` 更新了 `src/shared/arena/bundled-asset-pack-manifest.json`（sha256 / downloadUrl），请一并提交。
+
+> 安装包内置**默认素材**（`bundled-assets/` 纯色占位）。完整素材包走 Release 的 `assets/` 目录或应用内下载。
 
 ## Platform 地址配置
 
