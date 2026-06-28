@@ -28,6 +28,8 @@ extraResources:
     filter:
       - '**/*'
 npmRebuild: false
+# Release 由 .github/workflows/release.yml 上传产物，不在 electron-builder 内自动 publish
+publish: null
 win:
   executableName: arena
   icon: icon.ico
