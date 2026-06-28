@@ -70,7 +70,7 @@ const zipPath = join(zipOutDir, fileName)
 
 const baseUrl = (
   process.env.ARENA_ASSETS_BASE_URL ||
-  `https://github.com/czmanong/manong-arena/releases/download/v${process.env.npm_package_version || version}`
+  `https://github.com/qq1171910065/manong-arena/releases/download/v${process.env.npm_package_version || version}`
 ).replace(/\/+$/, '')
 
 

@@ -1,14 +1,14 @@
 # Manong Arena
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![GitHub Release](https://img.shields.io/github/v/release/czmanong/manong-arena)](https://github.com/czmanong/manong-arena/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/qq1171910065/manong-arena)](https://github.com/qq1171910065/manong-arena/releases)
 
 **Manong Arena**（产品代号 `arena`）是一款开源的 AI 角色养成与规则化社交对局 **桌面客户端**（MIT）。当前版本 **v0.1.0**。
 
 > 养成你的 AI 角色，让他们一起玩规则化社交游戏。
 
-- **GitHub**：https://github.com/czmanong/manong-arena  
-- **下载安装包**：见 [Releases](https://github.com/czmanong/manong-arena/releases)（Windows `.exe` / macOS `.dmg`）  
+- **GitHub**：https://github.com/qq1171910065/manong-arena  
+- **下载安装包**：见 [Releases](https://github.com/qq1171910065/manong-arena/releases)（Windows `.exe` / macOS `.dmg`）  
 - **开源说明 / 发版流程**：[`docs/OPEN_SOURCE.md`](docs/OPEN_SOURCE.md)
 
 本仓库**仅包含客户端**。登录、模型网关、钱包与发版接口需对接你自建的 [Platform](https://github.com/czmanong/manong-arena#账号与模型) 后端（默认不在安装包内写死私有地址，请在应用设置中配置 Platform URL）。

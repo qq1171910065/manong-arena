@@ -8,7 +8,7 @@ Platform 后端（账户、网关、计费、发版接口等）**不在本仓库
 
 | 平台 | 地址 |
 |------|------|
-| GitHub（开源） | https://github.com/czmanong/manong-arena |
+| GitHub（开源） | https://github.com/qq1171910065/manong-arena |
 | Gitee（同步） | https://gitee.com/czmanong/arena |
 
 ## 首次配置双端推送
@@ -19,7 +19,33 @@ Platform 后端（账户、网关、计费、发版接口等）**不在本仓库
 powershell -ExecutionPolicy Bypass -File scripts/setup-remotes.ps1
 ```
 
-之后 `git push origin master` 与 `git push origin --tags` 会**同时**推送到 Gitee 与 GitHub。
+之后分别推送，避免 GitHub 凭证未配置时卡住 Gitee：
+
+```bash
+git push origin master      # Gitee
+pnpm publish:github         # GitHub（需 Classic PAT，见下）
+```
+
+或使用 `pnpm push -- master` 依次推 Gitee 与 GitHub。
+
+## 首次发布到 GitHub（一键）
+
+1. 生成 **Classic** Personal Access Token（**不是** Fine-grained）  
+   https://github.com/settings/tokens/new → 勾选 **`repo`**
+
+2. 在本机设置环境变量（**不要提交到 git**）：
+
+   ```powershell
+   $env:GITHUB_TOKEN = 'ghp_xxxxxxxx'
+   ```
+
+3. 执行：
+
+   ```powershell
+   pnpm publish:github
+   ```
+
+脚本会自动：创建 `qq1171910065/manong-arena` 仓库 → 推送 `master` → 推送 tag `v0.1.0` → 触发 Release CI。
 
 若未运行 setup 脚本，可用：
 
@@ -43,7 +69,7 @@ pnpm push -- origin v0.1.0
 
    ```bash
    git tag v0.1.0
-   git push origin v0.1.0
+   pnpm publish:github
    ```
 
 4. 在 GitHub → **Actions** 查看 `Release` 工作流；完成后在 **Releases** 页面下载（按版本号分目录）：

@@ -6,11 +6,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/czmanong/manong-arena.git"
+    "url": "https://github.com/qq1171910065/manong-arena.git"
   },
-  "homepage": "https://github.com/czmanong/manong-arena",
+  "homepage": "https://github.com/qq1171910065/manong-arena",
   "bugs": {
-    "url": "https://github.com/czmanong/manong-arena/issues"
+    "url": "https://github.com/qq1171910065/manong-arena/issues"
   },
   "author": "Manong Arena Contributors",
   "scripts": {
@@ -24,6 +24,7 @@
     "icons": "node scripts/generate-app-icons.mjs",
     "typecheck": "vue-tsc --noEmit -p tsconfig.web.json",
     "push": "powershell -ExecutionPolicy Bypass -File scripts/push.ps1",
+    "publish:github": "powershell -ExecutionPolicy Bypass -File scripts/publish-github.ps1",
     "preview": "electron-vite preview",
     "build:unpack": "pnpm run icons && pnpm run build && electron-builder --dir --config electron-builder.config.cjs",
     "build:win": "pnpm run icons && pnpm run build && electron-builder --win --config electron-builder.config.cjs",
