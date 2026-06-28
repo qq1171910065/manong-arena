@@ -1,0 +1,38 @@
+{
+  "version": "bundled-minimal-1",
+  "packageId": "game-mode-packs",
+  "generatedAt": "2026-06-28T02:41:28.311Z",
+  "usage": "Manong Arena 内置玩法封面占位图（纯色，随客户端分发）",
+  "modes": [
+    {
+      "id": "werewolf",
+      "accent": "#7c3aed",
+      "modeCover": "werewolf/mode-cover.png",
+      "matchBanner": "werewolf/match-banner.png"
+    },
+    {
+      "id": "roundtable",
+      "accent": "#0ea5e9",
+      "modeCover": "roundtable/mode-cover.png",
+      "matchBanner": "roundtable/match-banner.png"
+    },
+    {
+      "id": "avalon",
+      "accent": "#2563eb",
+      "modeCover": "avalon/mode-cover.png",
+      "matchBanner": "avalon/match-banner.png"
+    },
+    {
+      "id": "undercover",
+      "accent": "#f97316",
+      "modeCover": "undercover/mode-cover.png",
+      "matchBanner": "undercover/match-banner.png"
+    },
+    {
+      "id": "custom",
+      "accent": "#64748b",
+      "modeCover": "custom/mode-cover.png",
+      "matchBanner": "custom/match-banner.png"
+    }
+  ]
+}

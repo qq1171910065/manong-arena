@@ -9,6 +9,7 @@ import {
   characterPortraitByName,
   characterPortraitHorizontalByName,
   ensureCharacterAssetPackCatalog,
+  listCharacterAssetPackGroups,
   normalizeCharacterAssets,
   type CharacterAssetPackOption,
 } from '@renderer/data/character-asset-catalog'
@@ -183,10 +184,10 @@ function loadDraft() {
 async function loadPackCatalog() {
   packCatalogLoading.value = true
   try {
-    const options = await ensureCharacterAssetPackCatalog({ refresh: true })
-    packGroups.value = [{ label: '内置角色', options }]
+    await ensureCharacterAssetPackCatalog({ refresh: true })
+    packGroups.value = listCharacterAssetPackGroups(draft.value.modelId)
   } catch {
-    packGroups.value = []
+    packGroups.value = listCharacterAssetPackGroups()
   } finally {
     packCatalogLoading.value = false
   }
@@ -387,7 +388,7 @@ watch(show, (open) => {
           </div>
           <div class="visual-editor__library-scroll">
             <p v-if="packCatalogLoading" class="visual-editor__empty">正在加载素材包…</p>
-            <p v-else-if="!packCount" class="visual-editor__empty">未找到角色素材包。请先在设置中心下载或载入初始素材。</p>
+            <p v-else-if="!packCount" class="visual-editor__empty">未找到角色素材包，可使用内置默认素材或于设置中心导入 zip。</p>
             <div v-for="group in packGroups" :key="group.label" class="visual-editor__pack-group">
               <h3 class="visual-editor__pack-group-title">{{ group.label }}</h3>
               <div class="visual-editor__pack-grid">

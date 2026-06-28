@@ -195,6 +195,10 @@ export const trayDomain = {
   setupTray: () => ipcRenderer.invoke('tray:setup'),
   setTrayHideOnClose: (value?: boolean) => ipcRenderer.invoke('tray:set-hide-on-close', value),
   getTrayHideOnClose: () => ipcRenderer.invoke('tray:get-hide-on-close') as Promise<{ ok: boolean; hideOnClose?: boolean }>,
+  setCloseBehavior: (behavior: 'ask' | 'tray' | 'quit') =>
+    ipcRenderer.invoke('tray:set-close-behavior', behavior) as Promise<{ ok: boolean; closeBehavior?: string }>,
+  getCloseBehavior: () =>
+    ipcRenderer.invoke('tray:get-close-behavior') as Promise<{ ok: boolean; closeBehavior?: 'ask' | 'tray' | 'quit' }>,
 }
 
 export const updaterDomain = {
@@ -218,10 +222,17 @@ export const windowControls = {
   close: () => ipcRenderer.invoke('window:close'),
   hide: () => ipcRenderer.invoke('window:hide'),
   quit: () => ipcRenderer.invoke('window:quit'),
+  submitCloseChoice: (choice: 'cancel' | 'tray' | 'quit') =>
+    ipcRenderer.invoke('window:close-choice-result', choice) as Promise<{ ok: boolean }>,
   onMaximizedChanged: (callback: (maximized: boolean) => void) => {
     const handler = (_event: unknown, maximized: boolean) => callback(maximized)
     ipcRenderer.on('window:maximized-changed', handler)
     return () => ipcRenderer.removeListener('window:maximized-changed', handler)
+  },
+  onRequestCloseChoice: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('window:request-close-choice', handler)
+    return () => ipcRenderer.removeListener('window:request-close-choice', handler)
   },
 }
 

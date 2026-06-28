@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, app, dialog } from 'electron'
+import { BrowserWindow, ipcMain, app } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { hasStoredSession, setStoredSession } from './auth-session'
@@ -18,14 +18,21 @@ import { registerWindowExtraHandlers } from './window-extra'
 import { registerScreenshotHandlers } from './screenshot'
 import { registerPrintHandlers } from './print'
 import { registerWorkerHandlers } from './worker'
-import { registerTrayHandlers, shouldHideMainWindowOnClose, destroyTray } from './tray'
+import {
+  registerTrayHandlers,
+  handleMainWindowClose,
+  markAppQuitting,
+  isAppQuitting,
+  destroyTray,
+} from './tray'
 import { registerUpdaterHandlers } from './updater'
 import { registerDeeplinkHandlers, initDeeplinkProtocol } from './deeplink'
 import { closeDebugProbe, registerDebugProbe } from './debug-probe'
 import { registerArenaHandlers, flushArenaStore } from './arena/ipc'
 import { registerAssetPackHandlers } from './asset-pack'
 import { registerDevAssetsHandlers } from './dev-assets'
-import { registerMatchRoomWindowHandlers,
+import {
+  registerMatchRoomWindowHandlers,
   tagWindowKind,
   closeAllMatchRoomWindows,
 } from './match-room-window'
@@ -95,11 +102,12 @@ function registerWindowControls(): void {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     if (win === loginWindow) {
+      markAppQuitting()
       app.quit()
       return
     }
-    if (win === mainWindow && shouldHideMainWindowOnClose()) {
-      win.hide()
+    if (win === mainWindow) {
+      void handleMainWindowClose(getMainWindow)
       return
     }
     win.close()
@@ -112,6 +120,7 @@ function registerWindowControls(): void {
 
   ipcMain.removeHandler('window:quit')
   ipcMain.handle('window:quit', () => {
+    markAppQuitting()
     app.quit()
   })
 
@@ -121,44 +130,6 @@ function registerWindowControls(): void {
     if (win === loginWindow) return 'login'
     return 'main'
   })
-}
-
-async function confirmMainWindowClose(): Promise<boolean> {
-  const win = getMainWindow()
-  if (!win) return true
-  const hideToTray = shouldHideMainWindowOnClose()
-  const result = await dialog.showMessageBox(win, {
-    type: 'question',
-    buttons: ["取消", hideToTray ? "隐藏到托盘" : "关闭"],
-    defaultId: 0,
-    cancelId: 0,
-    title: "关闭 Agent Arena",
-    message: "确认关闭主窗口？",
-    detail: hideToTray
-      ? "应用会继续在托盘运行，正在进行的对局窗口不会被强制关闭。"
-      : "主窗口将关闭，正在进行的对局窗口不会被强制关闭。",
-    noLink: true,
-  })
-  return result.response === 1
-}
-
-async function requestMainWindowClose(): Promise<void> {
-  const win = getMainWindow()
-  if (!win) return
-  if (!(await confirmMainWindowClose())) return
-  if (shouldHideMainWindowOnClose()) {
-    win.hide()
-    return
-  }
-  mainWindowCloseConfirmed = true
-  win.close()
-}
-
-function closeMainWindowWithoutConfirm(): void {
-  const win = getMainWindow()
-  if (!win) return
-  mainWindowCloseConfirmed = true
-  win.close()
 }
 
 /** 进入对局窗口时隐藏主窗口（不销毁，避免中断对局数据与数据库连接） */
@@ -203,7 +174,7 @@ export function createLoginWindow(): BrowserWindow {
   loginWindow.on('ready-to-show', () => loginWindow?.show())
   loginWindow.on('closed', () => {
     loginWindow = null
-    if (!getMainWindow()) app.quit()
+    if (!getMainWindow() && !isAppQuitting()) app.quit()
   })
 
   loadRenderer(loginWindow, '/login')
@@ -247,10 +218,9 @@ export function createMainWindow(): BrowserWindow {
   mainWindow.on('unmaximize', notifyMaximized)
 
   mainWindow.on('close', (event) => {
-    if (shouldHideMainWindowOnClose()) {
-      event.preventDefault()
-      mainWindow?.hide()
-    }
+    if (isAppQuitting()) return
+    event.preventDefault()
+    void handleMainWindowClose(getMainWindow)
   })
 
   mainWindow.on('closed', () => {
@@ -286,7 +256,13 @@ export function registerLoginSuccessHandler(): void {
     setStoredSession(null)
     closeAllMatchRoomWindows()
     const main = getMainWindow()
-    if (main && !main.isDestroyed()) main.close()
+    if (main && !main.isDestroyed()) {
+      main.removeAllListeners('close')
+      main.destroy()
+      mainWindow = null
+      void flushArenaStore()
+      closeDatabase()
+    }
     createLoginWindow()
     return { ok: true }
   })

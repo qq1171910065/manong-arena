@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: ['electron-store'] })],
+    plugins: [externalizeDepsPlugin({ exclude: ['electron-store', 'archiver', 'extract-zip'] })],
     build: {
       rollupOptions: {
         external: ['node:sqlite'],
@@ -16,7 +16,7 @@ export default defineConfig({
       },
     },
     define: {
-      'process.env.MNTOOLS_MODULES': JSON.stringify('request,sse,notification,storage,shell,window,file'),
+      'process.env.MNTOOLS_MODULES': JSON.stringify('request,sse,notification,storage,shell,window,file,tray'),
     },
   },
   preload: {
@@ -27,7 +27,7 @@ export default defineConfig({
       },
     },
     define: {
-      'process.env.MNTOOLS_MODULES': JSON.stringify('request,sse,notification,storage,shell,window,file'),
+      'process.env.MNTOOLS_MODULES': JSON.stringify('request,sse,notification,storage,shell,window,file,tray'),
     },
   },
   renderer: {

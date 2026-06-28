@@ -2,10 +2,11 @@
 import { computed } from 'vue'
 import {
   NConfigProvider,
-  NDialogProvider,
   NMessageProvider,
   NNotificationProvider,
 } from 'naive-ui'
+import AppDialogBridge from '../components/common/AppDialogBridge.vue'
+import AppDialogHost from '../components/common/AppDialogHost.vue'
 import { buildNaiveThemeOverrides } from './naive-theme'
 
 const themeOverrides = computed(() => buildNaiveThemeOverrides())
@@ -15,9 +16,9 @@ const themeOverrides = computed(() => buildNaiveThemeOverrides())
   <NConfigProvider :theme-overrides="themeOverrides" class="mntools-ui-root">
     <NNotificationProvider :max="4" placement="top-right">
       <NMessageProvider>
-        <NDialogProvider>
-          <slot />
-        </NDialogProvider>
+        <slot />
+        <AppDialogHost />
+        <AppDialogBridge />
       </NMessageProvider>
     </NNotificationProvider>
   </NConfigProvider>

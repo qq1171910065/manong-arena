@@ -19,7 +19,9 @@ declare global {
       close: () => Promise<void>
       hide: () => Promise<void>
       quit: () => Promise<void>
+      submitCloseChoice?: (choice: 'cancel' | 'tray' | 'quit') => Promise<{ ok: boolean }>
       onMaximizedChanged: (callback: (maximized: boolean) => void) => () => void
+      onRequestCloseChoice?: (callback: () => void) => () => void
     }
   }
 }

@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Loader2, Send, Trash2, X } from 'lucide-vue-next'
 import ArenaChatBubble from '@renderer/components/arena/ArenaChatBubble.vue'
+import { confirm } from '@renderer/composables/useAppDialog'
 import { modeImageById } from '@renderer/data/arena-visual-assets'
 import { formatUserMessage, gameModeQAService } from '@renderer/services/arena'
 import type { CharacterChatMessage, GameMode } from '@shared/arena/types'
@@ -77,7 +78,12 @@ async function send(question?: string) {
 }
 
 async function clearChat() {
-  if (!window.confirm('确定清空本玩法的答疑记录吗？')) return
+  if (!(await confirm({
+    title: '清空答疑',
+    message: '确定清空本玩法的答疑记录吗？',
+    tone: 'warning',
+    confirmText: '清空',
+  }))) return
   await gameModeQAService.clearMessages(props.mode.id)
   messages.value = [
     {

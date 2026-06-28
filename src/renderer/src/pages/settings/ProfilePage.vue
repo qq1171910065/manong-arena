@@ -31,9 +31,9 @@ import {
   NSpace,
   NSpin,
   NTag,
-  useDialog,
   useMessage,
 } from '../../ui'
+import { confirm } from '@renderer/composables/useAppDialog'
 import {
   authApi,
   getAppKeyName,
@@ -67,7 +67,6 @@ import {
 import { PORTAL_SHELL_KEY } from './portal-shell'
 
 const message = useMessage()
-const dialog = useDialog()
 
 const activeTab = computed(() => portalTabFromRoute(route.value))
 const loading = ref(false)
@@ -754,22 +753,20 @@ function openOAuthBind(binding: PortalOAuthBinding) {
   oauthBindOpen.value = true
 }
 
-function unbindOAuth(channel: string, label: string) {
-  dialog.warning({
-    title: '\u89e3\u7ed1' + label,
-    content: '\u89e3\u7ed1\u540e\u5c06\u65e0\u6cd5\u4f7f\u7528\u8be5\u65b9\u5f0f\u5feb\u6377\u767b\u5f55\uff0c\u786e\u5b9a\u7ee7\u7eed\uff1f',
-    positiveText: '\u89e3\u7ed1',
-    negativeText: '\u53d6\u6d88',
-    onPositiveClick: async () => {
-      try {
-        await authApi.unbindOAuth(channel)
-        message.success('\u5df2\u89e3\u7ed1')
-        await reload()
-      } catch (e) {
-        message.error(e instanceof Error ? e.message : '\u89e3\u7ed1\u5931\u8d25')
-      }
-    },
-  })
+async function unbindOAuth(channel: string, label: string) {
+  if (!(await confirm({
+    title: `解绑${label}`,
+    message: '解绑后将无法使用该方式快捷登录，确定继续？',
+    tone: 'warning',
+    confirmText: '解绑',
+  }))) return
+  try {
+    await authApi.unbindOAuth(channel)
+    message.success('已解绑')
+    await reload()
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : '解绑失败')
+  }
 }
 
 

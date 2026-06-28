@@ -31,6 +31,27 @@ export async function ensureInitialAssets(
   }
 }
 
+export async function installBundledMinimalAssets(
+  onProgress?: (progress: AssetPackProgressPayload) => void
+): Promise<void> {
+  if (typeof window.api?.installBundledMinimalAssets !== 'function') {
+    throw new Error('当前环境不支持内置默认素材')
+  }
+
+  const unsubscribe = onProgress
+    ? window.api.onAssetPackProgress((payload) => onProgress(payload))
+    : undefined
+
+  try {
+    const result = await window.api.installBundledMinimalAssets()
+    if (!result.ok) {
+      throw new Error(result.error || '内置默认素材准备失败')
+    }
+  } finally {
+    unsubscribe?.()
+  }
+}
+
 export async function installAssetPackFromFile(
   onProgress?: (progress: AssetPackProgressPayload) => void
 ): Promise<void> {

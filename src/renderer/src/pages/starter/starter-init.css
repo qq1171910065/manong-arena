@@ -295,6 +295,30 @@
   margin-top: 22px;
 }
 
+.arena-starter-init__asset-alert-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: #243066;
+}
+
+.arena-starter-init__asset-alert-desc {
+  margin: 0 0 8px;
+  color: #5f6a9e;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.arena-starter-init__asset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-top: 10px;
+}
+
+.arena-starter-init__asset-actions .arena-starter-init__retry {
+  margin-left: 0;
+}
+
 .arena-starter-init__retry {
   margin-left: 8px;
   padding: 0;

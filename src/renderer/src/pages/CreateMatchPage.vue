@@ -23,6 +23,7 @@ import {
   type WerewolfWinCondition,
 } from '@shared/arena/werewolf-win-condition'
 import { navigate, route } from '../router'
+import { confirm } from '@renderer/composables/useAppDialog'
 import {
   arenaSession,
   billingService,
@@ -416,9 +417,13 @@ async function checkLearningBeforeStart(): Promise<boolean | null> {
     if (!check.ok) issues.push(check.reason || character.name)
   }
   if (!issues.length) return false
-  const confirmed = window.confirm(
-    '以下角色尚未完成玩法学习或考试：\n\n' + issues.join('\n') + '\n\n是否跳过检查并继续开局？'
-  )
+  const confirmed = await confirm({
+    title: '跳过玩法检查',
+    message: '以下角色尚未完成玩法学习或考试：',
+    detail: issues.join('\n') + '\n\n是否跳过检查并继续开局？',
+    tone: 'warning',
+    confirmText: '继续开局',
+  })
   return confirmed ? true : null
 }
 async function createMatch(skipLearningCheck: boolean) {

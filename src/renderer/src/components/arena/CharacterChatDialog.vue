@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Loader2, Send, Trash2, X } from 'lucide-vue-next'
 import ArenaChatBubble from '@renderer/components/arena/ArenaChatBubble.vue'
 import { characterAvatarByName } from '@renderer/data/arena-visual-assets'
+import { confirm } from '@renderer/composables/useAppDialog'
 import { characterChatService, formatUserMessage } from '@renderer/services/arena'
 import type { Character, CharacterChatMessage } from '@shared/arena/types'
 
@@ -77,7 +78,12 @@ async function send() {
 }
 
 async function clearChat() {
-  if (!window.confirm('确定清空与「' + props.character.name + '」的对话记录吗？')) return
+  if (!(await confirm({
+    title: '清空对话',
+    message: `确定清空与「${props.character.name}」的对话记录吗？`,
+    tone: 'warning',
+    confirmText: '清空',
+  }))) return
   await characterChatService.clearMessages(props.character.id)
   messages.value = [
     {

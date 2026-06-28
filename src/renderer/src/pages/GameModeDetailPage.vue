@@ -13,6 +13,7 @@ import DetailRailActions from '@renderer/components/arena/DetailRailActions.vue'
 import DetailSectionNav from '@renderer/components/arena/DetailSectionNav.vue'
 import MarkdownContent from '@renderer/components/common/MarkdownContent.vue'
 import { useScrollSpySections } from '@renderer/composables/useScrollSpySections'
+import { confirm } from '@renderer/composables/useAppDialog'
 import { useGatewayModelLabel } from '@renderer/composables/useGatewayModelLabel'
 import { modeBadges, modeImageById } from '@renderer/data/arena-visual-assets'
 import { navigate, route } from '../router'
@@ -223,7 +224,12 @@ async function onModeSaved() {
 
 async function resetToBuiltin() {
   if (!mode.value || isCustomMode.value) return
-  if (!window.confirm('确定恢复为内置默认配置吗？你的自定义修改将被清除。')) return
+  if (!(await confirm({
+    title: '恢复默认配置',
+    message: '确定恢复为内置默认配置吗？你的自定义修改将被清除。',
+    tone: 'warning',
+    confirmText: '恢复',
+  }))) return
   try {
     await gameModeService.clearOverride(mode.value.id)
     if (scenario.value?.id) {
@@ -299,7 +305,13 @@ async function exportGameMode() {
 
 async function deleteCustomMode() {
   if (!mode.value || !isCustomMode.value) return
-  if (!window.confirm(`确定删除玩法「${mode.value.name}」吗？关联场景与提示词也会一并删除。`)) return
+  if (!(await confirm({
+    title: '删除玩法',
+    message: `确定删除玩法「${mode.value.name}」吗？`,
+    detail: '关联场景与提示词也会一并删除。',
+    tone: 'danger',
+    confirmText: '删除',
+  }))) return
   try {
     await portableDataService.deleteCustomGameMode(mode.value.id)
     navigate('/game-modes')

@@ -1,6 +1,6 @@
 /** 玩法视觉素材槽位（与角色 editor 槽位概念对齐） */
 
-export const BUILTIN_GAME_MODE_IMAGE_KEYS = ['werewolf', 'avalon', 'undercover', 'custom'] as const
+export const BUILTIN_GAME_MODE_IMAGE_KEYS = ['werewolf', 'roundtable', 'avalon', 'undercover', 'custom'] as const
 
 export type BuiltinGameModeImageKey = (typeof BUILTIN_GAME_MODE_IMAGE_KEYS)[number]
 
@@ -30,6 +30,7 @@ export const GAME_MODE_IMAGE_SLOTS: GameModeImageSlot[] = [
 
 export const BUILTIN_GAME_MODE_LABELS: Record<BuiltinGameModeImageKey, string> = {
   werewolf: '狼人杀',
+  roundtable: '圆桌讨论',
   avalon: '阿瓦隆',
   undercover: '谁是卧底',
   custom: '自定义',
@@ -43,6 +44,7 @@ export const LEGACY_HOME_MODE_ASSET_FILES: Record<
   werewolf: { modeCover: 'mode-werewolf.png', matchBanner: 'match-werewolf.png' },
   avalon: { modeCover: 'mode-avalon.png', matchBanner: 'match-avalon.png' },
   undercover: { modeCover: 'mode-undercover.png', matchBanner: 'match-undercover.png' },
+  roundtable: { modeCover: 'mode-custom.png', matchBanner: 'mode-custom.png' },
   custom: { modeCover: 'mode-custom.png', matchBanner: 'mode-custom.png' },
 }
 

@@ -1,0 +1,25 @@
+{
+  "version": "bundled-minimal-1",
+  "packageId": "character-packs",
+  "generatedAt": "2026-06-28T02:41:28.299Z",
+  "usage": "Manong Arena 内置默认角色素材包（纯色占位，随客户端分发）",
+  "characters": [
+    {
+      "id": "default",
+      "name": "默认",
+      "modelId": "default",
+      "accent": "#58c7df",
+      "palette": "teal / sky blue / white",
+      "portrait": "default/portrait.png",
+      "banner": "default/banner.png",
+      "avatars": {
+        "neutral": "default/avatars/neutral.png",
+        "thinking": "default/avatars/thinking.png",
+        "confident": "default/avatars/confident.png",
+        "happy": "default/avatars/happy.png",
+        "sad": "default/avatars/sad.png",
+        "angry": "default/avatars/angry.png"
+      }
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import changelogRaw from '@renderer/data/changelog.md?raw'
 import MarkdownContent from '../common/MarkdownContent.vue'
+import { confirm } from '@renderer/composables/useAppDialog'
 import ProfileSectionLayout from './ProfileSectionLayout.vue'
 import { NButton, NSpin, useMessage } from '../../ui'
 import { clientReleaseApi } from '@renderer/services'
@@ -35,9 +36,13 @@ async function onCheckUpdate() {
   const result = await checkAndDownloadUpdate()
   if (!result?.res?.hasUpdate || !result.res.downloadUrl || !result.res.latestVersion) return
   const notes = (result.res.releaseNotes || '').trim() || '暂无更新说明'
-  const confirmed = window.confirm(
-    `发现新版本 ${result.res.latestVersion}\n\n当前版本：${result.res.currentVersion}\n\n${notes}\n\n是否下载并安装？`
-  )
+  const confirmed = await confirm({
+    title: `发现新版本 ${result.res.latestVersion}`,
+    message: '是否下载并安装？',
+    detail: `当前版本：${result.res.currentVersion}`,
+    content: () => h(MarkdownContent, { source: notes }),
+    confirmText: '下载并安装',
+  })
   if (confirmed) {
     await runInAppUpdate(result.res.downloadUrl, result.res.latestVersion)
   }

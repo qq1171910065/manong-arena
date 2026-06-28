@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { RotateCcw } from 'lucide-vue-next'
 import DetailEditDialog from '@renderer/components/arena/DetailEditDialog.vue'
+import { confirm } from '@renderer/composables/useAppDialog'
 import {
   formatUserMessage,
   gameModeService,
@@ -122,7 +123,12 @@ async function save() {
 async function resetToBuiltin() {
   const builtin = getBuiltinGameMode(props.mode.id)
   if (!builtin) return
-  if (!window.confirm('确定恢复为内置默认配置吗？你的自定义修改将被清除。')) return
+  if (!(await confirm({
+    title: '恢复默认配置',
+    message: '确定恢复为内置默认配置吗？你的自定义修改将被清除。',
+    tone: 'warning',
+    confirmText: '恢复',
+  }))) return
   saving.value = true
   error.value = ''
   try {

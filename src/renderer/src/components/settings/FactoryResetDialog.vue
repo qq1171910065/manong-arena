@@ -44,7 +44,7 @@ function submit() {
 
         <h2 id="factory-reset-title">删除数据</h2>
         <p class="factory-reset-lead">
-          此操作将删除 Agent Arena 在本机的全部数据，包括角色、玩法、对局、快照、日志、玩法覆盖与设置，并退出当前登录。
+          此操作将删除 Manong Arena 在本机的全部数据，包括角色、玩法、对局、快照、日志、玩法覆盖与设置，并退出当前登录。
         </p>
 
         <ul class="factory-reset-list">

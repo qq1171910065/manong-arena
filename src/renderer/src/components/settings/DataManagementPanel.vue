@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { Download, RotateCcw, Trash2 } from 'lucide-vue-next'
+import { confirm } from '@renderer/composables/useAppDialog'
 import FactoryResetDialog from './FactoryResetDialog.vue'
 import AssetPackPanel from './AssetPackPanel.vue'
 import { dataManagementService, formatUserMessage } from '@renderer/services/arena'
@@ -45,17 +46,34 @@ async function exportData() {
 }
 
 async function clearMatches() {
-  if (!window.confirm('确定清除全部对局记录与快照吗？此操作不可恢复。')) return
+  if (!(await confirm({
+    title: '清除对局记录',
+    message: '确定清除全部对局记录与快照吗？',
+    detail: '此操作不可恢复。',
+    tone: 'danger',
+    confirmText: '清除',
+  }))) return
   await runDataAction(() => dataManagementService.clearMatches(), '对局记录与快照已清除。')
 }
 
 async function clearLogs() {
-  if (!window.confirm('确定清除全部操作日志吗？')) return
+  if (!(await confirm({
+    title: '清除操作日志',
+    message: '确定清除全部操作日志吗？',
+    tone: 'warning',
+    confirmText: '清除',
+  }))) return
   await runDataAction(() => dataManagementService.clearLogs(), '操作日志已清除。')
 }
 
 async function pruneExpiredData() {
-  if (!window.confirm(`确定清理 ${props.retentionDays} 天前的已结束对局吗？进行中的对局不会被删除。`)) return
+  if (!(await confirm({
+    title: '清理过期对局',
+    message: `确定清理 ${props.retentionDays} 天前的已结束对局吗？`,
+    detail: '进行中的对局不会被删除。',
+    tone: 'warning',
+    confirmText: '清理',
+  }))) return
   dataBusy.value = true
   dataMessage.value = ''
   emit('error', '')

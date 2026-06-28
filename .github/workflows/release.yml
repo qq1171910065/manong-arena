@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-assets:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      asset_zip: ${{ steps.meta.outputs.asset_zip }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Resolve release version
+        id: meta
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "asset_zip=arena-initial-assets-${VERSION}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate bundled placeholder assets
+        run: pnpm run generate:bundled-assets
+
+      - name: Pack release asset zip
+        env:
+          ARENA_ASSET_PACK_VERSION: ${{ steps.meta.outputs.version }}
+          ARENA_ASSETS_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}
+        run: pnpm run pack:assets
+
+      - name: Upload asset pack artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: asset-pack
+          path: .tmp/asset-pack/*.zip
+          if-no-files-found: error
+
+  build-windows:
+    needs: prepare-assets
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate bundled placeholder assets
+        run: pnpm run generate:bundled-assets
+
+      - name: Build Windows installer
+        run: pnpm run build:win
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*-setup.exe
+          if-no-files-found: error
+
+  build-macos:
+    needs: prepare-assets
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate bundled placeholder assets
+        run: pnpm run generate:bundled-assets
+
+      - name: Build macOS DMG
+        run: pnpm run build:mac
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  release:
+    needs: [prepare-assets, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*'
+          merge-multiple: true
+          path: artifacts
+
+      - name: Prepare versioned release layout
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare-assets.outputs.version }}"
+          mkdir -p "release/${VERSION}/windows" "release/${VERSION}/macos" "release/${VERSION}/assets"
+          WIN=$(find artifacts -name '*-setup.exe' | head -n 1)
+          MAC=$(find artifacts -name '*.dmg' | head -n 1)
+          ZIP=$(find artifacts -name '*.zip' | head -n 1)
+          cp "$WIN" "release/${VERSION}/windows/"
+          cp "$MAC" "release/${VERSION}/macos/"
+          cp "$ZIP" "release/${VERSION}/assets/"
+          ls -R release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Manong Arena ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

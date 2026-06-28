@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { electronApp } from '@electron-toolkit/utils'
 import { registerDevToolsIpc, registerWindowDevToolsShortcut } from './lib/devtools'
 import { registerAssetPackScheme } from './lib/asset-pack'
+import { markAppQuitting } from './lib/tray'
 import { ensureAppHomeDir } from './lib/app-home'
 import {
   bootstrapWindows,
@@ -31,8 +32,13 @@ export function createMntoolsApp(config: MntoolsAppConfig): void {
     const deeplink = findDeeplinkInArgv(argv)
     if (deeplink) handleDeeplinkUrl(deeplink, getMainWindow)
     const win = getMainWindow() ?? createLoginWindow()
+    if (!win.isVisible()) win.show()
     if (win.isMinimized()) win.restore()
     win.focus()
+  })
+
+  app.on('before-quit', () => {
+    markAppQuitting()
   })
 
   app.whenReady().then(async () => {

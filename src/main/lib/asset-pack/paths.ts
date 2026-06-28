@@ -6,6 +6,7 @@ import {
   getInstalledAssetsDir as getAppInstalledAssetsDir,
 } from '../app-home'
 import {
+  BUNDLED_MINIMAL_ASSET_VERSION,
   INITIAL_ASSET_PACK_ID,
   type InitialAssetInstallState,
   type InitialAssetPackManifest,
@@ -60,6 +61,18 @@ export function readInstallState(appId: string): InitialAssetInstallState | null
   }
 }
 
+export function findBundledAssetsDir(): string | null {
+  if (app.isPackaged) {
+    const resourceDir = join(process.resourcesPath, 'bundled-assets')
+    if (hasPackContentAt(resourceDir)) return resourceDir
+  }
+  for (const root of getProjectRoots()) {
+    const dir = join(root, 'bundled-assets')
+    if (hasPackContentAt(dir)) return dir
+  }
+  return null
+}
+
 export function resolveAssetFilePath(relativePath: string, appId: string): string | null {
   const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
   const installed = join(getInstalledAssetsDir(appId), normalized)
@@ -72,16 +85,25 @@ export function resolveAssetFilePath(relativePath: string, appId: string): strin
       if (existsSync(devPath)) return devPath
     }
   }
+
+  const bundledDir = findBundledAssetsDir()
+  if (bundledDir) {
+    const bundledPath = join(bundledDir, normalized)
+    if (existsSync(bundledPath)) return bundledPath
+  }
   return null
 }
 
 export function isInitialAssetsReady(appId: string): boolean {
   const marker = join(getInstalledAssetsDir(appId), ASSET_PACK_MARKER_PATH)
   const installed = readInstallState(appId)
-  if (!existsSync(marker) || installed?.packId !== INITIAL_ASSET_PACK_ID) return false
+  if (!existsSync(marker) || installed?.packId !== INITIAL_ASSET_PACK_ID) {
+    return hasPackContentAt(findBundledAssetsDir() || '')
+  }
 
   const manifest = resolveAssetPackManifest()
   if (!manifest) return true
+  if (installed.version === BUNDLED_MINIMAL_ASSET_VERSION) return true
   return installed.version === manifest.version
 }
 

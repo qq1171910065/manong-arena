@@ -40,9 +40,11 @@ export {
   NTimeline,
   NTimelineItem,
   NTooltip,
-  useDialog,
   useMessage,
   useNotification,
 } from 'naive-ui'
+
+export { useAppDialog, confirm, choose, alert } from '../composables/useAppDialog'
+export type { AppDialogConfirmOptions, AppDialogChooseOptions, AppDialogTone } from '../composables/useAppDialog'
 
 export type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui'

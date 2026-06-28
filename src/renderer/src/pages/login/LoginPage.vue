@@ -146,7 +146,7 @@ function startStageMotion() {
 const pageTitle = computed(() => {
   if (authView.value === 'register') return '创建你的竞技身份'
   if (authView.value === 'wechat') return '微信快速进入'
-  return '回到 Agent Arena'
+  return '回到 Manong Arena'
 })
 
 const pageDesc = computed(() => {

@@ -2,7 +2,8 @@
 export const API_BASE_URL_STORAGE_KEY = 'mntools-api-base-url'
 
 const DEV_DEFAULT_API_BASE_URL = 'http://127.0.0.1:8010'
-const PROD_DEFAULT_API_BASE_URL = 'http://local.czmanong.com'
+/** 开源客户端不内置私有 Platform；用户可在设置中配置，或构建时设 VITE_PLATFORM_API_URL */
+const PROD_DEFAULT_API_BASE_URL = ''
 
 export function getDefaultApiBaseUrl(): string {
   const env =

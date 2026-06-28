@@ -6,8 +6,13 @@ import {
   runStarterInit,
   STARTER_INIT_STEPS,
   STARTER_INIT_TOTAL,
+  StarterAssetFetchError,
   type StarterInitProgress,
 } from '@renderer/services/arena/starter-init-service'
+import {
+  importStarterAssetsFromZip,
+  skipStarterAssetsWithBundled,
+} from '@renderer/services/arena/starter-assets-step'
 import { arenaHomeAssets } from '@renderer/data/arena-home-assets'
 
 const emit = defineEmits<{
@@ -53,6 +58,9 @@ const progress = ref<StarterInitProgress>({
 })
 const running = ref(true)
 const error = ref('')
+const assetFetchFailed = ref(false)
+const assetFetchMessage = ref('')
+const assetActionBusy = ref(false)
 
 const loginBgStyle = {
   '--arena-login-bg': `url(${arenaHomeAssets.bgClean})`,
@@ -141,18 +149,69 @@ function ringDashOffset(ringPercent: number): number {
   return RING_CIRCUMFERENCE * (1 - ringPercent / 100)
 }
 
-async function startInit() {
+async function startInit(fromIndex = 0, skipAssets = false) {
   running.value = true
   error.value = ''
+  assetFetchFailed.value = false
+  assetFetchMessage.value = ''
   try {
     await runStarterInit((next) => {
       progress.value = next
-    })
+    }, { startIndex: fromIndex, skipAssets })
     emit('complete')
   } catch (e) {
+    if (e instanceof StarterAssetFetchError) {
+      assetFetchFailed.value = true
+      assetFetchMessage.value = e.message
+      running.value = false
+      return
+    }
     error.value = e instanceof Error ? e.message : '初始化失败，请重试'
     running.value = false
   }
+}
+
+async function skipOnlineAssets() {
+  assetActionBusy.value = true
+  error.value = ''
+  try {
+    const assetsStep = STARTER_INIT_STEPS[0]
+    await skipStarterAssetsWithBundled((next) => {
+      progress.value = next
+    }, 0, assetsStep.label)
+    await startInit(1, true)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '跳过失败，请重试'
+    running.value = false
+  } finally {
+    assetActionBusy.value = false
+  }
+}
+
+async function importAssetsZip() {
+  assetActionBusy.value = true
+  error.value = ''
+  try {
+    const assetsStep = STARTER_INIT_STEPS[0]
+    await importStarterAssetsFromZip((next) => {
+      progress.value = next
+    }, 0, assetsStep.label)
+    await startInit(1, true)
+  } catch (e) {
+    if (e instanceof StarterAssetFetchError) {
+      assetFetchFailed.value = true
+      assetFetchMessage.value = e.message
+    } else {
+      error.value = e instanceof Error ? e.message : '导入失败，请重试'
+    }
+    running.value = false
+  } finally {
+    assetActionBusy.value = false
+  }
+}
+
+async function retryOnlineAssets() {
+  await startInit(0, false)
 }
 
 onMounted(() => {
@@ -247,9 +306,28 @@ onMounted(() => {
           </template>
         </div>
 
-        <NAlert v-if="error" type="error" :bordered="false" class="arena-starter-init__error">
+        <NAlert v-if="assetFetchFailed" type="warning" :bordered="false" class="arena-starter-init__error">
+          <p class="arena-starter-init__asset-alert-title">未能获取线上完整素材包</p>
+          <p class="arena-starter-init__asset-alert-desc">{{ assetFetchMessage }}</p>
+          <p class="arena-starter-init__asset-alert-desc">
+            你可以跳过并使用内置默认素材（纯色占位），或从本地选择 zip 导入完整素材包。
+          </p>
+          <div class="arena-starter-init__asset-actions">
+            <button type="button" class="arena-starter-init__retry" :disabled="assetActionBusy" @click="skipOnlineAssets">
+              跳过，使用默认素材
+            </button>
+            <button type="button" class="arena-starter-init__retry" :disabled="assetActionBusy" @click="importAssetsZip">
+              导入本地 zip
+            </button>
+            <button type="button" class="arena-starter-init__retry" :disabled="assetActionBusy" @click="retryOnlineAssets">
+              重试下载
+            </button>
+          </div>
+        </NAlert>
+
+        <NAlert v-else-if="error" type="error" :bordered="false" class="arena-starter-init__error">
           {{ error }}
-          <button type="button" class="arena-starter-init__retry" @click="startInit">重试</button>
+          <button type="button" class="arena-starter-init__retry" @click="startInit()">重试</button>
         </NAlert>
       </div>
     </main>

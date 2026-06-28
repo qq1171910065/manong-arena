@@ -1,241 +1,98 @@
-import {
-
-  STARTER_CHARACTER_LABELS,
-
-  STARTER_CHARACTER_MODEL_IDS,
-
-} from '@shared/arena/starter-characters'
-
-import {
-
-  STARTER_GAME_MODE_IDS,
-
-  STARTER_GAME_MODE_LABELS,
-
-} from '@shared/arena/starter-game-modes'
-
-import type { AssetPackProgressPayload } from '@shared/arena/initial-assets'
-
 import { arenaInvoke, ensureArenaReady } from './client'
-
 import { dataManagementService } from './data-management-service'
+import { isInitialAssetsReady } from './asset-pack-service'
+import { runStarterAssetsStep } from './starter-assets-step'
+import { StarterAssetFetchError } from './starter-asset-errors'
+import { STARTER_INIT_STEPS, STARTER_INIT_TOTAL } from './starter-init-steps'
+import type { StarterInitProgress } from './starter-init-types'
 
-import { ensureInitialAssets, isInitialAssetsReady } from './asset-pack-service'
+export type { StarterInitStep } from './starter-init-steps'
+export type { StarterInitProgress } from './starter-init-types'
+export {
+  STARTER_INIT_STEPS,
+  STARTER_INIT_TOTAL,
+  STARTER_CHARACTER_MODEL_IDS,
+  STARTER_CHARACTER_LABELS,
+  STARTER_GAME_MODE_IDS,
+  STARTER_GAME_MODE_LABELS,
+} from './starter-init-steps'
+export { StarterAssetFetchError } from './starter-asset-errors'
 
-
-
-export type StarterInitStep =
-
-  | { kind: 'assets'; id: string; label: string }
-
-  | { kind: 'character'; id: string; label: string }
-
-  | { kind: 'gameMode'; id: string; label: string }
-
-
-
-export const STARTER_INIT_STEPS: StarterInitStep[] = [
-
-  { kind: 'assets', id: 'initial', label: '初始素材包' },
-
-  ...STARTER_CHARACTER_MODEL_IDS.map((id) => ({
-
-    kind: 'character' as const,
-
-    id,
-
-    label: STARTER_CHARACTER_LABELS[id],
-
-  })),
-
-  ...STARTER_GAME_MODE_IDS.map((id) => ({
-
-    kind: 'gameMode' as const,
-
-    id,
-
-    label: STARTER_GAME_MODE_LABELS[id],
-
-  })),
-
-]
-
-
-
-export const STARTER_INIT_TOTAL = STARTER_INIT_STEPS.length
-
-
-
-export interface StarterInitProgress {
-
-  index: number
-
-  total: number
-
-  label: string
-
-  percent: number
-
-  step: StarterInitStep | null
-
-  assetPhase?: AssetPackProgressPayload['phase']
-
+export interface RunStarterInitOptions {
+  startIndex?: number
+  skipAssets?: boolean
 }
-
-
 
 function sleep(ms: number) {
-
   return new Promise((resolve) => window.setTimeout(resolve, ms))
-
 }
-
-
 
 export async function needsStarterInit(): Promise<boolean> {
-
   await ensureArenaReady()
-
   const [stats, assetsReady] = await Promise.all([
-
     dataManagementService.getStats(),
-
     isInitialAssetsReady(),
-
   ])
-
   return (
-
     !assetsReady ||
-
     !stats.seededAt ||
-
     stats.characterCount === 0 ||
-
     stats.installedGameModeCount === 0
-
   )
-
 }
 
-
-
 export async function runStarterInit(
-
-  onProgress: (progress: StarterInitProgress) => void
-
+  onProgress: (progress: StarterInitProgress) => void,
+  options: RunStarterInitOptions = {}
 ): Promise<void> {
-
   await ensureArenaReady()
 
+  const startIndex = options.startIndex ?? 0
 
-
-  for (let index = 0; index < STARTER_INIT_TOTAL; index += 1) {
-
+  for (let index = startIndex; index < STARTER_INIT_TOTAL; index += 1) {
     const step = STARTER_INIT_STEPS[index]
-
     onProgress({
-
       index,
-
       total: STARTER_INIT_TOTAL,
-
       label: step.label,
-
       percent: Math.round((index / STARTER_INIT_TOTAL) * 100),
-
       step,
-
     })
 
-
-
     if (step.kind === 'assets') {
-
-      await ensureInitialAssets((assetProgress) => {
-
-        onProgress({
-
-          index,
-
-          total: STARTER_INIT_TOTAL,
-
-          label: assetProgress.label || step.label,
-
-          percent: Math.max(
-
-            Math.round((index / STARTER_INIT_TOTAL) * 100),
-
-            Math.min(99, assetProgress.percent ?? 0)
-
-          ),
-
-          step,
-
-          assetPhase: assetProgress.phase,
-
-        })
-
-      })
-
+      if (options.skipAssets) {
+        await sleep(80)
+        continue
+      }
+      try {
+        await runStarterAssetsStep(onProgress, index, step.label)
+      } catch (error) {
+        if (error instanceof StarterAssetFetchError) throw error
+        throw new StarterAssetFetchError(
+          error instanceof Error ? error.message : '初始素材准备失败'
+        )
+      }
     } else if (step.kind === 'character') {
-
       await arenaInvoke('storage', 'seedStarterCharacter', () =>
-
         window.api.seedStarterCharacter(step.id)
-
       )
-
     } else {
-
       await arenaInvoke('storage', 'seedStarterGameMode', () =>
-
         window.api.seedStarterGameMode(step.id)
-
       )
-
     }
 
     await sleep(step.kind === 'assets' ? 120 : 280)
-
   }
 
-
-
   onProgress({
-
     index: STARTER_INIT_TOTAL,
-
     total: STARTER_INIT_TOTAL,
-
     label: '完成',
-
     percent: 100,
-
     step: null,
-
   })
 
-
-
   await arenaInvoke('storage', 'finalizeStarterInit', () => window.api.finalizeStarterInit())
-
   await sleep(400)
-
 }
-
-
-
-export {
-
-  STARTER_CHARACTER_MODEL_IDS,
-
-  STARTER_CHARACTER_LABELS,
-
-  STARTER_GAME_MODE_IDS,
-
-  STARTER_GAME_MODE_LABELS,
-
-}
-
-

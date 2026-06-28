@@ -9,6 +9,7 @@ import {
   characterAvatarByName,
   characterPortraitByName,
   ensureCharacterAssetPackCatalog,
+  listCharacterAssetPackGroups,
   type CharacterAssetPackOption,
 } from '@renderer/data/character-asset-catalog'
 import {
@@ -39,7 +40,7 @@ export type CharacterEditSection =
 
 const speechStyles = CHARACTER_SPEECH_STYLES
 const tagPresets = CHARACTER_TAG_PRESETS
-const packOptions = ref<CharacterAssetPackOption[]>([])
+const packGroups = ref<Array<{ label: string; options: CharacterAssetPackOption[] }>>([])
 const packCatalogLoading = ref(false)
 const applyingPack = ref(false)
 const selectedPackId = ref<string | null>(null)
@@ -109,9 +110,10 @@ const currentPortrait = computed(() =>
 async function loadPackCatalog() {
   packCatalogLoading.value = true
   try {
-    packOptions.value = await ensureCharacterAssetPackCatalog({ refresh: true })
+    await ensureCharacterAssetPackCatalog({ refresh: true })
+    packGroups.value = listCharacterAssetPackGroups(draft.value.modelId)
   } catch {
-    packOptions.value = []
+    packGroups.value = listCharacterAssetPackGroups()
   } finally {
     packCatalogLoading.value = false
   }
@@ -277,18 +279,25 @@ watch(show, (open) => {
         </div>
         <div class="preset-grid">
           <p v-if="packCatalogLoading" class="create-visual-hint">正在加载素材包…</p>
-          <p v-else-if="!packOptions.length" class="create-visual-hint">未找到角色素材包，请先在设置中心下载或载入初始素材。</p>
-          <button
-            v-for="option in packOptions"
-            :key="option.characterId"
-            type="button"
-            :class="{ active: selectedPackId === option.characterId }"
-            :disabled="applyingPack"
-            @click="applyPack(option)"
-          >
-            <img :src="option.previewAvatarUrl" alt="" />
-            <span>{{ option.label }}</span>
-          </button>
+          <template v-else-if="packGroups.length">
+            <section v-for="group in packGroups" :key="group.label" class="preset-grid__group">
+              <h4 class="preset-grid__group-title">{{ group.label }}</h4>
+              <div class="preset-grid__items">
+                <button
+                  v-for="option in group.options"
+                  :key="option.characterId"
+                  type="button"
+                  :class="{ active: selectedPackId === option.characterId }"
+                  :disabled="applyingPack"
+                  @click="applyPack(option)"
+                >
+                  <img :src="option.previewAvatarUrl" alt="" />
+                  <span>{{ option.label }}</span>
+                </button>
+              </div>
+            </section>
+          </template>
+          <p v-else class="create-visual-hint">未找到角色素材包，可使用内置默认素材或于设置中心导入 zip。</p>
         </div>
         <p class="create-visual-hint">创建后可在角色详情页点击头像，进一步上传或替换各表情素材。对话模型将自动使用系统默认模型。</p>
       </template>
@@ -394,7 +403,9 @@ watch(show, (open) => {
 .create-visual-preview__portrait { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
 .create-visual-preview__avatar { position: absolute; right: 10px; bottom: 10px; width: 52px; height: 52px; border-radius: 16px; object-fit: cover; box-shadow: 0 8px 18px rgba(50,56,120,.18); border: 2px solid rgba(255,255,255,.92); }
 .create-visual-hint { margin: 0 0 12px; color: #9aa3c7; font-size: 12px; line-height: 1.5; }
-.preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; max-height: 220px; overflow: auto; }
+.preset-grid { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; max-height: 220px; overflow: auto; }
+.preset-grid__group-title { margin: 0 0 6px; color: #7280b2; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; }
+.preset-grid__items { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .preset-grid button { height: 54px; padding: 6px; border: 1px solid rgba(130,142,207,.15); border-radius: 14px; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.55); cursor: pointer; }
 .preset-grid button.active { border-color: rgba(108,99,255,.34); background: rgba(112,105,255,.12); }
 .preset-grid img { width: 32px; height: 32px; border-radius: 10px; object-fit: cover; }

@@ -4,7 +4,7 @@ import type { LoginCapabilities, ShellLayout, ShellStyle } from '@shared/types'
 export const appConfig = {
   appId: 'com.agentarena',
   productCode: 'arena',
-  displayName: 'Agent Arena',
+  displayName: 'Manong Arena',
   description: '养成你的 AI 角色，让他们一起玩规则化社交游戏',
   shellLayout: 'compact' as ShellLayout,
   shellStyle: 'grouped' as ShellStyle,
@@ -13,7 +13,7 @@ export const appConfig = {
   features: {
     "showcase": false,
     "platform": true,
-    "tray": false,
+    "tray": true,
     "autoUpdate": true,
     "i18n": false,
     "deeplink": false

@@ -26,6 +26,7 @@ import { resolveAssetPackManifest } from './manifest'
 import {
   ASSET_PACK_MARKER_PATH,
   ASSET_PACK_SYNC_DIRS,
+  findBundledAssetsDir,
   findDevAssetsDir,
   findLocalAssetZipPath,
   getInstalledAssetsDir,
@@ -36,6 +37,7 @@ import {
   readInstallState,
   resolveAssetFilePath,
 } from './paths'
+import { BUNDLED_MINIMAL_ASSET_VERSION } from '@shared/arena/initial-assets'
 
 const MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png',
@@ -161,6 +163,18 @@ export type EnsureInitialAssetsResult = {
   error?: string
 }
 
+async function installFromBundledMinimal(
+  appId: string,
+  sender?: Electron.WebContents | null
+): Promise<EnsureInitialAssetsResult> {
+  const bundledDir = findBundledAssetsDir()
+  if (!bundledDir) {
+    return { ok: false, error: '未找到内置默认素材包。请更新应用版本或载入本地素材 zip。' }
+  }
+  await installFromPackDirs(appId, bundledDir, BUNDLED_MINIMAL_ASSET_VERSION, sender)
+  return { ok: true, source: 'local' }
+}
+
 export async function ensureInitialAssetsInstall(
   appId: string,
   sender?: Electron.WebContents | null
@@ -234,16 +248,16 @@ export async function ensureInitialAssetsInstall(
     const message = error instanceof Error ? error.message : '素材下载或解压失败'
     logAssetPack(`remote install failed: ${message}`)
     if (!app.isPackaged) {
-      const fallbackDir = findDevAssetsDir()
+      const fallbackDir = findDevAssetsDir() || findBundledAssetsDir()
       if (fallbackDir && hasPackContentAt(fallbackDir)) {
         try {
-          logAssetPack(`fallback to dev workspace after remote failure: ${fallbackDir}`)
+          logAssetPack(`fallback to bundled/dev assets after remote failure: ${fallbackDir}`)
           await installFromPackDirs(appId, fallbackDir, manifest.version, sender)
           return { ok: true, source: 'local' }
         } catch (fallbackError) {
           const fallbackMessage =
             fallbackError instanceof Error ? fallbackError.message : '本地素材同步失败'
-          logAssetPack(`dev workspace fallback failed: ${fallbackMessage}`)
+          logAssetPack(`bundled/dev fallback failed: ${fallbackMessage}`)
         }
       }
     }
@@ -371,6 +385,11 @@ export function registerAssetPackHandlers(appId: string): void {
 
   ipcMain.removeHandler('asset-pack:ensure')
   ipcMain.handle('asset-pack:ensure', async (event) => ensureInitialAssetsInstall(appId, event.sender))
+
+  ipcMain.removeHandler('asset-pack:install-bundled-minimal')
+  ipcMain.handle('asset-pack:install-bundled-minimal', async (event) =>
+    installFromBundledMinimal(appId, event.sender)
+  )
 }
 
 export { installAssetPackFromManifest, resolveAssetPackZip, verifyAssetPackZip } from './install-core'

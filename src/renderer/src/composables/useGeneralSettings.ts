@@ -75,8 +75,13 @@ function applySideEffects(settings: GeneralSettings): void {
   if (typeof window.api.setAlwaysOnTop === 'function') {
     void window.api.setAlwaysOnTop(settings.alwaysOnTop)
   }
-  if (typeof window.api.setTrayHideOnClose === 'function') {
+  if (typeof window.api.setCloseBehavior === 'function') {
+    void window.api.setCloseBehavior(settings.closeBehavior)
+  } else if (typeof window.api.setTrayHideOnClose === 'function') {
     void window.api.setTrayHideOnClose(settings.closeBehavior === 'tray')
+  }
+  if (typeof window.api.setupTray === 'function') {
+    void window.api.setupTray()
   }
 }
 

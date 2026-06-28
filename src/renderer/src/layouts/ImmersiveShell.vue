@@ -8,8 +8,8 @@ import WechatRechargeModal from '../components/billing/WechatRechargeModal.vue'
 import SleepyCatWidget from '../components/support/SleepyCatWidget.vue'
 import { useArenaWallet } from '../composables/useArenaWallet'
 import { useClientUpdate } from '../composables/useClientUpdate'
+import { confirm } from '../composables/useAppDialog'
 import { userInfoRef } from '../services/auth'
-import { useDialog } from '../ui'
 import MarkdownContent from '../components/common/MarkdownContent.vue'
 import { arenaHomeAssets } from '../data/arena-home-assets'
 import type { FeatureRegistry } from '../types/registry'
@@ -19,7 +19,6 @@ const props = defineProps<{
   registry: FeatureRegistry
 }>()
 
-const dialog = useDialog()
 const {
   updateAvailable,
   checkingUpdate,
@@ -76,7 +75,7 @@ function minimizeWindow() {
 }
 
 function closeWindow() {
-  void window.windowControls?.hide?.()
+  void window.windowControls?.close?.()
 }
 
 function onRechargePaid() {
@@ -96,22 +95,17 @@ async function onTitlebarUpdateClick() {
   const result = await checkAndDownloadUpdate()
   if (!result?.res?.hasUpdate || !result.res.downloadUrl || !result.res.latestVersion) return
   const notes = (result.res.releaseNotes || '').trim() || '暂无更新说明'
-  dialog.warning({
+  const confirmed = await confirm({
     title: `发现新版本 ${result.res.latestVersion}`,
-    style: { width: '520px', maxWidth: '92vw' },
+    message: '是否下载并安装？',
+    detail: `当前版本：${result.res.currentVersion}`,
     content: () =>
-      h('div', { class: 'arena-update-dialog' }, [
-        h('p', { style: 'margin: 0 0 12px; font-size: 13px; color: #94a3b8' }, [
-          `当前版本：${result.res.currentVersion}`,
-        ]),
-        h(MarkdownContent, { source: notes }),
-      ]),
-    positiveText: '下载并安装',
-    negativeText: '稍后',
-    onPositiveClick: () => {
-      void runInAppUpdate(result.res.downloadUrl!, result.res.latestVersion!)
-    },
+      h('div', { class: 'arena-update-dialog' }, [h(MarkdownContent, { source: notes })]),
+    confirmText: '下载并安装',
   })
+  if (confirmed) {
+    void runInAppUpdate(result.res.downloadUrl!, result.res.latestVersion!)
+  }
 }
 
 watch(
@@ -145,7 +139,7 @@ onUnmounted(() => {
         <span>返回</span>
       </button>
       <button v-else type="button" class="arena-brand" @click="navigate('/home')">
-        <img class="arena-brand__lockup" :src="arenaHomeAssets.brandLockup" alt="Agent Arena" />
+        <img class="arena-brand__lockup" :src="arenaHomeAssets.brandLockup" alt="Manong Arena" />
       </button>
 
       <div class="arena-tabs" aria-label="主导航">

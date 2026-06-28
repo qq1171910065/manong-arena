@@ -1,4 +1,5 @@
 import characterManifest from '@renderer/data/pack-manifests/character-packs.json'
+import bundledCharacterManifest from '@renderer/data/pack-manifests/bundled-character-packs.json'
 
 import { packAssetUrl } from '@renderer/data/arena-home-assets'
 import { charactersAssetUrl } from '@shared/arena/asset-url'
@@ -92,6 +93,10 @@ export function buildCharacterAssetPackOptions(manifest: ManifestFile): Characte
   })
 }
 
+const BUNDLED_DEFAULT_PACK_OPTIONS: CharacterAssetPackOption[] = buildCharacterAssetPackOptions(
+  bundledCharacterManifest as ManifestFile
+)
+
 const BUNDLED_CHARACTER_ASSET_PACK_OPTIONS: CharacterAssetPackOption[] = buildCharacterAssetPackOptions(
   characterManifest as ManifestFile
 )
@@ -110,7 +115,7 @@ export function resetRuntimeCharacterAssetPackOptions(): void {
 
 export async function ensureCharacterAssetPackCatalog(options?: { refresh?: boolean }): Promise<CharacterAssetPackOption[]> {
   if (!options?.refresh && runtimeCharacterAssetPackOptions?.length) {
-    return runtimeCharacterAssetPackOptions
+    return mergePackOptions(runtimeCharacterAssetPackOptions, BUNDLED_DEFAULT_PACK_OPTIONS)
   }
   try {
     if (typeof window.api?.getCharacterPackCatalog === 'function') {
@@ -120,7 +125,7 @@ export async function ensureCharacterAssetPackCatalog(options?: { refresh?: bool
         const built = buildCharacterAssetPackOptions({ characters: merged })
         if (built.length) {
           runtimeCharacterAssetPackOptions = built
-          return built
+          return mergePackOptions(built, BUNDLED_DEFAULT_PACK_OPTIONS)
         }
       }
     }
@@ -128,17 +133,40 @@ export async function ensureCharacterAssetPackCatalog(options?: { refresh?: bool
     /* fall back to bundled manifest */
   }
   runtimeCharacterAssetPackOptions = BUNDLED_CHARACTER_ASSET_PACK_OPTIONS
-  return BUNDLED_CHARACTER_ASSET_PACK_OPTIONS
+  return mergePackOptions(BUNDLED_CHARACTER_ASSET_PACK_OPTIONS, BUNDLED_DEFAULT_PACK_OPTIONS)
+}
+
+function mergePackOptions(
+  primary: CharacterAssetPackOption[],
+  defaults: CharacterAssetPackOption[]
+): CharacterAssetPackOption[] {
+  const map = new Map<string, CharacterAssetPackOption>()
+  for (const item of defaults) map.set(item.characterId, item)
+  for (const item of primary) map.set(item.characterId, item)
+  return [...map.values()]
+}
+
+function isFullInstalledPack(options: CharacterAssetPackOption[]): boolean {
+  return options.some((item) => item.characterId !== 'default' && item.characterId !== 'doubao')
+    || options.length > BUNDLED_DEFAULT_PACK_OPTIONS.length
 }
 
 function currentCharacterAssetPackOptions(): CharacterAssetPackOption[] {
-  return runtimeCharacterAssetPackOptions?.length
+  const primary = runtimeCharacterAssetPackOptions?.length
     ? runtimeCharacterAssetPackOptions
     : BUNDLED_CHARACTER_ASSET_PACK_OPTIONS
+  return mergePackOptions(primary, BUNDLED_DEFAULT_PACK_OPTIONS)
 }
 
 export function listCharacterAssetPackOptions(modelId = '', opts?: { filterByModel?: boolean }): CharacterAssetPackOption[] {
-  const all = currentCharacterAssetPackOptions()
+  return listCharacterAssetPackOptionsInternal(modelId, opts)
+}
+
+function listCharacterAssetPackOptionsInternal(
+  modelId = '',
+  opts?: { filterByModel?: boolean; options?: CharacterAssetPackOption[] }
+): CharacterAssetPackOption[] {
+  const all = opts?.options ?? currentCharacterAssetPackOptions()
   if (!opts?.filterByModel || !modelId) return all
 
   const key = canonicalCharacterKey(inferLegacyCharacterKey('', modelId))
@@ -147,7 +175,20 @@ export function listCharacterAssetPackOptions(modelId = '', opts?: { filterByMod
 }
 
 export function listCharacterAssetPackGroups(modelId = ''): Array<{ label: string; options: CharacterAssetPackOption[] }> {
-  return [{ label: '内置角色', options: listCharacterAssetPackOptions(modelId) }]
+  const all = currentCharacterAssetPackOptions()
+  const defaults = listCharacterAssetPackOptionsInternal(modelId, { options: BUNDLED_DEFAULT_PACK_OPTIONS })
+  const installed = listCharacterAssetPackOptionsInternal(modelId, {
+    options: all.filter((item) => !defaults.some((d) => d.characterId === item.characterId)),
+  })
+
+  const groups: Array<{ label: string; options: CharacterAssetPackOption[] }> = []
+  if (defaults.length) groups.push({ label: '默认素材包', options: defaults })
+  if (installed.length && isFullInstalledPack(all)) {
+    groups.push({ label: '已安装素材包', options: installed })
+  } else if (installed.length && !defaults.length) {
+    groups.push({ label: '可用素材', options: installed })
+  }
+  return groups.length ? groups : [{ label: '默认素材包', options: defaults }]
 }
 
 function resolvePackRef(ref: string): string | null {

@@ -15,6 +15,7 @@ import DetailRailActions from '@renderer/components/arena/DetailRailActions.vue'
 import DetailSectionNav from '@renderer/components/arena/DetailSectionNav.vue'
 import { useGatewayModelLabel } from '@renderer/composables/useGatewayModelLabel'
 import { useScrollSpySections } from '@renderer/composables/useScrollSpySections'
+import { confirm } from '@renderer/composables/useAppDialog'
 import { characterAvatarUrl, characterPortraitUrl } from '@renderer/data/arena-visual-assets'
 import { navigate, route } from '../router'
 import {
@@ -211,7 +212,13 @@ async function toggleCharacterStatus() {
 
 async function removeCharacter() {
   if (!character.value) return
-  if (!window.confirm(`确定删除角色“${character.value.name}”吗？此操作不可恢复。`)) return
+  if (!(await confirm({
+    title: '删除角色',
+    message: `确定删除角色「${character.value.name}」吗？`,
+    detail: '此操作不可恢复。',
+    tone: 'danger',
+    confirmText: '删除',
+  }))) return
   saving.value = true
   try {
     await characterService.remove(character.value.id)

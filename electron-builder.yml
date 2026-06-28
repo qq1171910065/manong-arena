@@ -1,23 +1,32 @@
 appId: com.mntools.arena
-productName: Arena
+productName: Manong Arena
 directories:
   buildResources: build
 files:
   - '!**/.vscode/*'
   - '!src/*'
+  - '!scripts/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!electron-builder.config.cjs'
+  - '!electron-builder.yml'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!**/*.tsbuildinfo'
   - '!docs/**'
   - '!AGENTS.md'
   - '!.tmp/**'
+  - '!.dev-assets/**'
 extraResources:
   - from: build/
     to: icons
     filter:
       - icon.ico
       - icon.png
+  - from: bundled-assets/
+    to: bundled-assets
+    filter:
+      - '**/*'
 npmRebuild: false
 win:
   executableName: arena

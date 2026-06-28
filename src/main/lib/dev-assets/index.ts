@@ -391,10 +391,10 @@ export async function packDevAssetsExport(
     await createAssetZip(save.filePath)
     const sizeBytes = statSync(save.filePath).size
     const sha256 = sha256File(save.filePath)
-    const baseUrl = (process.env.ARENA_ASSETS_BASE_URL || 'http://local.czmanong.com/upload/arena').replace(
-      /\/+$/,
-      ''
-    )
+    const baseUrl = (
+      process.env.ARENA_ASSETS_BASE_URL ||
+      'https://github.com/czmanong/manong-arena/releases/latest/download'
+    ).replace(/\/+$/, '')
     const manifest = {
       packId: 'initial',
       version,

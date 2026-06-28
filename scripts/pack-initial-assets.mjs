@@ -54,7 +54,11 @@ const root = join(__dirname, '..')
 
 const devAssetsDir = join(root, '.dev-assets')
 
-const assetsDir = devAssetsDir
+const assetsDir = existsSync(join(devAssetsDir, 'character-packs'))
+  ? devAssetsDir
+  : existsSync(join(root, 'bundled-assets', 'character-packs'))
+    ? join(root, 'bundled-assets')
+    : devAssetsDir
 
 const zipOutDir = join(root, '.tmp/asset-pack')
 
@@ -64,7 +68,10 @@ const fileName = `arena-initial-assets-${version}.zip`
 
 const zipPath = join(zipOutDir, fileName)
 
-const baseUrl = (process.env.ARENA_ASSETS_BASE_URL || 'http://local.czmanong.com/upload/arena').replace(/\/+$/, '')
+const baseUrl = (
+  process.env.ARENA_ASSETS_BASE_URL ||
+  `https://github.com/czmanong/manong-arena/releases/download/v${process.env.npm_package_version || version}`
+).replace(/\/+$/, '')
 
 
 
@@ -180,7 +187,7 @@ const manifest = {
 
   fileName,
 
-  downloadUrl: `${baseUrl}/${fileName}`,
+  downloadUrl: `${baseUrl}/assets/${fileName}`,
 
   sha256,
 

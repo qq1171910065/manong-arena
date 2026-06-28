@@ -34,6 +34,14 @@ export const assetPackDomain = {
       error?: string
     }>,
 
+  installBundledMinimalAssets: () =>
+    ipcRenderer.invoke('asset-pack:install-bundled-minimal') as Promise<{
+      ok: boolean
+      skipped?: boolean
+      source?: 'local' | 'remote'
+      error?: string
+    }>,
+
   onAssetPackProgress: (callback: (payload: AssetPackProgressPayload) => void) => {
     const handler = (_event: unknown, data: AssetPackProgressPayload) => callback(data)
     ipcRenderer.on('asset-pack:progress', handler)

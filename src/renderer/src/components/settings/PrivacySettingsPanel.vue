@@ -5,7 +5,8 @@ import { clearStoredGatewayKey } from '@renderer/services'
 import { API_BASE_URL_STORAGE_KEY } from '@renderer/services/config'
 import { GENERAL_SETTINGS_DEFAULTS, useGeneralSettings } from '@renderer/composables/useGeneralSettings'
 import SettingsRow from './SettingsRow.vue'
-import { NButton, NDataTable, NEmpty, NSpin, useDialog, useMessage } from '../../ui'
+import { confirm } from '@renderer/composables/useAppDialog'
+import { NButton, NDataTable, NEmpty, NSpin, useMessage } from '../../ui'
 
 defineProps<{ embedded?: boolean }>()
 
@@ -17,7 +18,6 @@ interface Stat {
 }
 
 const message = useMessage()
-const dialog = useDialog()
 const { save, reload } = useGeneralSettings()
 const stats = ref<Stat[]>([])
 const statsLoading = ref(false)
@@ -55,63 +55,58 @@ async function loadStats() {
   }
 }
 
-function purgeModule(module: string) {
+async function purgeModule(module: string) {
   const label = stats.value.find((s) => s.module === module)?.label ?? module
-  dialog.warning({
+  if (!(await confirm({
     title: '清理本地缓存',
-    content: `确定清理「${label}」的本地数据？此操作不可撤销。`,
-    positiveText: '清理',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      const r = await window.api.storagePurge?.(module)
-      if (r?.ok) {
-        message.success(`已清理 ${formatBytes(r.freedBytes || 0)}`)
-        await loadStats()
-      } else {
-        message.error(r?.error || '清理失败')
-      }
-    },
-  })
+    message: `确定清理「${label}」的本地数据吗？`,
+    detail: '此操作不可撤销。',
+    tone: 'warning',
+    confirmText: '清理',
+  }))) return
+  const r = await window.api.storagePurge?.(module)
+  if (r?.ok) {
+    message.success(`已清理 ${formatBytes(r.freedBytes || 0)}`)
+    await loadStats()
+  } else {
+    message.error(r?.error || '清理失败')
+  }
 }
 
-function clearLocalPrefs() {
-  dialog.warning({
+async function clearLocalPrefs() {
+  if (!(await confirm({
     title: '清除本地偏好',
-    content: '将重置主题、通用偏好等本机设置（不影响登录态），确定继续？',
-    positiveText: '清除',
-    negativeText: '取消',
-    onPositiveClick: () => {
-      const keepKeys = new Set([
-        'wb_portal_session',
-        'token',
-        'refreshToken',
-        'userInfo',
-        API_BASE_URL_STORAGE_KEY,
-      ])
-      const toRemove: string[] = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key && !keepKeys.has(key)) toRemove.push(key)
-      }
-      toRemove.forEach((k) => localStorage.removeItem(k))
-      save({ ...GENERAL_SETTINGS_DEFAULTS })
-      reload()
-      message.success('本地偏好已清除，部分设置需重启应用后生效')
-    },
-  })
+    message: '将重置主题、通用偏好等本机设置（不影响登录态），确定继续？',
+    tone: 'warning',
+    confirmText: '清除',
+  }))) return
+  const keepKeys = new Set([
+    'wb_portal_session',
+    'token',
+    'refreshToken',
+    'userInfo',
+    API_BASE_URL_STORAGE_KEY,
+  ])
+  const toRemove: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key && !keepKeys.has(key)) toRemove.push(key)
+  }
+  toRemove.forEach((k) => localStorage.removeItem(k))
+  save({ ...GENERAL_SETTINGS_DEFAULTS })
+  reload()
+  message.success('本地偏好已清除，部分设置需重启应用后生效')
 }
 
-function clearGatewayKey() {
-  dialog.warning({
+async function clearGatewayKey() {
+  if (!(await confirm({
     title: '清除本机 API Key',
-    content: '将删除本机保存的网关 Key，下次调用模型时会尝试自动重新创建。确定继续？',
-    positiveText: '清除',
-    negativeText: '取消',
-    onPositiveClick: () => {
-      clearStoredGatewayKey()
-      message.success('本机 API Key 已清除')
-    },
-  })
+    message: '将删除本机保存的网关 Key，下次调用模型时会尝试自动重新创建。确定继续？',
+    tone: 'warning',
+    confirmText: '清除',
+  }))) return
+  clearStoredGatewayKey()
+  message.success('本机 API Key 已清除')
 }
 
 onMounted(() => void loadStats())

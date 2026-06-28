@@ -72,11 +72,6 @@ async function onLaunchAtStartup(v: boolean) {
   }
 }
 
-async function initTray() {
-  await window.api.setupTray?.()
-  message.success('系统托盘已启用')
-}
-
 async function testNotification() {
   const r = await window.api.sendNotification?.('通知测试', '桌面通知已启用。')
   if (r?.ok) message.success('测试通知已发送')
@@ -177,11 +172,8 @@ onMounted(async () => {
       />
     </SettingsRow>
 
-    <div v-if="hasTrayApi" class="settings-panel-actions">
-      <NButton size="small" @click="initTray">启用系统托盘</NButton>
-      <NButton v-if="hasNotifyApi && settings.enableDesktopNotifications" size="small" @click="testNotification">
-        发送测试通知
-      </NButton>
+    <div v-if="hasNotifyApi && settings.enableDesktopNotifications" class="settings-panel-actions">
+      <NButton size="small" @click="testNotification">发送测试通知</NButton>
     </div>
   </div>
 </template>

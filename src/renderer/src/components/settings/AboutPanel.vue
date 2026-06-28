@@ -7,6 +7,7 @@ import { getDefaultApiBaseUrl } from '@renderer/services'
 import { getApiBaseUrl } from '@renderer/services/config'
 import { formatAcceleratorLabel } from '@renderer/composables/shortcut-utils'
 import { SHORTCUT_CATALOG, getShortcutBinding } from '@renderer/composables/useShortcutSettings'
+import { confirm } from '@renderer/composables/useAppDialog'
 import { NAlert, NButton, useMessage } from '../../ui'
 
 const message = useMessage()
@@ -41,9 +42,11 @@ async function checkUpdate() {
     return
   }
   updateSummary.value = `发现新版本 ${result.res.latestVersion}`
-  const confirmed = window.confirm(
-    `发现新版本 ${result.res.latestVersion}\n\n是否下载并安装？`
-  )
+  const confirmed = await confirm({
+    title: `发现新版本 ${result.res.latestVersion}`,
+    message: '是否下载并安装？',
+    confirmText: '下载并安装',
+  })
   if (confirmed && result.res.downloadUrl && result.res.latestVersion) {
     await runInAppUpdate(result.res.downloadUrl, result.res.latestVersion)
   }
@@ -67,7 +70,7 @@ async function copyDiagnostics() {
 }
 
 async function openHelpSite() {
-  const url = 'https://github.com/workbuddy/mntools'
+  const url = 'https://github.com/czmanong/manong-arena'
   if (typeof window.api.openExternal === 'function') {
     const r = await window.api.openExternal(url)
     if (!r?.ok) message.error(r?.error || '无法打开链接')

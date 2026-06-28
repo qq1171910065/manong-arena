@@ -25,6 +25,19 @@ export interface AssetPackApi {
     source?: 'local' | 'remote'
     error?: string
   }>
+  installAssetPackFromFile: () => Promise<{
+    ok: boolean
+    skipped?: boolean
+    source?: 'local' | 'remote'
+    canceled?: boolean
+    error?: string
+  }>
+  installBundledMinimalAssets: () => Promise<{
+    ok: boolean
+    skipped?: boolean
+    source?: 'local' | 'remote'
+    error?: string
+  }>
   onAssetPackProgress: (callback: (payload: AssetPackProgressPayload) => void) => () => void
 }
 
