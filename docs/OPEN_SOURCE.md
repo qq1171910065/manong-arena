@@ -95,10 +95,17 @@ VITE_PLATFORM_API_URL=https://your-platform.example.com pnpm build
 
 ## 素材包 CDN
 
-打包素材清单时需指定公开可访问的前缀：
+完整素材包在本地打包（依赖 `.dev-assets/`，不进 git）：
+
+```powershell
+pnpm pack:assets                    # 输出到 .tmp/asset-pack/
+pnpm upload:release-assets          # 打包并上传到 GitHub Release（需 GITHUB_TOKEN）
+```
+
+自定义 CDN 前缀：
 
 ```bash
 ARENA_ASSETS_BASE_URL=https://your-cdn.example.com/arena pnpm pack:assets
 ```
 
-提交更新后的 `src/shared/arena/bundled-asset-pack-manifest.json`，并将 zip 上传到对应 Release 的 `{version}/assets/` 目录（CI 会自动打包并上传）。
+提交更新后的 `src/shared/arena/bundled-asset-pack-manifest.json`（sha256 / downloadUrl）。

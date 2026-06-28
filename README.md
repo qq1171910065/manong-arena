@@ -203,7 +203,8 @@ pnpm dev
 |------|------|
 | `pnpm dev` | 开发模式 |
 | `pnpm generate:bundled-assets` | 生成内置默认素材（纯色占位 PNG） |
-| `pnpm pack:assets` | 打包 Release 用完整素材 zip |
+| `pnpm pack:assets` | 从 `.dev-assets/` 打包 Release 用完整素材 zip |
+| `pnpm upload:release-assets` | 本地打包素材并上传到 GitHub Release |
 | `pnpm build:win` / `pnpm build:mac` | 本地打包安装包 |
 | `pnpm push -- master` | 推送到 Gitee + GitHub（见 OPEN_SOURCE.md） |
 | `pnpm typecheck` | 类型检查 |
