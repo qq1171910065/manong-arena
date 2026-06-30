@@ -2,12 +2,17 @@ import { BUILTIN_GAME_MODES } from '@shared/arena/constants'
 import { createUserGameModeBundle } from '@shared/arena/custom-game-mode-factory'
 import {
   GAME_MODE_EXPORT_KIND,
+  GAME_MODE_PACK_EXPORT_KIND,
   isCharacterExportPackage,
   isGameModeExportPackage,
   isUserGameModeId,
+  type GameModeAssetManifest,
   type GameModeExportPackage,
 } from '@shared/arena/export-packages'
+import { isBuiltinGameModeId } from '@shared/arena/builtin-game-mode-registry'
+import { DEFAULT_GAME_MODE_PACK_ID, gameModePackRelativePath } from '@shared/arena/game-mode-visuals'
 import { randomUUID } from '@renderer/utils/id'
+import { createDefaultGrowthState } from '@shared/arena/character-growth'
 import { normalizeCharacterVisuals } from '@shared/arena/character-visuals'
 import { arenaInvoke, ensureArenaReady } from './client'
 import { ArenaError } from './errors'
@@ -79,7 +84,12 @@ async function persistImportedGameMode(pkg: GameModeExportPackage): Promise<Game
   for (const pack of pkg.promptPacks) {
     await gameScenarioService.saveCustomPromptPack(pack)
   }
-  await gameScenarioService.saveCustomScenario(pkg.scenario)
+  if (pkg.scenario) {
+    await gameScenarioService.saveCustomScenario({
+      ...pkg.scenario,
+      isBuiltin: isBuiltinGameModeId(pkg.mode.id) ? true : pkg.scenario.isBuiltin,
+    })
+  }
 
   if (isUserGameModeId(pkg.mode.id)) {
     const saved = await arenaInvoke('storage', 'saveCustomGameMode', () => window.api.saveCustomGameMode(pkg.mode))
@@ -114,6 +124,7 @@ function finalizeImportedCharacter(imported: Character): Character {
   return normalizeCharacterVisuals({
     ...imported,
     stats: { matchCount: 0, winCount: 0, avgCostCents: 0, lastMatchAt: null },
+    growth: createDefaultGrowthState(),
     gameSkills: (imported.gameSkills || []).map((skill) => ({
       ...skill,
       learned: false,
@@ -198,18 +209,40 @@ export const portableDataService = {
     const scenario = gameScenarioService.getByGameModeId(modeId)
     if (!scenario) throw new ArenaError('NOT_FOUND', '玩法场景不存在', 'match')
 
-    const promptPacks = gameScenarioService.listPromptPacks(scenario.id).filter((pack) => !pack.isBuiltin)
+    const promptPacks = gameScenarioService.listPromptPacks(scenario.id)
+    const includeAllPrompts = isBuiltinGameModeId(modeId)
     const overrides = await arenaInvoke('storage', 'getGameModeOverrides', () => window.api.getGameModeOverrides())
     const override = overrides[modeId]
 
+    const assets: GameModeAssetManifest = {
+      packId: DEFAULT_GAME_MODE_PACK_ID,
+      modeId: mode.imageKey || mode.id,
+      slots: [
+        {
+          slot: 'mode-cover',
+          fileName: 'mode-cover.png',
+          relativePath: `${DEFAULT_GAME_MODE_PACK_ID}/${gameModePackRelativePath(mode.imageKey || mode.id, 'mode-cover')}`,
+        },
+        {
+          slot: 'match-banner',
+          fileName: 'match-banner.png',
+          relativePath: `${DEFAULT_GAME_MODE_PACK_ID}/${gameModePackRelativePath(mode.imageKey || mode.id, 'match-banner')}`,
+        },
+      ],
+    }
+
     const payload: GameModeExportPackage = {
-      kind: GAME_MODE_EXPORT_KIND,
-      version: 1,
+      kind: GAME_MODE_PACK_EXPORT_KIND,
+      version: 2,
       exportedAt: new Date().toISOString(),
+      isBuiltin: isBuiltinGameModeId(modeId),
       mode: structuredClone(mode),
       override: override ? structuredClone(override) : undefined,
       scenario: structuredClone(scenario),
-      promptPacks: promptPacks.length ? structuredClone(promptPacks) : [],
+      promptPacks: includeAllPrompts
+        ? structuredClone(promptPacks)
+        : promptPacks.filter((pack) => !pack.isBuiltin).map((pack) => structuredClone(pack)),
+      assets,
     }
 
     await saveJsonFile(`${sanitizeFileName(mode.name)}.arena-mode.json`, payload)
@@ -249,6 +282,9 @@ export const portableDataService = {
   },
 
   async deleteCustomGameMode(modeId: string): Promise<void> {
+    if (isBuiltinGameModeId(modeId)) {
+      throw new ArenaError('VALIDATION', '内置玩法不可删除，可导出后导入以更新配置', 'match')
+    }
     if (!isUserGameModeId(modeId)) {
       throw new ArenaError('VALIDATION', '仅可删除自建玩法', 'match')
     }

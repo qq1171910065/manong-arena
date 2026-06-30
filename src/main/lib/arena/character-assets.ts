@@ -40,6 +40,8 @@ export function getCharacterAssetsDir(appId: string, characterId: string): strin
   return join(getInstalledAssetsDir(appId), 'characters', characterId)
 }
 
+const DEFAULT_PACK_CHARACTER_ID = 'default'
+
 function resolvePackSourcePath(
   appId: string,
   packCharacterId: string,
@@ -51,6 +53,18 @@ function resolvePackSourcePath(
   else if (slot === 'portrait-horizontal') relativePath = `${packCharacterId}/banner.png`
   else relativePath = `${packCharacterId}/avatars/${expressionId || 'neutral'}.png`
   return resolveAssetFilePath(`character-packs/${relativePath}`, appId)
+}
+
+function resolvePackSourcePathWithFallback(
+  appId: string,
+  packCharacterId: string,
+  slot: CharacterImageSlot,
+  expressionId: CharacterExpressionId = 'neutral'
+): string | null {
+  const primary = resolvePackSourcePath(appId, packCharacterId, slot, expressionId)
+  if (primary && existsSync(primary)) return primary
+  if (packCharacterId === DEFAULT_PACK_CHARACTER_ID) return primary
+  return resolvePackSourcePath(appId, DEFAULT_PACK_CHARACTER_ID, slot, expressionId)
 }
 
 function parseArenaAssetCharacterRelative(ref = ''): string | null {
@@ -102,20 +116,20 @@ function resolveRefSourcePath(
 
   const pack = parsePackAssetRef(ref)
   if (pack) {
-    return resolvePackSourcePath(appId, pack.characterId, slot, expressionId)
+    return resolvePackSourcePathWithFallback(appId, pack.characterId, slot, expressionId)
   }
 
   if (ref.includes('avatar') || ref.startsWith('asset://avatar/')) {
-    const legacyKey = ref.split('/').pop() || 'doubao'
-    return resolvePackSourcePath(appId, legacyKey, slot, expressionId)
+    const legacyKey = ref.split('/').pop() || DEFAULT_PACK_CHARACTER_ID
+    return resolvePackSourcePathWithFallback(appId, legacyKey, slot, expressionId)
   }
   if (ref.includes('banner') || ref.includes('horizontal') || ref.startsWith('asset://banner/')) {
-    const legacyKey = ref.split('/').pop() || 'doubao'
-    return resolvePackSourcePath(appId, legacyKey, 'portrait-horizontal', expressionId)
+    const legacyKey = ref.split('/').pop() || DEFAULT_PACK_CHARACTER_ID
+    return resolvePackSourcePathWithFallback(appId, legacyKey, 'portrait-horizontal', expressionId)
   }
   if (ref.includes('portrait') || ref.startsWith('asset://portrait/')) {
-    const legacyKey = ref.split('/').pop() || 'doubao'
-    return resolvePackSourcePath(appId, legacyKey, 'portrait-vertical', expressionId)
+    const legacyKey = ref.split('/').pop() || DEFAULT_PACK_CHARACTER_ID
+    return resolvePackSourcePathWithFallback(appId, legacyKey, 'portrait-vertical', expressionId)
   }
 
   return null
@@ -149,8 +163,19 @@ async function materializeVisualRef(
     return ownedRef
   }
 
-  if (packRef) {
-    throw new Error(`找不到素材包「${packRef.characterId}」的${slot}文件，请确认初始素材已安装。`)
+  if (packRef && packRef.characterId !== DEFAULT_PACK_CHARACTER_ID) {
+    const fallbackSrc = resolvePackSourcePathWithFallback(
+      appId,
+      DEFAULT_PACK_CHARACTER_ID,
+      slot,
+      expressionId
+    )
+    if (fallbackSrc && existsSync(fallbackSrc)) {
+      if (!isSameAssetPath(fallbackSrc, destPath)) {
+        await copyFileEnsureDir(fallbackSrc, destPath)
+      }
+      return ownedRef
+    }
   }
 
   if (existsSync(destPath)) return ownedRef

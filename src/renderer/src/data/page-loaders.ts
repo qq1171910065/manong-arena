@@ -11,6 +11,7 @@ export const pageLoaders: Partial<Record<RouteName, () => Promise<Component>>> =
   'match-room': () => import('@renderer/pages/MatchRoomPage.vue'),
   'match-records': () => import('@renderer/pages/MatchRecordsPage.vue'),
   'match-detail': () => import('@renderer/pages/MatchDetailPage.vue'),
+  collection: () => import('@renderer/pages/CollectionPage.vue'),
   'dev-assets': () => import('@renderer/pages/dev/DevAssetsPage.vue'),
   profile: () => import('@renderer/pages/settings/ProfilePage.vue'),
   settings: () => import('@renderer/pages/settings/ProfilePage.vue'),

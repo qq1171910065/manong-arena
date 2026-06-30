@@ -1499,7 +1499,7 @@ html.theme-dark .aa-statusbar {
   --detail-main-width: 980px;
   --detail-rail-gap: 10px;
   --detail-rail-left: 200px;
-  --detail-rail-right: 96px;
+  --detail-rail-right: 168px;
   --detail-edge: 10px;
   flex: 1 1 0;
   min-height: 0;
@@ -1568,7 +1568,8 @@ html.theme-dark .aa-statusbar {
   margin: var(--detail-edge) 0;
 }
 
-.detail-layout__rail--right .aa-detail-section-nav {
+.detail-layout__rail--right .aa-detail-section-nav,
+.detail-layout__rail--right .detail-rail-nav {
   margin: var(--detail-edge) 0;
 }
 
@@ -1646,9 +1647,17 @@ html.theme-dark .aa-statusbar {
 .aa-detail-content-stack {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
   min-width: 0;
   min-height: min-content;
+}
+
+.aa-detail-anchor {
+  scroll-margin-top: 12px;
+}
+
+.aa-detail-anchor--flush :deep(.game-skills-panel) {
+  border-radius: 16px;
 }
 
 .aa-detail-section-nav {
@@ -1909,6 +1918,172 @@ html.theme-dark .aa-statusbar {
   background: transparent;
   box-shadow: none;
   backdrop-filter: none;
+}
+
+/* 详情编辑弹窗 — 统一表单控件 */
+.detail-form-body {
+  display: grid;
+  gap: 0;
+}
+
+.detail-form-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(239, 68, 68, 0.08);
+  color: #dc2626;
+  font-size: 13px;
+}
+
+.detail-form-field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.detail-form-field > span:first-child {
+  color: #6b759f;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.detail-form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(130, 142, 207, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #243066;
+  font: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.detail-form-input:focus {
+  outline: 0;
+  border-color: rgba(91, 87, 243, 0.42);
+  box-shadow: 0 0 0 3px rgba(112, 105, 255, 0.12);
+}
+
+.detail-form-input--tall {
+  min-height: 120px;
+  resize: vertical;
+  line-height: 1.65;
+}
+
+.detail-form-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(130, 142, 207, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.detail-form-setting-row strong {
+  display: block;
+  color: #26305e;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.detail-form-setting-row span {
+  display: block;
+  margin-top: 3px;
+  color: #7280b2;
+  font-size: 12px;
+}
+
+.detail-form-tag-editor,
+.detail-form-segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-form-tag-editor button,
+.detail-form-segmented button {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(130, 142, 207, 0.15);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #5f6a9e;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.detail-form-tag-editor button.active,
+.detail-form-segmented button.active {
+  border-color: rgba(108, 99, 255, 0.28);
+  background: rgba(112, 105, 255, 0.12);
+  color: #5b57f3;
+  font-weight: 600;
+}
+
+.detail-form-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.detail-form-add-row button {
+  border: 1px solid rgba(130, 142, 207, 0.15);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  color: #5b57f3;
+}
+
+.detail-form-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.detail-form-chip-list--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.detail-form-chip-list span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(112, 105, 255, 0.08);
+  color: #625cf0;
+  font-size: 12px;
+}
+
+.detail-form-chip-list--stack span {
+  justify-content: space-between;
+  border-radius: 12px;
+  padding: 8px 12px;
+  line-height: 1.5;
+}
+
+.detail-form-chip-list button {
+  border: 0;
+  background: transparent;
+  color: #7a6ff4;
+  cursor: pointer;
+}
+
+.detail-form-empty-hint {
+  margin: 8px 0 0;
+  color: #9aa3c7;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .detail-section-block {

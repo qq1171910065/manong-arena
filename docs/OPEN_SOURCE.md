@@ -45,7 +45,7 @@ pnpm publish:github         # GitHub（需 Classic PAT，见下）
    pnpm publish:github
    ```
 
-脚本会自动：创建 `qq1171910065/manong-arena` 仓库 → 推送 `master` → 推送 tag `v0.1.0` → 触发 Release CI（仅构建 Win/Mac 安装包）。
+脚本会自动：创建 `qq1171910065/manong-arena` 仓库 → 推送 `master` → 推送 tag `v{version}` → 触发 Release CI（仅构建 Win/Mac 安装包）。
 
 ## 发布新版本
 
@@ -55,14 +55,14 @@ pnpm publish:github         # GitHub（需 Classic PAT，见下）
 2. 打 tag 并推送，触发 GitHub Actions：
 
    ```powershell
-   git tag v0.1.0
+   git tag v0.1.1
    pnpm publish:github
    ```
 
 3. 在 **Actions** 等待 Win/Mac 构建完成；Release 页面会出现：
 
    ```
-   v0.1.0/
+   v0.1.1/
    ├── windows/manong-arena-{version}-setup.exe
    └── macos/manong-arena-{version}.dmg
    ```
@@ -77,11 +77,11 @@ $env:GITHUB_TOKEN = 'ghp_xxxxxxxx'
 pnpm upload:release-assets
 ```
 
-脚本会：`pnpm pack:assets`（读取 `.dev-assets/`）→ 上传到 Release 的 `v0.1.0/assets/arena-initial-assets-0.1.0.zip`。
+脚本会：`pnpm pack:assets`（读取 `.dev-assets/`）→ 上传到 Release 的 `v{version}/assets/arena-initial-assets-{version}.zip`。
 
 若 `pack:assets` 更新了 `src/shared/arena/bundled-asset-pack-manifest.json`（sha256 / downloadUrl），请一并提交。
 
-> 安装包内置**默认素材**（`bundled-assets/` 纯色占位）。完整素材包走 Release 的 `assets/` 目录或应用内下载。
+> 安装包内置**默认素材**（`bundled-assets/` 纯色占位）。完整素材包走 Release 的 `assets/` 目录或应用内下载。未安装完整包或缺少某角色素材时，客户端会回退到「默认」占位图，不阻断初始化。
 
 ## Platform 地址配置
 

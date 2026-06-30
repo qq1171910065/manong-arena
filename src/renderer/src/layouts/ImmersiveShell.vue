@@ -211,7 +211,7 @@ onUnmounted(() => {
       <div class="arena-footer__left">
         <div class="arena-footer__version">
           <img :src="arenaHomeAssets.mascotCat" alt="" />
-          <span>Agent Arena v0.1.0</span>
+          <span>Agent Arena v0.1.1</span>
         </div>
         <div class="arena-footer__links" aria-label="底部信息">
           <button

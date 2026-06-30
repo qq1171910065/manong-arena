@@ -9,13 +9,17 @@ import {
 } from './character-service'
 import { createWerewolfState, initRuntimeForMode, normalizeRuntime, preparePhaseStep } from './phase-engine'
 import { createRoundtableState } from './roundtable-engine'
+import { assignUndercoverWords, createUndercoverState } from './undercover-engine'
 import { isModePlayable } from './game-engine-registry'
 import { gameScenarioService } from './game-scenario-service'
 import { canJoinScenario } from './character-learning-service'
 import { postGameReviewService } from './post-game-review-service'
+import { characterGrowthService } from './character-growth-service'
+import { lineupService } from './lineup-service'
 import { settingsService } from './settings-service'
 import { matchCostEstimator } from './match-cost-estimator'
 import { getFallbackModelId } from './settings-runtime'
+import { getUserProfileCharacterId } from './user-profile-service'
 import { buildWerewolfRolePlanWithExpansions, normalizeWerewolfRuleModules, type WerewolfExpansionRoleId } from '@shared/arena/werewolf-dlc'
 import { normalizeWerewolfWinCondition } from '@shared/arena/werewolf-win-condition'
 import type {
@@ -239,21 +243,32 @@ export const matchService = {
         roundtableNarratorEnabled: scenario?.systemRoles.some((role) => role.kind === 'narrator' && role.enabled) ?? false,
       })
     ).totalCents
+    const isRoundtableLike =
+      mode.engineKind === 'roundtable' ||
+      mode.id === 'roundtable' ||
+      mode.engineKind === 'brainstorm' ||
+      mode.id.startsWith('brainstorm-')
+    const isUndercover = mode.engineKind === 'undercover' || mode.id === 'undercover'
+
     const runtime = {
       ...initRuntimeForMode(mode),
       promptPackId,
       systemRoleModels,
       sheriffEnabled: mode.id === 'werewolf' ? sheriffEnabled : undefined,
       werewolfState: mode.id === 'werewolf' ? createWerewolfState() : undefined,
-      roundtableState:
-        mode.engineKind === 'roundtable' || mode.id === 'roundtable'
+      roundtableState: isRoundtableLike
           ? createRoundtableState(
               roundtableTopic,
               roundtableRounds,
               scenario?.systemRoles.some((r) => r.kind === 'host' && r.enabled) ?? true,
-              scenario?.systemRoles.some((r) => r.kind === 'narrator' && r.enabled) ?? false
+              scenario?.systemRoles.some((r) => r.kind === 'narrator' && r.enabled) ?? false,
+              {
+                designTarget: input.designTarget,
+                brainstormCategory: scenario?.brainstormCategory,
+              }
             )
           : undefined,
+      undercoverState: isUndercover ? createUndercoverState(participants.length) : undefined,
     }
 
     const match: Match = {
@@ -297,6 +312,9 @@ export const matchService = {
     }
 
     preparePhaseStep(match, mode)
+    if (isUndercover) {
+      assignUndercoverWords(match, Math.max(1, Math.floor(participants.length / 4)))
+    }
     if (mode.id === 'werewolf' && !sheriffEnabled) {
       const sorted = [...mode.phases].sort((a, b) => a.order - b.order)
       const nightIndex = sorted.findIndex((p) => p.id === 'night')
@@ -304,6 +322,10 @@ export const matchService = {
         match.runtime.phaseIndex = nightIndex
         preparePhaseStep(match, mode)
       }
+    }
+    const profileId = await getUserProfileCharacterId().catch(() => null)
+    if (profileId && participants.some((p) => p.characterId === profileId)) {
+      match.runtime.userProfileCharacterId = profileId
     }
     match.runtime.stepAdvanceState = 'ready'
     const saved = await this.save(match)
@@ -352,6 +374,8 @@ export const matchService = {
     })
     const saved = await this.save(match)
     void postGameReviewService.reviewMatchForAll(saved).catch(() => undefined)
+    void characterGrowthService.applyMatchGrowth(saved).catch(() => undefined)
+    void lineupService.applyMatchResult(saved).catch(() => undefined)
     void import('./match-recap-service')
       .then(({ matchRecapService }) => matchRecapService.ensureRecap(saved.id))
       .catch(() => undefined)

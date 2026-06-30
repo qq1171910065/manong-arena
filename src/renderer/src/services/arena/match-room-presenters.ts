@@ -119,7 +119,8 @@ export function resolveSpeechExpressionId(msg: MatchMessage | null): CharacterEx
 }
 
 /** 估算公开发言展示时长（毫秒），用于沉浸圆桌头像进度环 */
-export function estimateSpeechDurationMs(text: string): number {
+export function estimateSpeechDurationMs(text: string, isHumanPlayer = false): number {
+  if (isHumanPlayer) return 86400000
   const chars = text.replace(/\s/g, '').length
   return Math.min(60000, Math.max(8000, chars * 200 + 1500))
 }

@@ -26,7 +26,7 @@ const skeletonToolbarAction = computed(() => props.pageKey.split('?')[0] === '/c
   <div class="page-view-host">
     <Transition name="page-route">
       <div
-        v-if="pageLoading || !pageComponent"
+        v-if="pageLoading"
         key="loading"
         class="page-view-host__panel page-view-host__skeleton"
         role="status"
@@ -47,7 +47,14 @@ const skeletonToolbarAction = computed(() => props.pageKey.split('?')[0] === '/c
           <button type="button" class="btn primary" @click="emit('retry')">重试</button>
         </div>
       </div>
-      <component :is="pageComponent" v-else :key="pageKey" class="page-view-host__page" />
+      <component :is="pageComponent" v-else-if="pageComponent" :key="pageKey" class="page-view-host__page" />
+      <div v-else key="missing" class="page app-empty-state page-view-host__panel">
+        <strong class="app-empty-state__title">页面加载失败</strong>
+        <p class="app-empty-state__desc">当前页面暂时无法打开，请重试。</p>
+        <div class="app-empty-state__actions">
+          <button type="button" class="btn primary" @click="emit('retry')">重试</button>
+        </div>
+      </div>
     </Transition>
   </div>
 </template>

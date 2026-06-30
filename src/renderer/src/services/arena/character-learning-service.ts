@@ -3,6 +3,7 @@ import { gatewayChatCompletion } from '../gateway-api'
 import { gameScenarioService } from './game-scenario-service'
 import { resolvePromptFromPack } from './prompt-resolver'
 import { characterService } from './character-service'
+import { characterGrowthService } from './character-growth-service'
 import { arenaLog } from './logger'
 import type { Character, CharacterGameSkill, SkillLearningEntry } from '@shared/arena/types'
 import type { PromptRenderContext } from '@shared/arena/game-scenario'
@@ -158,6 +159,12 @@ export const characterLearningService = {
     })
 
     await characterService.save(character)
+    await characterGrowthService
+      .awardFromModelOutput(characterId, response.usage, response.content, {
+        source: 'review',
+        summary: isRelearn ? `再学「${scenario.name}」` : `学习「${scenario.name}」`,
+      })
+      .catch(() => undefined)
     arenaLog('info', 'character', `角色 ${character.name} ${isRelearn ? '再次' : ''}完成 ${scenario.name} 学习`)
     return skill
   },
@@ -191,6 +198,12 @@ export const characterLearningService = {
     skill.notes = String(parsed.feedback || skill.notes || '').trim() || skill.notes
 
     await characterService.save(character)
+    await characterGrowthService
+      .awardFromModelOutput(characterId, response.usage, response.content, {
+        source: 'review',
+        summary: passed ? `通过「${scenario.name}」考试` : `完成「${scenario.name}」考试`,
+      })
+      .catch(() => undefined)
     return skill
   },
 

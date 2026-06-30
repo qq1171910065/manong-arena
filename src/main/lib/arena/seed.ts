@@ -620,3 +620,62 @@ export function finalizeStarterInit(store: ArenaStore): void {
     message: '已完成入门数据初始化（角色与玩法）',
   })
 }
+
+export type UserProfileCharacterInput = {
+  displayName: string
+  speechStyle?: string
+  gender?: 'female' | 'male' | 'other'
+  bio?: string
+}
+
+/** 创建用户 AI 分身（全局唯一，初始化后调用） */
+export function createUserProfileCharacter(store: ArenaStore, input: UserProfileCharacterInput): Character {
+  const existingId = store.getUserProfileCharacterId()
+  if (existingId) {
+    const existing = store.getCharacter(existingId)
+    if (existing) return existing
+  }
+
+  const name = input.displayName.trim() || '我的分身'
+  const speechStyle = input.speechStyle?.trim() || '理性'
+  const gender = input.gender || 'other'
+  const now = new Date().toISOString()
+
+  const character: Character = {
+    name,
+    subtitle: '你的 AI 分身 · 可替你参与对局',
+    modelId: resolveDefaultModelId(store),
+    avatarUrl: 'asset://avatar/default',
+    portraitUrl: 'asset://portrait/default',
+    gender,
+    ageLabel: '—',
+    bio: input.bio?.trim() || `这是 ${name} 的 AI 分身，会按你的风格参与狼人杀与圆桌讨论；你也可以随时亲自接管发言。`,
+    tags: ['用户分身', '可接管', speechStyle],
+    speechStyle,
+    commonPhrases: ['让我想想…', '这局我有自己的判断。'],
+    behaviorPrinciples: ['尊重发言顺序', '先听完全场再下结论'],
+    tabooBehaviors: ['无依据指控', '泄露隐藏身份'],
+    strategy: { empathyVsLogic: 55, cautiousVsBold: 50, leadVsFollow: 55 },
+    strengths: ['真人可接管', '灵活表达'],
+    weaknesses: [],
+    roleStrategies: [],
+    gameSkills: [],
+    status: 'enabled',
+    accentColor: '#7c5cff',
+    isUserProfile: true,
+    visualPackId: 'default',
+    id: randomUUID(),
+    stats: { ...DEFAULT_STATS },
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  store.saveCharacter(character)
+  store.setUserProfileCharacterId(character.id)
+  store.appendLog({
+    level: 'info',
+    scope: 'character',
+    message: `已创建用户 AI 分身「${name}」`,
+  })
+  return character
+}

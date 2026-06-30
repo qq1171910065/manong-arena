@@ -9,6 +9,9 @@ import type {
   Character,
   CharacterChatMessage,
   CharacterGrowthRecord,
+  CharacterGrowthSnapshot,
+  CharacterLineup,
+  LineupGrowthRecord,
   GameModeOverride,
   Match,
   MatchSnapshot,
@@ -77,6 +80,13 @@ export const arenaDomain = {
   seedStarterCharacter: (modelId: string) => invoke<Character>('arena:starter:seed', modelId),
   seedStarterGameMode: (modeId: string) => invoke<boolean>('arena:starter:seedGameMode', modeId),
   finalizeStarterInit: () => invoke<ArenaStoreStats>('arena:starter:finalize'),
+  getUserProfileCharacterId: () => invoke<string | null>('arena:userProfile:getId'),
+  createUserProfileCharacter: (input: {
+    displayName: string
+    speechStyle?: string
+    gender?: 'female' | 'male' | 'other'
+    bio?: string
+  }) => invoke<Character>('arena:userProfile:create', input),
 
   getGameModeOverrides: () => invoke<Record<string, GameModeOverride>>('arena:gameModes:getOverrides'),
   saveGameModeOverride: (modeId: string, override: GameModeOverride) =>
@@ -106,6 +116,18 @@ export const arenaDomain = {
   clearCharacterChat: (characterId: string) => invoke<boolean>('arena:characterChat:clear', characterId),
   listCharacterGrowth: (characterId: string) => invoke<CharacterGrowthRecord[]>('arena:characterGrowth:list', characterId),
   appendCharacterGrowth: (record: CharacterGrowthRecord) => invoke<CharacterGrowthRecord>('arena:characterGrowth:append', record),
+  listCharacterGrowthSnapshots: (characterId: string) =>
+    invoke<CharacterGrowthSnapshot[]>('arena:characterGrowthSnapshots:list', characterId),
+  appendCharacterGrowthSnapshot: (snapshot: CharacterGrowthSnapshot) =>
+    invoke<CharacterGrowthSnapshot>('arena:characterGrowthSnapshots:append', snapshot),
+
+  listLineups: () => invoke<CharacterLineup[]>('arena:lineups:list'),
+  saveLineup: (lineup: CharacterLineup) => invoke<CharacterLineup>('arena:lineups:save', cloneJson(lineup)),
+  deleteLineup: (id: string) => invoke<boolean>('arena:lineups:delete', id),
+  getActiveLineupId: () => invoke<string | null>('arena:lineups:getActiveId'),
+  setActiveLineupId: (id: string | null) => invoke<string | null>('arena:lineups:setActiveId', id),
+  listLineupGrowth: (lineupId: string) => invoke<LineupGrowthRecord[]>('arena:lineupGrowth:list', lineupId),
+  appendLineupGrowth: (record: LineupGrowthRecord) => invoke<LineupGrowthRecord>('arena:lineupGrowth:append', record),
 
   listGameModeQA: (gameModeId: string) => invoke<CharacterChatMessage[]>('arena:gameModeQA:list', gameModeId),
   appendGameModeQA: (gameModeId: string, message: CharacterChatMessage) =>

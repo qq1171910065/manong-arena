@@ -30,6 +30,7 @@ import {
 } from '@renderer/services/arena'
 import { splitMarkdownByH2 } from '@renderer/utils/markdown-sections'
 import { resolveSpeechDisplayConfig } from '@shared/arena/speech-display'
+import { canDeleteGameMode, isBuiltinGameModeId } from '@shared/arena/builtin-game-mode-registry'
 import type { GameMode } from '@shared/arena/types'
 import type { GameScenarioDefinition, PromptPack, PromptSlotId, PromptTemplate, SystemRoleConfig } from '@shared/arena/game-scenario'
 
@@ -59,6 +60,8 @@ const modeId = computed(() => route.value.id || '')
 const isAvailable = computed(() => (mode.value ? isModePlayable(mode.value) : false))
 const hasCustomConfig = computed(() => (modeId.value ? gameModeService.hasOverride(modeId.value) : false))
 const isCustomMode = computed(() => (modeId.value ? gameModeService.isCustom(modeId.value) : false))
+const isBuiltinMode = computed(() => (modeId.value ? isBuiltinGameModeId(modeId.value) : false))
+const canDelete = computed(() => (modeId.value ? canDeleteGameMode(modeId.value) : false))
 
 const docParts = computed(() => splitMarkdownByH2(scenario.value?.contentDocument || ''))
 
@@ -377,10 +380,10 @@ watch(modeId, () => void load(), { immediate: true })
             <template #tools>
               <button type="button" class="aa-rail-tile" @click="exportGameMode">
                 <Download :size="17" />
-                导出
+                {{ isBuiltinMode ? '导出配置包' : '导出' }}
               </button>
             </template>
-            <template v-if="isCustomMode" #danger>
+            <template v-if="canDelete" #danger>
               <button type="button" class="aa-rail-btn aa-rail-btn--danger-ghost" @click="deleteCustomMode">
                 <Trash2 :size="15" />
                 删除玩法
@@ -404,7 +407,11 @@ watch(modeId, () => void load(), { immediate: true })
                 </div>
               </button>
               <span v-if="isCustomMode" class="custom-tag">自建玩法</span>
-              <span v-else-if="hasCustomConfig" class="custom-tag">已自定义配置</span>
+              <span v-else-if="isBuiltinMode" class="custom-tag">内置玩法</span>
+              <span v-if="hasCustomConfig && !isCustomMode" class="custom-tag">已自定义配置</span>
+              <p v-if="isBuiltinMode" class="field-preview__hint">
+                内置玩法不可删除。修改配置后可导出，再导入同名玩法以更新。
+              </p>
               <button v-if="hasCustomConfig && !isCustomMode" type="button" class="detail-reset-link" @click="resetToBuiltin">恢复默认配置</button>
             </DetailEditableBlock>
           </section>

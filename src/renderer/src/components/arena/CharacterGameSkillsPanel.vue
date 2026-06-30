@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
-  AlertTriangle,
   BookOpen,
-  Brain,
   CheckCircle2,
+  ChevronRight,
   GraduationCap,
   Loader2,
   ShieldOff,
-  Sparkles,
-  Swords,
 } from 'lucide-vue-next'
-import { characterService, characterLearningService, formatUserMessage, gameScenarioService } from '@renderer/services/arena'
-import type { Character, CharacterGameSkill, SkillLearningEntry } from '@shared/arena/types'
+import CharacterScenarioRecordDialog from './CharacterScenarioRecordDialog.vue'
+import {
+  characterLearningService,
+  characterScenarioRecordService,
+  characterService,
+  formatUserMessage,
+  gameScenarioService,
+} from '@renderer/services/arena'
+import type { Character } from '@shared/arena/types'
+import type { CharacterScenarioRecordSummary } from '@shared/arena/character-scenario-record'
+import { formatTimeLabel } from '@renderer/utils/id'
 
 const props = defineProps<{
   character: Character
@@ -24,37 +30,29 @@ const emit = defineEmits<{
 
 const busyScenarioId = ref('')
 const actionError = ref('')
+const summaries = ref<CharacterScenarioRecordSummary[]>([])
+const summariesLoading = ref(true)
+const recordOpen = ref(false)
+const recordScenarioId = ref('')
+const recordScenarioName = ref('')
 
-const scenarios = computed(() => gameScenarioService.list().filter((s) => s.isAvailable && s.requiresLearning))
+const learnedCount = computed(() => summaries.value.filter((s) => s.learned).length)
 
-const learnedCount = computed(() => (props.character.gameSkills || []).filter((s) => s.learned).length)
+onMounted(() => void refreshSummaries())
 
-function skillFor(scenarioId: string): CharacterGameSkill | undefined {
-  return props.character.gameSkills?.find((s) => s.scenarioId === scenarioId)
+async function refreshSummaries() {
+  summariesLoading.value = true
+  try {
+    summaries.value = await characterScenarioRecordService.listSummaries(props.character)
+  } finally {
+    summariesLoading.value = false
+  }
 }
 
-function statusLabel(scenarioId: string): string {
-  const skill = skillFor(scenarioId)
-  const scenario = gameScenarioService.get(scenarioId)
-  if (!skill?.learned) return '未学习'
-  if (scenario?.requiresExam && !skill.examPassed && !skill.examBypassed) return '待考试'
-  if (skill.examBypassed && !skill.examPassed) return '已免考'
-  return '可带入局'
-}
-
-function learnLabel(scenarioId: string): string {
-  return skillFor(scenarioId)?.learned ? '再次学习' : '开始学习'
-}
-
-function entrySourceLabel(entry: SkillLearningEntry): string {
-  if (entry.source === 'post_match') return '赛后沉淀'
-  if (entry.source === 'relearn') return '再次学习'
-  return '初次学习'
-}
-
-function formatDate(value?: string | null): string {
-  if (!value) return ''
-  return new Date(value).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+function openRecord(summary: CharacterScenarioRecordSummary) {
+  recordScenarioId.value = summary.scenarioId
+  recordScenarioName.value = summary.scenarioName
+  recordOpen.value = true
 }
 
 async function runLearn(scenarioId: string) {
@@ -62,7 +60,9 @@ async function runLearn(scenarioId: string) {
   actionError.value = ''
   try {
     await characterLearningService.learn(props.character.id, scenarioId)
-    emit('updated', await characterService.get(props.character.id))
+    const updated = await characterService.get(props.character.id)
+    emit('updated', updated)
+    await refreshSummaries()
   } catch (err) {
     actionError.value = formatUserMessage(err)
   } finally {
@@ -75,7 +75,9 @@ async function runExam(scenarioId: string) {
   actionError.value = ''
   try {
     await characterLearningService.exam(props.character.id, scenarioId)
-    emit('updated', await characterService.get(props.character.id))
+    const updated = await characterService.get(props.character.id)
+    emit('updated', updated)
+    await refreshSummaries()
   } catch (err) {
     actionError.value = formatUserMessage(err)
   } finally {
@@ -88,130 +90,101 @@ async function runBypass(scenarioId: string) {
   actionError.value = ''
   try {
     await characterLearningService.bypassExam(props.character.id, scenarioId)
-    emit('updated', await characterService.get(props.character.id))
+    const updated = await characterService.get(props.character.id)
+    emit('updated', updated)
+    await refreshSummaries()
   } catch (err) {
     actionError.value = formatUserMessage(err)
   } finally {
     busyScenarioId.value = ''
   }
 }
+
+function scenarioRequiresExam(scenarioId: string): boolean {
+  return Boolean(gameScenarioService.get(scenarioId)?.requiresExam)
+}
+
+function learnLabel(summary: CharacterScenarioRecordSummary): string {
+  return summary.learned ? '再次学习' : '开始学习'
+}
 </script>
 
 <template>
-  <section class="experience-panel">
-    <header class="experience-panel__head">
+  <section class="record-panel">
+    <header class="record-panel__head">
       <div>
-        <h2><GraduationCap :size="18" /> 玩法经验</h2>
+        <h2><GraduationCap :size="18" /> 场景记录</h2>
         <p>
-          每个玩法的理解、策略与误区会<strong>带入对局提示词</strong>，与角色人设叠加生效。
-          已学会 {{ learnedCount }} / {{ scenarios.length }} 种玩法。
+          各场景范式下的基础演练记录。点击卡片查看发挥详情、图表与经验教训。
+          已掌握 {{ learnedCount }} / {{ summaries.length }} 种场景。
         </p>
       </div>
     </header>
 
-    <p v-if="actionError" class="experience-panel__error">{{ actionError }}</p>
+    <p v-if="actionError" class="record-panel__error">{{ actionError }}</p>
+    <p v-if="summariesLoading" class="record-panel__loading">正在整理场景记录…</p>
 
-    <article v-for="scenario in scenarios" :key="scenario.id" class="experience-card">
-      <div class="experience-card__head">
+    <article
+      v-for="summary in summaries"
+      :key="summary.scenarioId"
+      class="record-card"
+      @click="openRecord(summary)"
+    >
+      <div class="record-card__main">
         <div>
-          <strong>{{ scenario.name }}</strong>
-          <span v-if="scenario.subtitle" class="experience-card__subtitle">{{ scenario.subtitle }}</span>
+          <strong>{{ summary.scenarioName }}</strong>
+          <span class="record-card__paradigm">{{ summary.paradigmShortLabel }}范式</span>
         </div>
-        <span
-          class="experience-card__status"
-          :class="{ ready: statusLabel(scenario.id) === '可带入局' || statusLabel(scenario.id) === '已免考' }"
-        >
-          {{ statusLabel(scenario.id) }}
-        </span>
+        <ChevronRight :size="18" class="record-card__arrow" />
       </div>
 
-      <p v-if="!skillFor(scenario.id)?.learned" class="experience-card__empty">
-        尚未学习此玩法。学习后会结合角色人设形成专属理解，并在开局时注入对局。
-      </p>
+      <div class="record-card__stats">
+        <span>演练 {{ summary.matchCount }} 次</span>
+        <span v-if="summary.winCount">胜 {{ summary.winCount }}</span>
+        <span v-if="summary.mvpCount">MVP {{ summary.mvpCount }}</span>
+        <span>{{ summary.statusLabel }}</span>
+        <span v-if="summary.lastMatchAt">最近 {{ formatTimeLabel(summary.lastMatchAt) }}</span>
+      </div>
 
-      <template v-else>
-        <div v-if="skillFor(scenario.id)?.learnedAt" class="experience-card__meta">
-          <span>最近学习 {{ formatDate(skillFor(scenario.id)?.learnedAt) }}</span>
-          <span v-if="skillFor(scenario.id)?.examPassedAt"> · 通过考试 {{ formatDate(skillFor(scenario.id)?.examPassedAt) }}</span>
-        </div>
-
-        <section v-if="skillFor(scenario.id)?.mentalModel || skillFor(scenario.id)?.initialUnderstanding" class="experience-block">
-          <h3><Brain :size="14" /> 心智模型</h3>
-          <p>{{ skillFor(scenario.id)?.mentalModel || skillFor(scenario.id)?.initialUnderstanding }}</p>
-        </section>
-
-        <section v-if="skillFor(scenario.id)?.initialStrategy" class="experience-block">
-          <h3><Swords :size="14" /> 实战策略倾向</h3>
-          <p>{{ skillFor(scenario.id)?.initialStrategy }}</p>
-        </section>
-
-        <section v-if="skillFor(scenario.id)?.hypotheses?.length" class="experience-block">
-          <h3><Sparkles :size="14" /> 入局前假设</h3>
-          <ul>
-            <li v-for="(item, index) in skillFor(scenario.id)!.hypotheses" :key="index">{{ item }}</li>
-          </ul>
-        </section>
-
-        <div v-if="skillFor(scenario.id)?.edgeCases?.length || skillFor(scenario.id)?.commonMistakes?.length" class="experience-card__tags">
-          <div v-if="skillFor(scenario.id)?.edgeCases?.length">
-            <em>易错边界</em>
-            <span v-for="(item, index) in skillFor(scenario.id)!.edgeCases" :key="'edge-' + index">{{ item }}</span>
-          </div>
-          <div v-if="skillFor(scenario.id)?.commonMistakes?.length">
-            <em>常见误区</em>
-            <span v-for="(item, index) in skillFor(scenario.id)!.commonMistakes" :key="'mistake-' + index">{{ item }}</span>
-          </div>
-        </div>
-
-        <section v-if="skillFor(scenario.id)?.learningLog?.length" class="experience-block">
-          <h3><BookOpen :size="14" /> 经验沉淀</h3>
-          <ul class="learning-log">
-            <li v-for="entry in skillFor(scenario.id)!.learningLog" :key="entry.id">
-              <span class="learning-log__source">{{ entrySourceLabel(entry) }}</span>
-              <strong>{{ entry.summary }}</strong>
-              <p v-if="entry.understanding">{{ entry.understanding }}</p>
-            </li>
-          </ul>
-        </section>
-
-        <p v-if="skillFor(scenario.id)?.notes" class="experience-card__notes">
-          <AlertTriangle :size="13" />
-          {{ skillFor(scenario.id)?.notes }}
-        </p>
-      </template>
-
-      <div class="experience-card__actions">
-        <button type="button" :disabled="busyScenarioId === scenario.id" @click="runLearn(scenario.id)">
-          <Loader2 v-if="busyScenarioId === scenario.id" :size="14" class="spin" />
+      <div class="record-card__actions" @click.stop>
+        <button type="button" :disabled="busyScenarioId === summary.scenarioId" @click="runLearn(summary.scenarioId)">
+          <Loader2 v-if="busyScenarioId === summary.scenarioId" :size="14" class="spin" />
           <BookOpen v-else :size="14" />
-          {{ learnLabel(scenario.id) }}
+          {{ learnLabel(summary) }}
         </button>
         <button
-          v-if="scenario.requiresExam"
+          v-if="scenarioRequiresExam(summary.scenarioId)"
           type="button"
-          :disabled="busyScenarioId === scenario.id || !skillFor(scenario.id)?.learned || skillFor(scenario.id)?.examPassed || skillFor(scenario.id)?.examBypassed"
-          @click="runExam(scenario.id)"
+          :disabled="busyScenarioId === summary.scenarioId || !summary.learned || summary.examPassed || summary.examBypassed"
+          @click="runExam(summary.scenarioId)"
         >
           <CheckCircle2 :size="14" />
-          考试
+          校验
         </button>
         <button
-          v-if="scenario.requiresExam"
+          v-if="scenarioRequiresExam(summary.scenarioId)"
           type="button"
           class="ghost"
-          :disabled="busyScenarioId === scenario.id || !skillFor(scenario.id)?.learned || skillFor(scenario.id)?.examPassed || skillFor(scenario.id)?.examBypassed"
-          @click="runBypass(scenario.id)"
+          :disabled="busyScenarioId === summary.scenarioId || !summary.learned || summary.examPassed || summary.examBypassed"
+          @click="runBypass(summary.scenarioId)"
         >
           <ShieldOff :size="14" />
           免考
         </button>
       </div>
     </article>
+
+    <CharacterScenarioRecordDialog
+      v-model="recordOpen"
+      :character="character"
+      :scenario-id="recordScenarioId"
+      :scenario-name="recordScenarioName"
+    />
   </section>
 </template>
 
 <style scoped>
-.experience-panel__head h2 {
+.record-panel__head h2 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -220,205 +193,88 @@ async function runBypass(scenarioId: string) {
   color: #17205a;
 }
 
-.experience-panel__head p {
+.record-panel__head p {
   margin: 0;
   color: #66709d;
   font-size: 13px;
   line-height: 1.65;
 }
 
-.experience-panel__head strong {
-  color: #5b57f3;
-  font-weight: 650;
-}
-
-.experience-panel__error {
+.record-panel__error {
   margin: 12px 0 0;
   color: #c2410c;
   font-size: 13px;
 }
 
-.experience-card {
+.record-panel__loading {
+  margin: 12px 0 0;
+  color: #7a85b0;
+  font-size: 13px;
+}
+
+.record-card {
   margin-top: 14px;
   padding: 14px 16px;
   border: 1px solid rgba(130, 142, 207, 0.14);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.52);
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.experience-card__head {
+.record-card:hover {
+  border-color: rgba(91, 87, 243, 0.28);
+  box-shadow: 0 8px 20px rgba(91, 87, 243, 0.08);
+}
+
+.record-card__main {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.experience-card__head strong {
+.record-card__main strong {
   display: block;
   color: #17205a;
   font-size: 15px;
 }
 
-.experience-card__subtitle {
-  display: block;
-  margin-top: 4px;
-  color: #7a85b0;
-  font-size: 12px;
-}
-
-.experience-card__status {
-  flex: none;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: rgba(251, 146, 60, 0.12);
-  color: #c2410c;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.experience-card__status.ready {
-  background: rgba(36, 169, 103, 0.12);
-  color: #1a9a62;
-}
-
-.experience-card__empty {
-  margin: 12px 0 0;
-  color: #7a85b0;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.experience-card__meta {
-  margin-top: 10px;
-  color: #9aa3c7;
-  font-size: 11px;
-}
-
-.experience-block {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.58);
-}
-
-.experience-block h3 {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 8px;
-  color: #17205a;
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.experience-block p {
-  margin: 0;
-  color: #59649b;
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.experience-block ul {
-  margin: 0;
-  padding-left: 18px;
-  color: #59649b;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.experience-card__tags {
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.experience-card__tags div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-
-.experience-card__tags em {
-  margin-right: 2px;
-  color: #66709d;
-  font-style: normal;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.experience-card__tags span {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(130, 142, 207, 0.1);
-  color: #59649b;
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.learning-log {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.learning-log li {
-  padding: 8px 0;
-  border-top: 1px solid rgba(130, 142, 207, 0.1);
-}
-
-.learning-log li:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.learning-log__source {
+.record-card__paradigm {
   display: inline-block;
-  margin-right: 6px;
-  padding: 1px 6px;
+  margin-top: 4px;
+  padding: 2px 8px;
   border-radius: 999px;
   background: rgba(112, 105, 255, 0.1);
   color: #5b57f3;
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 650;
 }
 
-.learning-log strong {
-  display: block;
-  margin-top: 4px;
-  color: #17205a;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.55;
+.record-card__arrow {
+  flex: none;
+  color: #9aa3c7;
 }
 
-.learning-log p {
-  margin: 4px 0 0;
+.record-card__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
   color: #7a85b0;
   font-size: 12px;
-  line-height: 1.6;
 }
 
-.experience-card__notes {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin: 12px 0 0;
-  color: #9a7b2e;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.experience-card__actions {
+.record-card__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 14px;
+  margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid rgba(130, 142, 207, 0.1);
 }
 
-.experience-card__actions button {
+.record-card__actions button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -433,12 +289,12 @@ async function runBypass(scenarioId: string) {
   cursor: pointer;
 }
 
-.experience-card__actions button:disabled {
+.record-card__actions button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.experience-card__actions .ghost {
+.record-card__actions .ghost {
   background: transparent;
 }
 

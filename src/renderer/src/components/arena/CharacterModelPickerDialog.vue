@@ -53,22 +53,13 @@ async function save() {
     :saving="saving"
     @save="save"
   >
-    <p v-if="error" class="edit-error">{{ error }}</p>
-    <ModelPickerField
+    <div class="detail-form-body">
+      <p v-if="error" class="detail-form-error">{{ error }}</p>
+      <ModelPickerField
       v-model="draftModelId"
       label="角色模型"
       hint="从网关模型列表选择；发言、投票与私聊均使用此模型。"
     />
+    </div>
   </DetailEditDialog>
 </template>
-
-<style scoped>
-.edit-error {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(239, 68, 68, 0.08);
-  color: #dc2626;
-  font-size: 13px;
-}
-</style>

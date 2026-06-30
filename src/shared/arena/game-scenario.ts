@@ -1,10 +1,10 @@
 /** 玩法場景架構 — 提示詞驅動、引擎分派、系統角色配置 */
 
 /** 硬編碼流程引擎類型；不同引擎可共用同一套 Prompt 體系 */
-export type GameEngineKind = 'werewolf' | 'roundtable' | 'prompt-only'
+export type GameEngineKind = 'werewolf' | 'roundtable' | 'brainstorm' | 'undercover' | 'prompt-only'
 
 /** 玩法詳情頁變體 */
-export type GameDetailPageKind = 'werewolf' | 'roundtable' | 'generic'
+export type GameDetailPageKind = 'werewolf' | 'roundtable' | 'brainstorm' | 'undercover' | 'generic'
 
 /** Prompt 槽位 — 一份玩法可配置多份同槽位模板（版本/風格） */
 export type PromptSlotId =
@@ -92,6 +92,8 @@ export interface GameScenarioDefinition {
   discussionTopic?: string
   /** 圓桌：預設討論輪數 */
   defaultRounds?: number
+  /** 头脑风暴玩法类别 */
+  brainstormCategory?: import('./social-paradigm').BrainstormCategoryId
   createdAt?: string
   updatedAt?: string
 }
@@ -113,6 +115,10 @@ export interface PromptRenderContext {
   aliveList?: string
   discussionTopic?: string
   round?: number
+  sessionKind?: string
+  brainstormCategory?: string
+  sessionGuide?: string
+  designTarget?: string
   /** 學習後的角色對玩法的初始理解 */
   initialUnderstanding?: string
   matchSummary?: string

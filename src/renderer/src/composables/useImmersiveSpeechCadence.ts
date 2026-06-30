@@ -83,7 +83,7 @@ export function useImmersiveSpeechCadence(options: {
   function beginSpeaking(msg: MatchMessage) {
     phase.value = 'speaking'
     const text = speechDisplayText(msg)
-    speechDurationMs.value = estimateSpeechDurationMs(text)
+    speechDurationMs.value = estimateSpeechDurationMs(text, Boolean(msg.isHumanPlayer))
     if (!speechStartedAt) speechStartedAt = Date.now()
     if (!progressRaf) progressRaf = requestAnimationFrame(tickProgress)
   }
@@ -184,12 +184,31 @@ export function useImmersiveSpeechCadence(options: {
     }
 
     if (isSpeechLive(msg) || (isSpeechStreaming(msg) && speechDisplayText(msg).trim())) {
+      if (msg.isHumanPlayer && msg.streamStatus === 'streaming') {
+        if (phase.value === 'thinking' || phase.value === 'idle') {
+          speechStartedAt = Date.now()
+          speechProgress.value = 0
+        }
+        speechDurationMs.value = estimateSpeechDurationMs(speechDisplayText(msg), true)
+        beginSpeaking(msg)
+        return
+      }
       if (phase.value === 'thinking' || phase.value === 'idle') {
         speechStartedAt = Date.now()
         speechProgress.value = 0
       }
       speechDurationMs.value = estimateSpeechDurationMs(speechDisplayText(msg))
       beginSpeaking(msg)
+      return
+    }
+
+    if (msg.isHumanPlayer && msg.streamStatus === 'streaming' && !speechDisplayText(msg).trim()) {
+      clearTimers()
+      phase.value = 'thinking'
+      speechProgress.value = 0
+      speechStartedAt = 0
+      handledMessageId = null
+      ttsSeenForMessage = false
       return
     }
 

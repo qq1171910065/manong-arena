@@ -1,8 +1,17 @@
 /** Agent Arena 领域类型 — 主进程与渲染层共享 */
 
-import type { GameScenarioDefinition, PromptPack } from './game-scenario'
+import type { GameEngineKind, GameScenarioDefinition, PromptPack } from './game-scenario'
 export type { CharacterExpressionId } from './character-visuals'
 import type { CharacterExpressionId } from './character-visuals'
+export type {
+  CharacterAttributeId,
+  CharacterAttributes,
+  CharacterGrowthSnapshot,
+  CharacterGrowthState,
+  CharacterLineup,
+  CharacterPersonalitySkill,
+  LineupGrowthRecord,
+} from './character-growth'
 
 export type CharacterStatus = 'enabled' | 'disabled'
 export type MatchStatus = 'draft' | 'active' | 'paused' | 'completed' | 'aborted' | 'archived'
@@ -24,6 +33,15 @@ export type ModelCallStatus =
 
 export type StepAdvanceState = 'ready' | 'waiting' | 'paused' | 'disabled'
 export type PhaseActionKind = 'speech' | 'vote' | 'night' | 'judge' | 'system' | 'idle'
+export type HumanInputKind =
+  | 'speech'
+  | 'vote'
+  | 'wolf_chat'
+  | 'wolf_kill'
+  | 'guard_protect'
+  | 'seer_check'
+  | 'witch_antidote'
+  | 'witch_poison'
 export type ParticipantAliveStatus = 'alive' | 'eliminated' | 'spectating'
 export type MessageKind = 'speech' | 'system' | 'event' | 'vote' | 'judge' | 'warning' | 'resource'
 export type MessageStreamStatus = 'pending' | 'streaming' | 'done' | 'failed'
@@ -148,6 +166,8 @@ export interface Character {
   expressionUrls?: Partial<Record<CharacterExpressionId, string>>
   /** 绑定的内置角色素材 ID，如 doubao */
   visualPackId?: string
+  /** 是否为当前用户的 AI 分身（全局唯一） */
+  isUserProfile?: boolean
   gender: 'female' | 'male' | 'other'
   ageLabel: string
   bio: string
@@ -181,6 +201,8 @@ export interface Character {
   status: CharacterStatus
   accentColor: string
   stats: CharacterStats
+  /** 等级与经验（属性由等级与人设计算得出） */
+  growth?: import('./character-growth').CharacterGrowthState
   createdAt: string
   updatedAt: string
 }
@@ -240,7 +262,7 @@ export interface GameMode {
   /** 关联玩法场景 id */
   scenarioId?: string
   /** 引擎类型，用于步进分派 */
-  engineKind?: 'werewolf' | 'roundtable' | 'prompt-only'
+  engineKind?: GameEngineKind
   /** 局内发言展示：@ 提及与术语高亮 */
   speechDisplay?: SpeechDisplayConfig
 }
@@ -259,6 +281,8 @@ export interface MatchParticipant {
   isSpeaking: boolean
   isSheriff?: boolean
   revealed?: boolean
+  /** 当前席位由 AI 还是真人操控 */
+  controlledBy?: 'ai' | 'user'
 }
 
 export interface MatchMessage {
@@ -276,6 +300,8 @@ export interface MatchMessage {
   round: number
   phaseId: string
   confirmed: boolean
+  /** 真人玩家亲自输入的发言（区别于 AI 生成） */
+  isHumanPlayer?: boolean
 }
 
 export interface MatchVoteRecord {
@@ -396,6 +422,51 @@ export interface WerewolfRuntimeState {
   whiteWolfKingShotIds?: string[]
   /** 第一夜结束后狼人阵营互相知晓队友 */
   wolfTeamRevealed?: boolean
+  /** 狼队私密沟通记录（不进入公开频道） */
+  wolfTeamMessages?: WolfTeamMessage[]
+  /** 狼队刀人队内投票 */
+  wolfKillVotes?: WolfKillVoteRecord[]
+  /** 当前夜晚狼队流程：沟通 → 队内投票 → 完成 */
+  wolfNightStep?: 'discussion' | 'kill_vote' | 'done' | null
+  /** 队内投票锁定的刀口目标 */
+  wolfKillTargetId?: string | null
+  /** 狼队流程所属轮次 */
+  wolfNightRound?: number | null
+  /** 女巫夜间：解药 → 毒药 */
+  witchNightStep?: 'antidote' | 'poison' | 'done' | null
+  witchNightRound?: number | null
+  /** 本夜刀口（供女巫决策展示） */
+  pendingKnifeTargetId?: string | null
+  witchAntidoteDecided?: boolean
+  witchUseAntidote?: boolean
+  witchPoisonDecided?: boolean
+  /** 真人女巫本夜选择的毒药目标；null 表示不用 */
+  witchHumanPoisonTargetId?: string | null
+  /** 守卫夜间 */
+  guardNightRound?: number | null
+  guardDecided?: boolean
+  /** null 表示本夜不守护或无可守目标 */
+  guardHumanTargetId?: string | null
+  /** 预言家夜间 */
+  seerNightRound?: number | null
+  seerDecided?: boolean
+  seerHumanTargetId?: string | null
+}
+
+export interface WolfTeamMessage {
+  id: string
+  participantId: string
+  participantName: string
+  content: string
+  round: number
+  createdAt: string
+}
+
+export interface WolfKillVoteRecord {
+  voterId: string
+  targetId: string
+  round: number
+  createdAt: string
 }
 
 export interface RoundtableRuntimeState {
@@ -403,6 +474,17 @@ export interface RoundtableRuntimeState {
   totalRounds: number
   hostEnabled: boolean
   narratorEnabled: boolean
+  designTarget?: string
+  brainstormCategory?: import('./social-paradigm').BrainstormCategoryId
+  /** 头脑风暴结束时归纳的产物摘要 */
+  artifactSummary?: string
+}
+
+export interface UndercoverRuntimeState {
+  civilianWord: string
+  undercoverWord: string
+  wordByCharacterId: Record<string, string>
+  describeRounds: number
 }
 
 export interface MatchRuntimeState {
@@ -428,12 +510,23 @@ export interface MatchRuntimeState {
   activeVoteMessageId?: string | null
   werewolfState?: WerewolfRuntimeState
   roundtableState?: RoundtableRuntimeState
+  undercoverState?: UndercoverRuntimeState
   /** 本局使用的提示词包 id */
   promptPackId?: string
   /** 本局创建时快照的系统角色模型（裁判/解说等） */
   systemRoleModels?: Record<string, string>
   /** 遗言阶段待发言的出局者 */
   pendingLastWordsIds?: string[]
+  /** 本局用户 AI 分身的 characterId（若参战） */
+  userProfileCharacterId?: string | null
+  /** 当前由真人接管的 characterId */
+  humanControlledId?: string | null
+  /** 本局曾切换上帝视角，禁止再次真人接管 */
+  humanTakeoverLocked?: boolean
+  /** 等待真人输入的发言消息 id */
+  humanInputMessageId?: string | null
+  /** 当前等待的真人操作类型 */
+  humanInputKind?: HumanInputKind | null
 }
 
 export interface Match {
@@ -548,6 +641,8 @@ export interface ArenaStoreStats {
   installedGameModeCount: number
   installedGameModeIds: string[]
   seededAt: string | null
+  /** 用户 AI 分身角色 id */
+  userProfileCharacterId?: string | null
 }
 
 export interface ArenaStoreData {
@@ -579,6 +674,16 @@ export interface ArenaStoreData {
   helpChatLog?: CharacterChatMessage[]
   /** 角色成长记录（对话等） */
   characterGrowthLog?: CharacterGrowthRecord[]
+  /** 用户 AI 分身角色 id（全局唯一） */
+  userProfileCharacterId?: string | null
+  /** 角色阵容 */
+  characterLineups?: import('./character-growth').CharacterLineup[]
+  /** 当前展示的阵容 id */
+  activeLineupId?: string | null
+  /** 角色属性/等级成长快照（趋势图与日志） */
+  characterGrowthSnapshots?: import('./character-growth').CharacterGrowthSnapshot[]
+  /** 阵容组队战绩记录 */
+  lineupGrowthLog?: import('./character-growth').LineupGrowthRecord[]
 }
 
 export interface ArenaResult<T = unknown> {
@@ -600,6 +705,8 @@ export interface CreateMatchInput {
   discussionTopic?: string
   /** 圆桌：讨论轮数 */
   roundtableRounds?: number
+  /** 头脑风暴：设计焦点 */
+  designTarget?: string
   /** 狼人杀：启用的扩展身份 id（如 knight、wolf_king） */
   werewolfDlcs?: string[]
   /** 狼人杀：是否开启警长玩法，默认开启 */
@@ -617,7 +724,7 @@ export interface CharacterFilter {
   modelId?: string
   status?: CharacterStatus | 'all'
   tag?: string
-  sort?: 'updated' | 'created' | 'name' | 'matches'
+  sort?: 'updated' | 'created' | 'name' | 'matches' | 'level'
 }
 
 export interface MatchFilter {

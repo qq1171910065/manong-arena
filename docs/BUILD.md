@@ -17,8 +17,10 @@ pnpm build:mac                # macOS DMG（不含素材 zip）
 
 素材 zip 包含 `character-packs/` 与 `game-mode-packs/`，由用户主动载入：
 
-1. **首次初始化向导** — 按内置清单从 OSS/CDN 下载并解压
+1. **首次初始化向导** — 按内置清单从 GitHub Release / CDN 下载并解压；失败时可跳过（使用内置 default 占位）或导入本地 zip
 2. **设置中心 → 数据管理** — 重新下载，或选择本地 zip 载入
+
+缺少某角色素材文件时，运行时与初始化均会回退到 `character-packs/default/` 占位图。
 
 运行时目录（`userData/{appId}/`）：
 

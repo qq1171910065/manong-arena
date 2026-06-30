@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { AlertTriangle, Bot, Brain, Copy, Crown, Eye, ListChecks, Loader2, MessageCircle, MoonStar, Radio, ShieldCheck, Sparkles, Users, Vote } from 'lucide-vue-next'
+import { AlertTriangle, Bot, Brain, Copy, Crown, Eye, Gamepad2, ListChecks, Loader2, MessageCircle, MoonStar, Radio, ShieldCheck, Sparkles, Users, Vote } from 'lucide-vue-next'
 import MatchRoomEscMenu from '@renderer/components/arena/MatchRoomEscMenu.vue'
+import MatchRoomFloatingAction from '@renderer/components/arena/MatchRoomFloatingAction.vue'
 import MatchRoomImmersiveStage from '@renderer/components/arena/MatchRoomImmersiveStage.vue'
 import MatchSpeechContent from '@renderer/components/arena/MatchSpeechContent.vue'
 import ArenaPageState from '@renderer/components/arena/ArenaPageState.vue'
@@ -9,7 +10,7 @@ import { useImmersiveSpeechCadence } from '@renderer/composables/useImmersiveSpe
 import { characterAvatarByName } from '@renderer/data/arena-visual-assets'
 import { arenaHomeAssets } from '@renderer/data/arena-home-assets'
 import { route } from '../router'
-import { billingService, characterService, formatUserMessage, gameModeService, matchEngine, matchService, matchWindowService, playArenaTone, settingsService, ttsService, unlockArenaAudio } from '@renderer/services/arena'
+import { billingService, canTakeOverMatch, characterService, formatUserMessage, gameModeService, getUserProfileCharacterId, humanPlayerService, isHumanActionPending, isHumanControlledMatch, lockTakeoverOnGodView, matchEngine, matchService, matchWindowService, playArenaTone, settingsService, ttsService, unlockArenaAudio } from '@renderer/services/arena'
 import type { MatchStreamPatch } from '@renderer/services/arena/match-engine'
 import type { ArenaSettings, Character, Match, MatchMessage, MatchParticipant, MatchVoteRecord } from '@shared/arena/types'
 import { resolveSpeechDisplayConfig } from '@shared/arena/speech-display'
@@ -20,7 +21,8 @@ const advancing = ref(false)
 const error = ref('')
 const settings = ref(settingsService.defaults())
 const copied = ref(false)
-const viewMode = ref<'god' | 'player'>('god')
+const viewMode = ref<'god' | 'player'>('player')
+const profileCharacterId = ref<string | null>(null)
 const guessedRoles = ref<Record<string, string>>({})
 const showEvents = ref(false)
 const expandedThoughtIds = ref<Set<string>>(new Set())
@@ -97,7 +99,7 @@ const actionMeta = computed(() => {
 })
 const PhaseIcon = computed(() => actionMeta.value.icon)
 const phaseClass = computed(() => actionMeta.value.className)
-const canAdvance = computed(() => Boolean(match.value && match.value.status === 'active' && !isCompleted.value && (match.value.runtime.stepAdvanceState === 'ready' || match.value.runtime.stepAdvanceState === 'paused')))
+const canAdvance = computed(() => Boolean(match.value && match.value.status === 'active' && !isCompleted.value && !humanInputPending.value && (match.value.runtime.stepAdvanceState === 'ready' || match.value.runtime.stepAdvanceState === 'paused')))
 const isPaused = computed(() => match.value?.status === 'paused')
 const isModelCalling = computed(() => match.value?.runtime.modelCallStatus === 'calling' || advancing.value)
 const isImmersiveLayout = computed(() => settings.value.matchDefaults.matchRoomLayout === 'immersive')
@@ -158,7 +160,36 @@ const showTopStatusHint = computed(() => {
   if (!isImmersiveLayout.value) return Boolean(activityHint.value)
   return Boolean(error.value || isPaused.value)
 })
-const autoAdvanceActive = computed(() => Boolean(match.value?.status === 'active' && settings.value.matchDefaults.autoAdvance && canAdvance.value && !advancing.value && !error.value && !immersivePresentationHold.value && !(actionKind.value === 'judge' && !settings.value.matchDefaults.autoNextRound)))
+const humanInputPending = computed(() => (match.value ? isHumanActionPending(match.value) : false))
+const humanInputKind = computed(() => match.value?.runtime.humanInputKind ?? null)
+const humanParticipant = computed(() => {
+  const id = match.value?.runtime.humanControlledId
+  return id ? participantById(id) : null
+})
+const humanCharacter = computed(() => {
+  const id = match.value?.runtime.humanControlledId
+  return id ? characterCache.value.get(id) ?? null : null
+})
+const humanIdentityLabel = computed(() => {
+  const p = humanParticipant.value
+  if (!p) return ''
+  const role = p.roleName || '未知身份'
+  const camp = p.roleCamp === 'wolf' ? '狼人阵营' : p.roleCamp === 'good' ? '好人阵营' : '未知阵营'
+  return `${role} · ${camp}`
+})
+const humanRoleSkillText = computed(() => {
+  const p = humanParticipant.value
+  if (!p?.roleId) return ''
+  const skill = roleSkill(p.roleId)
+  return skill !== '无技能' ? skill : ''
+})
+const canTakeOver = computed(() => (match.value ? canTakeOverMatch(match.value, profileCharacterId.value) : false))
+const isHumanControlling = computed(() => (match.value ? isHumanControlledMatch(match.value, profileCharacterId.value) : false))
+const humanTakeoverLocked = computed(() => Boolean(match.value?.runtime.humanTakeoverLocked))
+const showHumanTakeoverButton = computed(
+  () => Boolean(profileCharacterId.value && match.value && (canTakeOver.value || isHumanControlling.value))
+)
+const autoAdvanceActive = computed(() => Boolean(match.value?.status === 'active' && settings.value.matchDefaults.autoAdvance && canAdvance.value && !advancing.value && !error.value && !humanInputPending.value && !immersivePresentationHold.value && !(actionKind.value === 'judge' && !settings.value.matchDefaults.autoNextRound)))
 const displayMode = computed(() => settings.value.compactLayout ? '高玩视图' : settings.value.modelCallHints ? '新手提示' : '标准视图')
 const phaseHint = computed(() => match.value?.runtime.waitingHint || actionMeta.value.hint)
 const upcomingPhase = computed(() => {
@@ -195,9 +226,32 @@ function onSeatContextMenu(event: MouseEvent, p: MatchParticipant) {
   event.preventDefault()
   cycleGuess(p)
 }
-function toggleViewMode() { viewMode.value = viewMode.value === 'god' ? 'player' : 'god' }
+function toggleViewMode() {
+  setViewMode(viewMode.value === 'god' ? 'player' : 'god')
+}
+
+async function setViewMode(mode: 'god' | 'player') {
+  viewMode.value = mode
+  if (mode === 'player') {
+    ttsService.interrupt()
+  }
+  if (mode !== 'god' || !match.value) return
+  let next = lockTakeoverOnGodView(match.value)
+  if (next.runtime.humanControlledId) {
+    next = await humanPlayerService.release(match.value.id)
+  }
+  match.value = await matchService.save(next)
+}
 function hasActed(p: MatchParticipant): boolean { return Boolean(match.value?.runtime.actedCharacterIds.includes(p.characterId)) }
-function messageTone(msg: MatchMessage): string { return 'is-' + msg.kind + (msg.participantId === 'judge' || msg.kind !== 'speech' ? ' is-referee' : '') }
+function messageTone(msg: MatchMessage): string {
+  const human = msg.isHumanPlayer ? ' is-human-player' : ''
+  return 'is-' + msg.kind + human + (msg.participantId === 'judge' || msg.kind !== 'speech' ? ' is-referee' : '')
+}
+function speechMetaLabel(msg: MatchMessage): string | null {
+  if (msg.isHumanPlayer) return '真人发言'
+  if (msg.kind === 'speech' && msg.phaseId === 'last-words') return '遗言'
+  return msg.roleLabel
+}
 function messageOrder(msg: MatchMessage): string {
   const sameRound = (match.value?.messages || []).filter((item) => item.round === msg.round && item.phaseId === msg.phaseId)
   const index = Math.max(0, sameRound.findIndex((item) => item.id === msg.id)) + 1
@@ -234,9 +288,10 @@ function isSpeechStreaming(msg: MatchMessage): boolean {
   return msg.kind === 'speech' && (msg.streamStatus === 'pending' || msg.streamStatus === 'streaming')
 }
 function isSpeechThinking(msg: MatchMessage): boolean {
-  return isSpeechStreaming(msg) && !liveSpeechText(msg).trim()
+  return isSpeechStreaming(msg) && !liveSpeechText(msg).trim() && !msg.isHumanPlayer
 }
 function speechBubbleLoadingText(msg: MatchMessage): string {
+  if (msg.isHumanPlayer) return '等待真人输入…'
   return liveThoughtText(msg) ? '思考中…' : '正在整理发言…'
 }
 function showThoughtPanel(msg: MatchMessage): boolean {
@@ -259,9 +314,48 @@ function isVoteDone(msg: MatchMessage): boolean {
 function isVoteTallyMessage(msg: MatchMessage): boolean {
   return msg.kind === 'vote' && msg.participantId === 'judge'
 }
-function speechMetaLabel(msg: MatchMessage): string | null {
-  if (msg.kind === 'speech' && msg.phaseId === 'last-words') return '遗言'
-  return msg.roleLabel
+function onHumanPanelUpdated(next: Match) {
+  match.value = next
+  error.value = ''
+  void nextTick(() => {
+    scheduleAutoAdvance()
+  })
+}
+function onHumanPanelError(message: string) {
+  error.value = message
+}
+async function takeOverHuman() {
+  if (!match.value || isPaused.value || isCompleted.value) return
+  try {
+    if (
+      profileCharacterId.value &&
+      match.value.runtime.currentSpeakerId === profileCharacterId.value &&
+      (match.value.runtime.modelCallStatus === 'calling' || match.value.runtime.stepAdvanceState === 'waiting')
+    ) {
+      await matchEngine.abortAndRollback(match.value.id)
+    }
+    match.value = await humanPlayerService.takeOver(match.value.id)
+    playArenaTone('click')
+  } catch (err) {
+    error.value = formatUserMessage(err)
+  }
+}
+async function releaseHuman() {
+  if (!match.value) return
+  try {
+    match.value = await humanPlayerService.release(match.value.id)
+    playArenaTone('click')
+  } catch (err) {
+    error.value = formatUserMessage(err)
+  }
+}
+function onHumanActionSubmitted() {
+  void nextTick(() => {
+    if (match.value?.runtime.humanInputKind) return
+    if (settings.value.matchDefaults.autoAdvance && canAdvance.value) {
+      void advance('auto')
+    }
+  })
 }
 function isNearStreamBottom(): boolean {
   const el = messageStreamRef.value
@@ -384,6 +478,7 @@ function syncMessagesInPlace(target: MatchMessage[], source: MatchMessage[]) {
     if (tm.streamStatus !== sm.streamStatus) tm.streamStatus = sm.streamStatus
     if (tm.confirmed !== sm.confirmed) tm.confirmed = sm.confirmed
     if (tm.roleLabel !== sm.roleLabel) tm.roleLabel = sm.roleLabel
+    if (tm.isHumanPlayer !== sm.isHumanPlayer) tm.isHumanPlayer = sm.isHumanPlayer
   }
 }
 
@@ -432,6 +527,10 @@ function applyStreamPatch(patch: MatchStreamPatch) {
   }
 }
 
+function shouldPlayNarrationTts(): boolean {
+  return viewMode.value === 'god'
+}
+
 async function syncMessageTts(messages: MatchMessage[]) {
   if (!liveRoomTtsEnabled.value || !settings.value.ttsEnabled || settings.value.ttsVolume <= 0) return
   const ordered = [...messages].sort((a, b) => {
@@ -455,6 +554,7 @@ async function syncMessageTts(messages: MatchMessage[]) {
       ttsService.onSpeechDelta(msg.id, msg.content, character, isFinal)
     }
     if (
+      shouldPlayNarrationTts() &&
       settings.value.matchDefaults.judgeTtsEnabled &&
       (msg.kind === 'judge' || msg.kind === 'warning' || msg.kind === 'system')
     ) {
@@ -644,6 +744,7 @@ function unlockRoomInteraction() {
 
 onMounted(async () => {
   unlockArenaAudio()
+  profileCharacterId.value = await getUserProfileCharacterId().catch(() => null)
   void matchWindowService.getKind().catch(() => 'main')
   window.addEventListener('arena:settings-change', onSettingsChange)
   window.addEventListener('arena:tts-speaking', onTtsSpeaking)
@@ -700,6 +801,20 @@ onUnmounted(() => {
         <span><Users :size="14" />{{ aliveParticipants.length }}/{{ participants.length }}</span>
         <span><Crown :size="14" />{{ sheriff?.characterName || '无警长' }}</span>
         <button type="button" class="aa-view-toggle" @click="toggleViewMode"><Eye :size="14" />{{ viewMode === 'god' ? '上帝视角' : '玩家视角' }}</button>
+        <button
+          v-if="showHumanTakeoverButton"
+          type="button"
+          class="aa-human-toggle"
+          :class="{ 'is-active': isHumanControlling, 'is-locked': humanTakeoverLocked && !isHumanControlling }"
+          :disabled="humanTakeoverLocked && !isHumanControlling"
+          :title="humanTakeoverLocked && !isHumanControlling ? '本局已开启上帝视角，无法再次接管' : undefined"
+          @click="isHumanControlling ? releaseHuman() : takeOverHuman()"
+        >
+          <Gamepad2 :size="14" />{{ isHumanControlling ? '交还 AI' : '替代分身' }}
+        </button>
+        <span v-if="isHumanControlling && humanParticipant" class="aa-human-identity-pill">
+          <ShieldCheck :size="13" />你的身份：{{ humanIdentityLabel }}
+        </span>
         <button type="button" @click="openEscMenu"><component :is="PhaseIcon" :size="14" />ESC</button>
       </div>
     </header>
@@ -713,7 +828,7 @@ onUnmounted(() => {
       :stagger="false"
       @retry="load"
     >
-      <main v-if="match" class="aa-game-layout" :class="{ 'aa-game-layout--immersive': isImmersiveLayout }">
+      <main v-if="match" class="aa-game-layout" :class="{ 'aa-game-layout--immersive': isImmersiveLayout, 'has-floating-action': humanInputKind }">
       <MatchRoomImmersiveStage
         v-if="isImmersiveLayout"
         :match="match"
@@ -786,7 +901,8 @@ onUnmounted(() => {
                   </div>
                 </div>
                 <div class="aa-speech-wrap">
-                  <div class="aa-speech-bubble" :class="{ 'has-thought': viewMode === 'god' && hasThought(msg) && !isSpeechThinking(msg), 'is-thinking': isSpeechThinking(msg), 'is-live': isSpeechLive(msg) }">
+                  <div class="aa-speech-bubble" :class="{ 'has-thought': viewMode === 'god' && hasThought(msg) && !isSpeechThinking(msg), 'is-thinking': isSpeechThinking(msg), 'is-live': isSpeechLive(msg), 'is-human-player': msg.isHumanPlayer }">
+                    <div v-if="msg.isHumanPlayer" class="aa-human-speech-tag">真人发言</div>
                     <div v-if="isSpeechThinking(msg)" class="aa-thinking-inline">
                       <Loader2 :size="14" class="spin" /><i></i><i></i><i></i><span>{{ showThoughtPanel(msg) && liveThoughtText(msg) ? '整理公开发言中…' : speechBubbleLoadingText(msg) }}</span>
                     </div>
@@ -854,8 +970,38 @@ onUnmounted(() => {
           </article>
         </div>
         <button v-if="showNewMessageHint" type="button" class="aa-new-message" @click="scrollToLatest()"><MessageCircle :size="14" />有新的发言</button>
+        <MatchRoomFloatingAction
+          v-if="humanInputKind"
+          :match="match"
+          :profile-character-id="profileCharacterId"
+          :view-mode="viewMode"
+          :input-kind="humanInputKind"
+          :human-participant="humanParticipant"
+          :character="humanCharacter"
+          :speech-terms="speechDisplayConfig?.terms"
+          :role-skill-text="humanRoleSkillText"
+          :disabled="isPaused || isCompleted"
+          @updated="onHumanPanelUpdated"
+          @error="onHumanPanelError"
+          @submitted="onHumanActionSubmitted"
+        />
       </section>
       </template>
+      <MatchRoomFloatingAction
+        v-if="isImmersiveLayout && humanInputKind"
+        :match="match"
+        :profile-character-id="profileCharacterId"
+        :view-mode="viewMode"
+        :input-kind="humanInputKind"
+        :human-participant="humanParticipant"
+        :character="humanCharacter"
+        :speech-terms="speechDisplayConfig?.terms"
+        :role-skill-text="humanRoleSkillText"
+        :disabled="isPaused || isCompleted"
+        @updated="onHumanPanelUpdated"
+        @error="onHumanPanelError"
+        @submitted="onHumanActionSubmitted"
+      />
     </main>
     </ArenaPageState>
 
@@ -877,7 +1023,7 @@ onUnmounted(() => {
       :match="match"
       :view-mode="viewMode"
       @updated="load"
-      @update:view-mode="viewMode = $event"
+      @update:view-mode="setViewMode"
     />
   </div>
 </template>
@@ -901,6 +1047,13 @@ onUnmounted(() => {
 .aa-game-brand { display: flex; align-items: center; gap: 11px; min-width: 0; } .aa-game-brand__mark { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 15px; color: #fff; background: linear-gradient(135deg,#8a68ff,#6c5cff); box-shadow: 0 14px 30px rgba(105,91,255,.22); }
 .aa-game-title-wrap { display: grid; gap: 4px; } .aa-title-actions { display: flex; align-items: center; gap: 8px; } .aa-game-title-wrap strong { font-size: 19px; line-height: 1; letter-spacing: 0; } .aa-game-room-code, .aa-event-open { display: inline-flex; align-items: center; gap: 5px; width: max-content; border: 0; background: transparent; color: #756e9d; font-size: 12px; cursor: pointer; } .aa-game-room-code em { font-style: normal; color: #7b5cff; } .aa-event-open { width: auto; border: 0; background: rgba(255,255,255,.56); padding: 0 7px; height: 22px; border-radius: 999px; color: #7467a3; cursor: pointer; }
 .aa-game-top-pills { display: flex; gap: 8px; align-items: center; } .aa-game-top-pills span, .aa-game-top-pills button { height: 31px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; background: rgba(255,255,255,.62); border: 1px solid rgba(132,112,210,.1); color: #342b78; font-size: 12px; font-weight: 650; } .aa-game-top-pills button { cursor: pointer; }
+.aa-human-toggle.is-active { background: rgba(124,92,255,.14); border-color: rgba(124,92,255,.34); color: #6d4cff; }
+.aa-human-toggle.is-locked, .aa-human-toggle:disabled { opacity: .55; cursor: not-allowed; }
+.aa-human-identity-pill { height: 31px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; background: rgba(124,92,255,.12); border: 1px solid rgba(124,92,255,.24); color: #5a46c8; font-size: 12px; font-weight: 650; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aa-game-layout { position: relative; }
+.aa-game-layout.has-floating-action :deep(.aa-story-stage) { padding-bottom: 168px; }
+.aa-game-layout--immersive.has-floating-action { padding-bottom: 168px; }
+.aa-story-stage { position: relative; }
 .aa-top-status { position: relative; height: 31px; display: inline-flex; align-items: center; gap: 6px; max-width: 168px; padding: 0 12px; border-radius: 999px; background: rgba(255,255,255,.72); border: 1px solid rgba(126,99,255,.18); color: #4a3f8f; font-size: 12px; font-weight: 650; cursor: default; flex: none; }
 .aa-top-status.is-calling { border-color: rgba(126,99,255,.28); background: rgba(244,240,255,.88); }
 .aa-top-status.is-paused, .aa-top-status.is-error { border-color: rgba(213,88,130,.22); background: rgba(255,241,247,.88); color: #b64b70; }
@@ -975,5 +1128,8 @@ onUnmounted(() => {
 .aa-new-message { position: absolute; right: 28px; bottom: 26px; z-index: 5; height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; border: 0; border-radius: 999px; color: #fff; background: linear-gradient(135deg,#8d6bff,#6a5cff); box-shadow: 0 16px 34px rgba(92,78,230,.26); font-size: 12px; font-weight: 800; cursor: pointer; animation: messageIn 180ms ease both; } .aa-new-message:hover { transform: translateY(-2px); }
 .aa-game-state { position: relative; z-index: 2; height: calc(100vh - 80px); display: flex; align-items: center; justify-content: center; gap: 10px; color: #5f5690; font-size: 16px; }
 .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } } @keyframes ttsAvatarGlow { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.08); } } @keyframes ttsWave { 0%, 100% { transform: scaleY(.55); opacity: .55; } 50% { transform: scaleY(1); opacity: 1; } } @keyframes messageIn { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } } @keyframes caretBlink { 0%, 48% { opacity: 1; } 49%, 100% { opacity: 0; } } @keyframes thoughtOpen { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } } @keyframes thinkingPulse { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } } @keyframes tallyPulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.15); } }
+.aa-talk-row.is-human-player .aa-talk-meta em { background: linear-gradient(135deg, rgba(255,147,212,.22), rgba(124,92,255,.18)); color: #8b3fd4; font-weight: 800; }
+.aa-speech-bubble.is-human-player { background: linear-gradient(135deg, rgba(255,248,252,.96), rgba(244,238,255,.92)); border: 1px solid rgba(255,120,180,.28); box-shadow: 0 16px 38px rgba(180,92,200,.12), inset 0 0 0 1px rgba(255,255,255,.72); }
+.aa-human-speech-tag { display: inline-flex; align-items: center; height: 22px; margin-bottom: 8px; padding: 0 10px; border-radius: 999px; background: linear-gradient(135deg, rgba(255,147,212,.24), rgba(124,92,255,.16)); color: #9b3fd0; font-size: 11px; font-weight: 800; letter-spacing: .04em; }
 @media (max-width: 1320px) { .aa-game-layout { grid-template-columns: 255px minmax(0, 1fr); padding-inline: 20px; } .aa-message-stream { padding-inline: 28px; } .aa-game-topbar { padding-inline: 20px; } .aa-vote-tally { grid-template-columns: 1fr; } .aa-vote-pie-wrap { justify-items: start; } }
 </style>

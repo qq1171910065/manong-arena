@@ -3,6 +3,7 @@ import { gatewayChatCompletion } from '../gateway-api'
 import { gameScenarioService } from './game-scenario-service'
 import { resolvePromptFromPack } from './prompt-resolver'
 import { characterService } from './character-service'
+import { characterGrowthService } from './character-growth-service'
 import { recordPostMatchSkillLearning } from './character-learning-service'
 import { settingsService } from './settings-service'
 import { arenaInvoke, ensureArenaReady } from './client'
@@ -172,6 +173,13 @@ export const postGameReviewService = {
 
     recordPostMatchSkillLearning(character, scenario.id, scenario.name, match.id, summary, skillInsight)
     await characterService.save(character)
+    await characterGrowthService
+      .awardFromModelOutput(character.id, reviewRes.usage, reviewRes.content, {
+        source: 'review',
+        summary: `赛后复盘「${match.gameModeName}」`,
+        matchId: match.id,
+      })
+      .catch(() => undefined)
 
     const fullReviewForAdjust = [summary, reviewUnderstanding].filter(Boolean).join('\n\n')
     const adjustPrompt = resolvePromptFromPack(pack, 'behavior_adjust', {
@@ -190,6 +198,14 @@ export const postGameReviewService = {
     const removed = Array.isArray(adjustParsed.removed) ? adjustParsed.removed.map(String).filter(Boolean) : []
 
     if (!added.length && !removed.length) return { summary }
+
+    await characterGrowthService
+      .awardFromModelOutput(character.id, adjustRes.usage, adjustRes.content, {
+        source: 'review',
+        summary: `行为准则调整「${match.gameModeName}」`,
+        matchId: match.id,
+      })
+      .catch(() => undefined)
 
     const previous = [...character.behaviorPrinciples]
     const next = [...previous.filter((p) => !removed.includes(p)), ...added.filter((p) => !previous.includes(p))]

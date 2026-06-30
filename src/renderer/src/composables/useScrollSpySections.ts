@@ -1,13 +1,21 @@
 import { nextTick, onMounted, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue'
-
-
+import type { Component } from 'vue'
 
 export interface ScrollSpyTab {
-
   id: string
-
   label: string
+  badge?: string | number
+}
 
+export interface ScrollSpyGroup {
+  id: string
+  label: string
+  icon?: Component
+  items: ScrollSpyTab[]
+}
+
+export function flattenScrollSpyGroups(groups: ScrollSpyGroup[]): ScrollSpyTab[] {
+  return groups.flatMap((group) => group.items)
 }
 
 

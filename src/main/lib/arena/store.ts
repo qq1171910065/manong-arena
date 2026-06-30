@@ -18,6 +18,9 @@ import type {
   CharacterChatMessage,
   CharacterGameSkill,
   CharacterGrowthRecord,
+  CharacterGrowthSnapshot,
+  CharacterLineup,
+  LineupGrowthRecord,
   GameMode,
   GameModeOverride,
   Match,
@@ -25,6 +28,11 @@ import type {
   ArenaStoreStats,
 } from '@shared/arena/types'
 import type { GameScenarioDefinition, PromptPack } from '@shared/arena/game-scenario'
+import {
+  createDefaultGrowthState,
+  growthStateFromTotalExp,
+  retroactiveTotalExp,
+} from '@shared/arena/character-growth'
 
 function migrateCharacter(character: Character): Character {
   const next = { ...character }
@@ -38,6 +46,10 @@ function migrateCharacter(character: Character): Character {
         notes: pref.notes,
       })
     )
+  }
+  if (!next.growth) {
+    const totalExp = retroactiveTotalExp(next)
+    next.growth = totalExp > 0 ? growthStateFromTotalExp(totalExp) : createDefaultGrowthState()
   }
   return next
 }
@@ -71,6 +83,11 @@ function migrateStore(parsed: ArenaStoreData): ArenaStoreData {
     gameModeQALogs: parsed.gameModeQALogs ?? {},
     helpChatLog: parsed.helpChatLog ?? [],
     characterGrowthLog: parsed.characterGrowthLog ?? [],
+    userProfileCharacterId: parsed.userProfileCharacterId ?? null,
+    characterLineups: parsed.characterLineups ?? [],
+    activeLineupId: parsed.activeLineupId ?? null,
+    characterGrowthSnapshots: parsed.characterGrowthSnapshots ?? [],
+    lineupGrowthLog: parsed.lineupGrowthLog ?? [],
     settings,
   }
 }
@@ -99,6 +116,11 @@ function createEmptyStore(): ArenaStoreData {
     gameModeQALogs: {},
     helpChatLog: [],
     characterGrowthLog: [],
+    userProfileCharacterId: null,
+    characterLineups: [],
+    activeLineupId: null,
+    characterGrowthSnapshots: [],
+    lineupGrowthLog: [],
   }
 }
 
@@ -521,6 +543,93 @@ export class ArenaStore {
     return structuredClone(record)
   }
 
+  listCharacterGrowthSnapshots(characterId: string): CharacterGrowthSnapshot[] {
+    return structuredClone(
+      (this.data.characterGrowthSnapshots ?? [])
+        .filter((item) => item.characterId === characterId)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    )
+  }
+
+  appendCharacterGrowthSnapshot(snapshot: CharacterGrowthSnapshot): CharacterGrowthSnapshot {
+    this.data.characterGrowthSnapshots = [snapshot, ...(this.data.characterGrowthSnapshots ?? [])]
+    if (this.data.characterGrowthSnapshots.length > 600) {
+      this.data.characterGrowthSnapshots = this.data.characterGrowthSnapshots.slice(0, 600)
+    }
+    this.enqueuePersist()
+    return structuredClone(snapshot)
+  }
+
+  listLineups(): CharacterLineup[] {
+    return structuredClone(this.data.characterLineups ?? [])
+  }
+
+  getLineup(id: string): CharacterLineup | null {
+    const found = (this.data.characterLineups ?? []).find((item) => item.id === id)
+    return found ? structuredClone(found) : null
+  }
+
+  saveLineup(lineup: CharacterLineup): CharacterLineup {
+    const list = [...(this.data.characterLineups ?? [])]
+    const idx = list.findIndex((item) => item.id === lineup.id)
+    const next = { ...lineup, updatedAt: nowIso() }
+    if (idx >= 0) list[idx] = next
+    else list.unshift(next)
+    this.data.characterLineups = list
+    if (!this.data.activeLineupId && list.length === 1) {
+      this.data.activeLineupId = next.id
+    }
+    this.enqueuePersist()
+    return structuredClone(next)
+  }
+
+  deleteLineup(id: string): boolean {
+    const before = this.data.characterLineups?.length ?? 0
+    this.data.characterLineups = (this.data.characterLineups ?? []).filter((item) => item.id !== id)
+    if ((this.data.characterLineups?.length ?? 0) === before) return false
+    if (this.data.activeLineupId === id) {
+      this.data.activeLineupId = this.data.characterLineups?.[0]?.id ?? null
+    }
+    this.enqueuePersist()
+    return true
+  }
+
+  setActiveLineupId(id: string | null): string | null {
+    this.data.activeLineupId = id?.trim() || null
+    this.enqueuePersist()
+    return this.data.activeLineupId
+  }
+
+  getActiveLineupId(): string | null {
+    return this.data.activeLineupId ?? null
+  }
+
+  listLineupGrowth(lineupId: string): LineupGrowthRecord[] {
+    return structuredClone(
+      (this.data.lineupGrowthLog ?? [])
+        .filter((item) => item.lineupId === lineupId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    )
+  }
+
+  appendLineupGrowth(record: LineupGrowthRecord): LineupGrowthRecord {
+    this.data.lineupGrowthLog = [record, ...(this.data.lineupGrowthLog ?? [])]
+    if (this.data.lineupGrowthLog.length > 400) {
+      this.data.lineupGrowthLog = this.data.lineupGrowthLog.slice(0, 400)
+    }
+    this.enqueuePersist()
+    return structuredClone(record)
+  }
+
+  getUserProfileCharacterId(): string | null {
+    return this.data.userProfileCharacterId ?? null
+  }
+
+  setUserProfileCharacterId(characterId: string | null): void {
+    this.data.userProfileCharacterId = characterId?.trim() || null
+    this.enqueuePersist()
+  }
+
   getStats(): ArenaStoreStats {
     const installedGameModeIds = this.getInstalledGameModeIds()
     return {
@@ -533,6 +642,7 @@ export class ArenaStore {
       installedGameModeCount: installedGameModeIds.length,
       installedGameModeIds,
       seededAt: this.data.seededAt,
+      userProfileCharacterId: this.data.userProfileCharacterId ?? null,
     }
   }
 

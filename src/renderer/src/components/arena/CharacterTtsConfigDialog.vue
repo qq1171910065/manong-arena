@@ -255,24 +255,16 @@ watch(show, (open) => {
 <template>
 
   <DetailEditDialog
-
     v-model="show"
-
     title="播报音色"
-
     subtitle="根据角色档案智能分析 · 可微调 · 综合用于试听与对局播报"
-
     save-label="保存"
-
+    layout="wide"
     :saving="saving"
-
     @save="save"
-
   >
-
-    <div class="tts-simple">
-
-      <p v-if="error" class="edit-error">{{ error }}</p>
+    <div class="detail-form-body tts-simple">
+      <p v-if="error" class="detail-form-error">{{ error }}</p>
 
 
 

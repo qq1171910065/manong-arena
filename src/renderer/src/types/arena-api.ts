@@ -7,6 +7,9 @@ import type {
   Character,
   CharacterChatMessage,
   CharacterGrowthRecord,
+  CharacterGrowthSnapshot,
+  CharacterLineup,
+  LineupGrowthRecord,
   GameModeOverride,
   Match,
   MatchSnapshot,
@@ -79,6 +82,13 @@ export interface ArenaApi {
   seedStarterCharacter: (modelId: string) => Promise<Character>
   seedStarterGameMode: (modeId: string) => Promise<boolean>
   finalizeStarterInit: () => Promise<ArenaStoreStats>
+  getUserProfileCharacterId: () => Promise<string | null>
+  createUserProfileCharacter: (input: {
+    displayName: string
+    speechStyle?: string
+    gender?: 'female' | 'male' | 'other'
+    bio?: string
+  }) => Promise<Character>
   getGameModeOverrides: () => Promise<Record<string, GameModeOverride>>
   saveGameModeOverride: (modeId: string, override: GameModeOverride) => Promise<Record<string, GameModeOverride>>
   clearGameModeOverride: (modeId: string) => Promise<Record<string, GameModeOverride>>
@@ -97,6 +107,15 @@ export interface ArenaApi {
   clearCharacterChat: (characterId: string) => Promise<boolean>
   listCharacterGrowth: (characterId: string) => Promise<CharacterGrowthRecord[]>
   appendCharacterGrowth: (record: CharacterGrowthRecord) => Promise<CharacterGrowthRecord>
+  listCharacterGrowthSnapshots: (characterId: string) => Promise<CharacterGrowthSnapshot[]>
+  appendCharacterGrowthSnapshot: (snapshot: CharacterGrowthSnapshot) => Promise<CharacterGrowthSnapshot>
+  listLineups: () => Promise<CharacterLineup[]>
+  saveLineup: (lineup: CharacterLineup) => Promise<CharacterLineup>
+  deleteLineup: (id: string) => Promise<boolean>
+  getActiveLineupId: () => Promise<string | null>
+  setActiveLineupId: (id: string | null) => Promise<string | null>
+  listLineupGrowth: (lineupId: string) => Promise<LineupGrowthRecord[]>
+  appendLineupGrowth: (record: LineupGrowthRecord) => Promise<LineupGrowthRecord>
   listGameModeQA: (gameModeId: string) => Promise<CharacterChatMessage[]>
   appendGameModeQA: (gameModeId: string, message: CharacterChatMessage) => Promise<CharacterChatMessage[]>
   clearGameModeQA: (gameModeId: string) => Promise<boolean>

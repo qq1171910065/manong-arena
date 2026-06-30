@@ -1,6 +1,8 @@
 import { randomUUID } from '@renderer/utils/id'
 import { gatewayChatCompletion, gatewayChatStream } from '../gateway-api'
+import type { GatewayTokenUsage } from '../gateway-api'
 import { characterService } from './character-service'
+import { characterGrowthService } from './character-growth-service'
 import { arenaInvoke, ensureArenaReady } from './client'
 import { settingsService } from './settings-service'
 import { arenaLog } from './logger'
@@ -98,9 +100,10 @@ async function maybeApplyChatGrowth(character: Character, recentMessages: Charac
 
   if (settings.characterEvolution.autoApplyBehaviorChanges) {
     record.applied = true
-    const saved = await characterService.save(next)
+    let saved = await characterService.save(next)
     await ensureArenaReady()
     await arenaInvoke('storage', 'appendCharacterGrowth', () => window.api.appendCharacterGrowth(record))
+    saved = await characterGrowthService.applyChatGrowthExp(saved, growthRes.usage, growthRes.content, summary).catch(() => saved)
     arenaLog('info', 'character', `角色 ${character.name} 对话成长`, summary)
     return saved
   }
@@ -163,6 +166,7 @@ export const characterChatService = {
 
     pushDraft()
 
+    let usage: GatewayTokenUsage | undefined
     const llmMessages: Array<{ role: string; content: string }> = [
       { role: 'system', content: buildChatSystemPrompt(character) },
       ...afterUser.slice(-16).map((m) => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })),
@@ -174,6 +178,9 @@ export const characterChatService = {
           draft += chunk
           streamStatus = 'streaming'
           pushDraft()
+        },
+        onUsage: (u) => {
+          usage = { ...usage, ...u }
         },
         onEnd: () => resolve(),
         onError: (err) => reject(new Error(err)),
@@ -198,6 +205,9 @@ export const characterChatService = {
     onMessages(messages)
 
     let updated = await characterService.get(characterId)
+    updated = await characterGrowthService
+      .applyChatGrowthExp(updated, usage, reply, '私聊回复')
+      .catch(() => updated)
     const grown = await maybeApplyChatGrowth(updated, messages).catch(() => null)
     if (grown) updated = grown
 
@@ -240,6 +250,9 @@ export const characterChatService = {
     )
 
     let updated = await characterService.get(characterId)
+    updated = await characterGrowthService
+      .applyChatGrowthExp(updated, response.usage, reply, '私聊回复')
+      .catch(() => updated)
     const grown = await maybeApplyChatGrowth(updated, messages).catch(() => null)
     if (grown) updated = grown
 

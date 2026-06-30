@@ -1,4 +1,4 @@
-import { BookOpen, Crown, Home, Settings, Swords } from 'lucide-vue-next'
+import { BookOpen, Crown, Heart, Home, Settings, Swords } from 'lucide-vue-next'
 import type { FeatureRegistry } from '@renderer/types/registry'
 
 export const featureRegistry: FeatureRegistry = [
@@ -21,21 +21,30 @@ export const featureRegistry: FeatureRegistry = [
     icon: Crown,
   },
   {
+    key: 'collection',
+    route: 'collection',
+    path: '/collection',
+    label: '收藏',
+    group: 'main',
+    order: 3,
+    icon: Heart,
+  },
+  {
     key: 'game-modes',
     route: 'game-modes',
     path: '/game-modes',
     label: '玩法场景',
     group: 'main',
-    order: 3,
+    order: 4,
     icon: Swords,
   },
   {
     key: 'match-records',
     route: 'match-records',
     path: '/match-records',
-    label: '对局记录',
+    label: '场景记录',
     group: 'main',
-    order: 4,
+    order: 5,
     icon: BookOpen,
   },
   {
@@ -44,7 +53,7 @@ export const featureRegistry: FeatureRegistry = [
     path: '/settings/display',
     label: '设置中心',
     group: 'main',
-    order: 5,
+    order: 6,
     icon: Settings,
   },
 ]

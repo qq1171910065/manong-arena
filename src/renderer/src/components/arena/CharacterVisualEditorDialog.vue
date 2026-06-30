@@ -291,7 +291,7 @@ watch(show, (open) => {
 <template>
   <DetailEditDialog
     v-model="show"
-    layout="wide"
+    layout="extra-wide"
     title="编辑形象素材"
     subtitle="左侧预览与上传 · 右侧选择资产包"
     :saving="saving"

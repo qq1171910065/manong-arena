@@ -8,7 +8,7 @@ defineProps<{
   subtitle?: string
   saving?: boolean
   saveLabel?: string
-  layout?: 'default' | 'wide'
+  layout?: 'default' | 'wide' | 'extra-wide'
 }>()
 
 const emit = defineEmits<{
@@ -32,7 +32,10 @@ function save() {
       <div v-if="show" class="detail-edit-overlay" @click.self="close">
         <section
           class="detail-edit-dialog"
-          :class="{ 'detail-edit-dialog--wide': layout === 'wide' }"
+          :class="{
+            'detail-edit-dialog--wide': layout === 'wide',
+            'detail-edit-dialog--extra-wide': layout === 'extra-wide',
+          }"
           role="dialog"
           :aria-label="title"
         >
@@ -96,7 +99,14 @@ function save() {
   min-height: min(86vh, 560px);
 }
 
-.detail-edit-dialog--wide .detail-edit-body {
+.detail-edit-dialog--extra-wide {
+  width: min(1080px, calc(100vw - 40px));
+  max-height: min(88vh, 780px);
+  min-height: min(72vh, 520px);
+}
+
+.detail-edit-dialog--wide .detail-edit-body,
+.detail-edit-dialog--extra-wide .detail-edit-body {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;

@@ -16,6 +16,7 @@ export type RouteName =
   | 'match-room'
   | 'match-records'
   | 'match-detail'
+  | 'collection'
   | 'dev-assets'
 
 export type FeatureGroupId = 'main' | 'design' | 'examples' | 'account' | 'settings'

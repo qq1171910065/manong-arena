@@ -16,7 +16,7 @@ const config = getRuntimeConfig()
 const displayUrl = computed(() => getApiBaseUrl() || getDefaultApiBaseUrl())
 
 const { checkingUpdate, currentVersion, checkAndDownloadUpdate, runInAppUpdate } = useClientUpdate()
-const version = computed(() => currentVersion.value || '0.1.0')
+const version = computed(() => currentVersion.value || '0.1.1')
 const updateSummary = ref<string | null>(null)
 const deeplinkProtocol = ref('')
 const lastDeeplink = ref('')

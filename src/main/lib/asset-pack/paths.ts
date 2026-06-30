@@ -73,8 +73,10 @@ export function findBundledAssetsDir(): string | null {
   return null
 }
 
-export function resolveAssetFilePath(relativePath: string, appId: string): string | null {
-  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
+const DEFAULT_CHARACTER_PACK_ID = 'default'
+const CHARACTER_PACK_ASSET_RE = /^character-packs\/([^/]+)\/(.+)$/
+
+function resolveAssetFilePathExact(normalized: string, appId: string): string | null {
   const installed = join(getInstalledAssetsDir(appId), normalized)
   if (existsSync(installed)) return installed
 
@@ -90,6 +92,18 @@ export function resolveAssetFilePath(relativePath: string, appId: string): strin
   if (bundledDir) {
     const bundledPath = join(bundledDir, normalized)
     if (existsSync(bundledPath)) return bundledPath
+  }
+  return null
+}
+
+export function resolveAssetFilePath(relativePath: string, appId: string): string | null {
+  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
+  const direct = resolveAssetFilePathExact(normalized, appId)
+  if (direct) return direct
+
+  const match = normalized.match(CHARACTER_PACK_ASSET_RE)
+  if (match && match[1] !== DEFAULT_CHARACTER_PACK_ID) {
+    return resolveAssetFilePathExact(`character-packs/${DEFAULT_CHARACTER_PACK_ID}/${match[2]}`, appId)
   }
   return null
 }

@@ -3,15 +3,27 @@ import { arenaLog } from './logger'
 import { ArenaError } from './errors'
 import { billingService } from './billing-service'
 import { gameModeService, characterService } from './character-service'
+import { characterGrowthService } from './character-growth-service'
 import { gameScenarioService } from './game-scenario-service'
+import { resolveBrainstormCategory } from '@shared/arena/social-paradigm'
+import { isBrainstormMode } from './roundtable-engine'
+import { undercoverRoleContext } from './undercover-engine'
 import { resolvePromptFromPack } from './prompt-resolver'
 import { getFallbackModelId } from './settings-runtime'
 import { gatewayChatCompletion, gatewayChatStream } from '../gateway-api'
 import { detectPlainTextStream, previewSpeechFromStreamBuffer } from './speech-stream-preview'
 import { buildWerewolfSpeechPromptContext } from './werewolf-speech-context'
-import { getSheriffCandidateParticipants, isSheriffCandidate, normalizeSheriffVote } from './werewolf-sheriff'
+import { getSheriffCandidateParticipants, isSheriffCandidate, normalizeSheriffVote, resolveSheriffVoteTargets } from './werewolf-sheriff'
 import type { GatewayTokenUsage } from '../gateway-api'
-import type { Match, MatchParticipant, MatchVoteRecord, MessageStreamStatus, ModelCallRecord } from '@shared/arena/types'
+import type {
+  Character,
+  HumanInputKind,
+  Match,
+  MatchParticipant,
+  MatchVoteRecord,
+  MessageStreamStatus,
+  ModelCallRecord,
+} from '@shared/arena/types'
 import type { SystemRoleKind } from '@shared/arena/game-scenario'
 
 const RETRY_ONCE = 1
@@ -172,6 +184,94 @@ function parseJsonLike(raw: string): Record<string, unknown> | null {
   try { return JSON.parse(match[0]) as Record<string, unknown> } catch { return null }
 }
 
+function parseJsonStringArray(raw: string): string[] | null {
+  const text = raw.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim()
+  try {
+    const parsed = JSON.parse(text) as unknown
+    if (Array.isArray(parsed)) return parsed.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())
+  } catch {}
+  const match = text.match(/\[[\s\S]*\]/)
+  if (!match) return null
+  try {
+    const parsed = JSON.parse(match[0]) as unknown
+    if (Array.isArray(parsed)) return parsed.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())
+  } catch {}
+  return null
+}
+
+function fallbackSpeechHints(participant: MatchParticipant): string[] {
+  const seat = participant.seatOrder
+  return [
+    `先回应上一轮对 ${seat} 号席位的质疑，再给出本轮站边。`,
+    '指出一个具体票型或发言矛盾，并说明怀疑理由。',
+    '若暂不归票，说明还想听哪位玩家的补充发言。',
+  ]
+}
+
+function buildHumanPolishPrompt(
+  match: Match,
+  participant: MatchParticipant,
+  character: Character | undefined,
+  draft: string,
+  kind: HumanInputKind
+): { system: string; user: string } {
+  const ctx = buildWerewolfSpeechPromptContext(match, participant, character)
+  const isWolfChat = kind === 'wolf_chat'
+  const system = [
+    isWolfChat
+      ? '你是玩家的 AI 分身，负责把狼队队内草稿润色成简短、清晰的队内沟通。'
+      : '你是玩家的 AI 分身，负责把玩家草稿润色成符合人设与场面的公开发言。',
+    '保持原意与立场，口语化表达，不要扩写成空话套话。',
+    '提及玩家时使用 @N号名字 格式（例 @3号张三）。',
+    '只输出润色后的正文，不要 JSON、不要解释、不要标题。',
+    character?.speechStyle ? '说话风格：' + character.speechStyle : '',
+    roleContext(match, participant),
+  ]
+    .filter(Boolean)
+    .join('\n')
+  const user = [
+    ctx.identityConsistency ? ctx.identityConsistency + '\n' : '',
+    '玩家草稿：\n' + draft.trim(),
+    '',
+    '近期公开频道：\n' + (ctx.recentMessages || '暂无').slice(0, 900),
+    '',
+    '本轮前面发言：\n' + (ctx.thisRoundMessages || '暂无').slice(0, 600),
+    '',
+    '润色后正文：',
+  ].join('\n')
+  return { system, user }
+}
+
+function buildHumanHintsPrompt(
+  match: Match,
+  participant: MatchParticipant,
+  character: Character | undefined
+): { system: string; user: string } {
+  const ctx = buildWerewolfSpeechPromptContext(match, participant, character)
+  const system = [
+    '你是玩家的 AI 分身参谋，根据当前局势给出 3 条简短发言思路。',
+    '每条一句话，可直接作为发言起点，不要空话套话。',
+    '输出 JSON 数组，如 ["思路1","思路2","思路3"]，不要输出其他内容。',
+    roleContext(match, participant),
+    character?.behaviorPrinciples?.length ? '行为准则：' + character.behaviorPrinciples.slice(0, 4).join('；') : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+  const user = [
+    '当前：' + match.runtime.currentPhaseName + ' · 第 ' + match.runtime.currentRound + '轮',
+    ctx.identityConsistency ? '\n' + ctx.identityConsistency : '',
+    ctx.publicClaimsTable ? '\n' + ctx.publicClaimsTable : '',
+    ctx.readingGuide ? '\n本轮要点：\n' + ctx.readingGuide : '',
+    '',
+    '本轮前面发言：\n' + (ctx.thisRoundMessages || '暂无').slice(0, 700),
+    '',
+    '有人@你：\n' + (ctx.mentionedBy || '暂无'),
+    '',
+    '存活：' + ctx.aliveList,
+  ].join('\n')
+  return { system, user }
+}
+
 function normalizeReasoningThought(value: unknown): string {
   const text = String(value || '').trim()
   if (!text) return ''
@@ -231,6 +331,9 @@ function buildPromptContext(match: Match, participant: MatchParticipant, charact
   const skill = character?.gameSkills?.find((s) => s.scenarioId === scenario?.id)
   const phase = match.runtime
   const phaseDef = gameMode?.phases?.find((p) => p.id === phase.currentPhaseId)
+  const rt = match.runtime.roundtableState
+  const mode = gameModeService.get(match.gameModeId)
+  const brainstormCat = rt?.brainstormCategory ? resolveBrainstormCategory(rt.brainstormCategory) : null
   return {
     characterName: participant.characterName,
     characterBio: character?.bio || '',
@@ -240,15 +343,18 @@ function buildPromptContext(match: Match, participant: MatchParticipant, charact
     gameModeName: match.gameModeName,
     phaseName: phase.currentPhaseName,
     phaseDescription: phaseDef?.description || '',
-    roleContext: roleContext(match, participant),
+    roleContext: undercoverRoleContext(match, participant) || roleContext(match, participant),
     recentMessages: werewolfCtx.recentMessages,
     thisRoundMessages: werewolfCtx.thisRoundMessages,
     lastRoundTail: werewolfCtx.lastRoundTail,
     mentionedBy: werewolfCtx.mentionedBy,
     replyBrief: werewolfCtx.replyBrief,
     aliveList: werewolfCtx.aliveList,
-    discussionTopic: match.runtime.roundtableState?.discussionTopic || scenario?.discussionTopic || '',
+    discussionTopic: rt?.discussionTopic || scenario?.discussionTopic || '',
     round: phase.currentRound,
+    sessionGuide: brainstormCat?.sessionGuide || '',
+    brainstormCategory: brainstormCat?.label || '',
+    designTarget: rt?.designTarget?.trim() || '（未指定）',
     initialUnderstanding: skill?.initialUnderstanding || '',
     gameRulesDocument: scenario?.contentDocument || '',
   }
@@ -261,7 +367,12 @@ function tryResolvePrompt(match: Match, participant: MatchParticipant, slotId: i
   if (!pack) return null
   const rulesTpl = pack.templates.find((t) => t.slotId === 'game_rules')
   const context = buildPromptContext(match, participant, character)
-  context.gameRules = rulesTpl ? rulesTpl.systemTemplate : ''
+  const mode = gameModeService.get(match.gameModeId)
+  if (mode && isBrainstormMode(mode)) {
+    context.gameRules = rulesTpl?.systemTemplate || ''
+  } else {
+    context.gameRules = rulesTpl?.systemTemplate || ''
+  }
   const resolved = resolvePromptFromPack(pack, slotId, context)
   if (!resolved) return null
   return { system: resolved.system, user: resolved.user }
@@ -296,17 +407,21 @@ function buildSpeechPrompt(match: Match, participant: MatchParticipant, characte
     '你是狼人杀对局角色「' + participant.characterName + '」。',
     '当前：' + match.runtime.currentPhaseName + ' · 第 ' + match.runtime.currentRound + '轮',
     roleContext(match, participant),
+    ctx.identityConsistency,
     sheriffSpeechRules,
     isLastWords ? '你已被放逐/出局，正在发表遗言。' : isSheriffSpeech ? '' : ctx.replyBrief,
+    '发言前在内部完成二层推理：①回顾你与他人先前的公开跳身份、站边是否自洽；②识别前文每人核心论点（非随口提及）与票型关系。只输出结论性公开发言，勿写推理过程。',
     '发言风格：口语化、直接、有信息量。禁止空话套话（如「值得警惕」「局势复杂」「有待观察」「我会持续关注」等不能直接当结论）。',
     '主体内容要有实质推理与站边；仅在回应他人时自然 @对方（@3号 或 @角色名），不要为 @ 而 @，@ 不占主要篇幅。',
     '200-350 字，关键轮可到 400 字。',
     '发言须严格按席位顺序，被 @ 不会提前你的顺位。',
     '只输出面向全场的公开发言正文，禁止 JSON、禁止字段名、禁止内心独白与推理过程（思考由模型内部完成，不要写出来）。',
-    '跳身份、悍跳、公开站边神职或阵营立场均为正常玩法，按阶段与策略自行选择。',
+    '跳身份、悍跳、公开站边神职或阵营立场均为正常玩法；一旦悍跳或公开认领，后续轮次须前后呼应，禁止下轮否认或「忘记」先前跳点。',
     phaseInstruction,
   ].filter(Boolean).join('\n')
   const user = [
+    ctx.publicClaimsTable ? ctx.publicClaimsTable + '\n' : '',
+    ctx.readingGuide ? '本轮发言要点（主次区分）：\n' + ctx.readingGuide + '\n' : '',
     '本轮前面发言：\n' + ctx.thisRoundMessages,
     '',
     '上一轮尾盘：\n' + ctx.lastRoundTail,
@@ -325,13 +440,14 @@ function buildSpeechPrompt(match: Match, participant: MatchParticipant, characte
 function buildVotePrompt(match: Match, participant: MatchParticipant, character?: Parameters<typeof buildPromptContext>[2], strict = false): { system: string; user: string } {
   const fromPack = tryResolvePrompt(match, participant, 'vote', character)
   const isSheriffVote = match.runtime.currentPhaseId === 'sheriff-vote'
-  const sheriffCandidates = isSheriffVote ? getSheriffCandidateParticipants(match) : []
+  const sheriffCandidates = isSheriffVote ? resolveSheriffVoteTargets(match) : []
   const candidates = isSheriffVote
     ? sheriffCandidates.map((p) => p.seatOrder + '号' + p.characterName)
     : match.participants
         .filter((p) => p.alive === 'alive' && p.characterId !== participant.characterId)
         .map((p) => p.seatOrder + '号' + p.characterName + (p.isSheriff ? '（警长）' : ''))
   const candidateLine = candidates.join('、') || (isSheriffVote ? '（无人竞选，请弃权）' : '无')
+  const ctx = buildWerewolfSpeechPromptContext(match, participant, character)
   const recentMessages = match.messages.filter((m) => m.kind === 'speech' && m.confirmed).slice(-8).map((m) => m.participantName + ': ' + m.content).join('\n')
   const voteInstruction = isSheriffVote
     ? '警长投票：必须从下方竞选者中选一人授予警徽（不是放逐）。若你是竞选者，请投自己（格式：投票：你的席位号）。若非竞选者，选出最可信的竞选者。只要有人竞选，禁止弃权。'
@@ -340,7 +456,9 @@ function buildVotePrompt(match: Match, participant: MatchParticipant, character?
     '你是「' + participant.characterName + '」。',
     '阶段：' + match.runtime.currentPhaseName + ' · 第 ' + match.runtime.currentRound + '轮',
     roleContext(match, participant),
+    ctx.identityConsistency,
     voteInstruction,
+    '投票须与你先前的公开站边、悍跳身份自洽；勿因误读他人次要观点而改票。',
     isSheriffVote
       ? '只输出一行：投票：X号（X 为竞选者席位数字）。禁止弃权。'
       : '只输出一行：投票：X号。仅在完全无法判断时输出：弃权。',
@@ -352,6 +470,7 @@ function buildVotePrompt(match: Match, participant: MatchParticipant, character?
   }
   const user = (fromPack?.user || '') + [
     fromPack?.user ? '' : '近期发言：\n' + (recentMessages || '暂无'),
+    ctx.publicClaimsTable || '',
     '可投对象：' + candidateLine,
     isSheriffVote && isSheriffCandidate(match, participant.characterId)
       ? '你是竞选者，请投自己：投票：' + participant.seatOrder + '号。'
@@ -380,7 +499,7 @@ function resolveVoteTarget(
 ): { targetId: string | null; targetName: string | null; explicitAbstain: boolean } {
   let text = raw.trim()
   const isSheriffVote = match.runtime.currentPhaseId === 'sheriff-vote'
-  const sheriffCandidateIds = new Set(getSheriffCandidateParticipants(match).map((p) => p.characterId))
+  const sheriffCandidateIds = new Set(resolveSheriffVoteTargets(match).map((p) => p.characterId))
   const canSelect = (p: MatchParticipant) => {
     if (p.alive !== 'alive') return false
     if (isSheriffVote) return sheriffCandidateIds.has(p.characterId)
@@ -424,7 +543,7 @@ function resolveVoteTarget(
 function fallbackVoteTarget(match: Match, voterId: string): { targetId: string; targetName: string } | null {
   const isSheriffVote = match.runtime.currentPhaseId === 'sheriff-vote'
   const candidates = isSheriffVote
-    ? getSheriffCandidateParticipants(match)
+    ? resolveSheriffVoteTargets(match)
     : match.participants.filter((p) => p.alive === 'alive' && p.characterId !== voterId)
   if (!candidates.length) return null
 
@@ -611,6 +730,22 @@ async function costFromUsage(
   })
 }
 
+function awardModelOutputExp(
+  characterId: string,
+  usage: GatewayTokenUsage | undefined,
+  content: string,
+  summary: string,
+  matchId: string
+): void {
+  void characterGrowthService
+    .awardFromModelOutput(characterId, usage, content, {
+      source: 'match',
+      summary,
+      matchId,
+    })
+    .catch(() => undefined)
+}
+
 async function callModel(match: Match, participant: MatchParticipant, prompt: { system: string; user: string }, action: ModelAction): Promise<{ content: string; costCents: number; callRecord: ModelCallRecord }> {
   const balance = await billingService.getBalanceCents()
   if (balance !== null && balance <= 0) throw new ArenaError('INSUFFICIENT_BALANCE', '余额不足，对局已暂停。', 'model')
@@ -626,6 +761,8 @@ async function callModel(match: Match, participant: MatchParticipant, prompt: { 
       const content = result.content.trim()
       if (!content) throw new ArenaError('MODEL_FAILED', '模型返回为空', 'model')
       const costCents = await costFromUsage(participant.modelId, result.usage, prompt, content)
+      const actionLabel = action === 'speech' ? '对局发言' : action === 'vote' ? '对局投票' : '对局审阅'
+      awardModelOutputExp(participant.characterId, result.usage, content, actionLabel, match.id)
       return { content, costCents, callRecord: buildCallRecord(match, participant, action, requestAt, costCents, retryCount) }
     } catch (error) {
       lastError = error
@@ -755,6 +892,7 @@ export const modelCallService = {
           continue
         }
         const costCents = await costFromUsage(participant.modelId, usage, prompt, text)
+        awardModelOutputExp(participant.characterId, usage, speech.content, '对局发言', match.id)
         onDelta({ content: speech.content, thought: speech.thought, streamStatus: 'done' })
         await arenaLog('info', 'model', '模型发言成功', speech.content.slice(0, 80), { matchId: match.id, characterId: participant.characterId })
         return {
@@ -866,5 +1004,33 @@ export const modelCallService = {
       : vote.targetName || ''
     await arenaLog('info', 'model', '模型投票成功', logLabel, { matchId: match.id, characterId: participant.characterId })
     return { match, participant, vote, costCents: totalCost, callRecords }
+  },
+
+  async polishHumanDraft(
+    match: Match,
+    participant: MatchParticipant,
+    character: Character | null | undefined,
+    draft: string,
+    kind: HumanInputKind
+  ): Promise<{ text: string; costCents: number; callRecords: ModelCallRecord[] }> {
+    const trimmed = draft.trim()
+    if (!trimmed) throw new ArenaError('INVALID_INPUT', '发言内容为空', 'ui')
+    const prompt = buildHumanPolishPrompt(match, participant, character || undefined, trimmed, kind)
+    const result = await callModel(match, participant, prompt, 'speech')
+    const sanitized = sanitizeSpeech(result.content, true, '')
+    const text = sanitized.content && sanitized.content.length >= 4 ? sanitized.content : trimmed
+    return { text, costCents: result.costCents, callRecords: [result.callRecord] }
+  },
+
+  async suggestHumanSpeechHints(
+    match: Match,
+    participant: MatchParticipant,
+    character: Character | null | undefined
+  ): Promise<{ hints: string[]; costCents: number; callRecords: ModelCallRecord[] }> {
+    const prompt = buildHumanHintsPrompt(match, participant, character || undefined)
+    const result = await callModel(match, participant, prompt, 'speech')
+    const parsed = parseJsonStringArray(result.content)
+    const hints = (parsed && parsed.length ? parsed : fallbackSpeechHints(participant)).slice(0, 3)
+    return { hints, costCents: result.costCents, callRecords: [result.callRecord] }
   },
 }

@@ -74,6 +74,12 @@ const draftWeakness = ref('')
 
 const isCreate = computed(() => props.section === 'create')
 
+const dialogLayout = computed((): 'default' | 'wide' | 'extra-wide' => {
+  if (props.section === 'create') return 'wide'
+  if (props.section === 'principles' || props.section === 'taboos' || props.section === 'voice') return 'wide'
+  return 'default'
+})
+
 const statusEnabled = computed({
   get: () => draft.value.status === 'enabled',
   set: (enabled: boolean) => {
@@ -241,27 +247,28 @@ watch(show, (open) => {
     :title="sectionMeta[section].title"
     :subtitle="sectionMeta[section].subtitle"
     :save-label="sectionMeta[section].saveLabel"
+    :layout="dialogLayout"
     :saving="saving"
     @save="save"
   >
-    <div class="edit-section-body">
-      <p v-if="error" class="edit-error">{{ error }}</p>
+    <div class="detail-form-body">
+      <p v-if="error" class="detail-form-error">{{ error }}</p>
 
       <template v-if="section === 'create'">
-        <label class="edit-field"><span>角色名</span><input v-model="draft.name" class="field" maxlength="20" /></label>
-        <label class="edit-field"><span>一句话设定</span><input v-model="draft.subtitle" class="field" maxlength="36" /></label>
-        <label class="edit-field"><span>档案简介</span><textarea v-model="draft.bio" class="field field-tall" rows="5" /></label>
-        <label class="edit-field"><span>年龄感</span><input v-model="draft.ageLabel" class="field" maxlength="12" /></label>
-        <div class="edit-setting-row">
+        <label class="detail-form-field"><span>角色名</span><input v-model="draft.name" class="detail-form-input" maxlength="20" /></label>
+        <label class="detail-form-field"><span>一句话设定</span><input v-model="draft.subtitle" class="detail-form-input" maxlength="36" /></label>
+        <label class="detail-form-field"><span>档案简介</span><textarea v-model="draft.bio" class="detail-form-input detail-form-input--tall" rows="5" /></label>
+        <label class="detail-form-field"><span>年龄感</span><input v-model="draft.ageLabel" class="detail-form-input" maxlength="12" /></label>
+        <div class="detail-form-setting-row">
           <div>
             <strong>启用角色</strong>
             <span>停用后不会出现在对局选人列表</span>
           </div>
           <ArenaSwitch v-model="statusEnabled" />
         </div>
-        <div class="edit-field">
+        <div class="detail-form-field">
           <span>性别</span>
-          <div class="segmented">
+          <div class="detail-form-segmented">
             <button
               v-for="option in genderOptions"
               :key="option.value"
@@ -303,16 +310,16 @@ watch(show, (open) => {
       </template>
 
       <template v-else-if="section === 'basics'">
-        <label class="edit-field"><span>角色名</span><input v-model="draft.name" class="field" maxlength="20" /></label>
-        <label class="edit-field"><span>一句话设定</span><input v-model="draft.subtitle" class="field" maxlength="36" placeholder="写一句能被记住的角色设定" /></label>
+        <label class="detail-form-field"><span>角色名</span><input v-model="draft.name" class="detail-form-input" maxlength="20" /></label>
+        <label class="detail-form-field"><span>一句话设定</span><input v-model="draft.subtitle" class="detail-form-input" maxlength="36" placeholder="写一句能被记住的角色设定" /></label>
       </template>
 
       <template v-else-if="section === 'profile'">
-        <label class="edit-field"><span>档案简介</span><textarea v-model="draft.bio" class="field field-tall" rows="5" placeholder="背景、语气与推理偏好" /></label>
-        <label class="edit-field"><span>年龄感</span><input v-model="draft.ageLabel" class="field" maxlength="12" placeholder="例如 18岁" /></label>
-        <div class="edit-field">
+        <label class="detail-form-field"><span>档案简介</span><textarea v-model="draft.bio" class="detail-form-input detail-form-input--tall" rows="5" placeholder="背景、语气与推理偏好" /></label>
+        <label class="detail-form-field"><span>年龄感</span><input v-model="draft.ageLabel" class="detail-form-input" maxlength="12" placeholder="例如 18岁" /></label>
+        <div class="detail-form-field">
           <span>性别</span>
-          <div class="segmented">
+          <div class="detail-form-segmented">
             <button
               v-for="option in genderOptions"
               :key="option.value"
@@ -335,7 +342,7 @@ watch(show, (open) => {
       </template>
 
       <template v-else-if="section === 'tags'">
-        <div class="tag-editor">
+        <div class="detail-form-tag-editor">
           <button v-for="tag in tagPresets" :key="tag" type="button" :class="{ active: draft.tags.includes(tag) }" @click="toggleTag(tag)">
             <Check v-show="draft.tags.includes(tag)" :size="14" />{{ tag }}
           </button>
@@ -343,62 +350,54 @@ watch(show, (open) => {
       </template>
 
       <template v-else-if="section === 'voice'">
-        <div class="edit-field">
+        <div class="detail-form-field">
           <span>语气风格</span>
-          <div class="segmented">
+          <div class="detail-form-segmented">
             <button v-for="style in speechStyles" :key="style" type="button" :class="{ active: draft.speechStyle === style }" @click="draft.speechStyle = style">{{ style }}</button>
           </div>
         </div>
-        <div class="add-row"><input v-model="draftPhrase" class="field" placeholder="添加常用发言" @keyup.enter="addPhrase" /><button type="button" @click="addPhrase"><Plus :size="16" /></button></div>
-        <div class="chip-list">
+        <div class="detail-form-add-row"><input v-model="draftPhrase" class="detail-form-input" placeholder="添加常用发言" @keyup.enter="addPhrase" /><button type="button" @click="addPhrase"><Plus :size="16" /></button></div>
+        <div class="detail-form-chip-list">
           <span v-for="(phrase, index) in draft.commonPhrases" :key="phrase + index">{{ phrase }}<button type="button" @click="draft.commonPhrases.splice(index, 1)">×</button></span>
         </div>
       </template>
 
       <template v-else-if="section === 'principles'">
-        <div class="add-row"><input v-model="draftPrinciple" class="field" placeholder="添加行为原则" @keyup.enter="addPrinciple" /><button type="button" @click="addPrinciple"><Plus :size="16" /></button></div>
-        <div class="chip-list chip-list--stack">
+        <div class="detail-form-add-row"><input v-model="draftPrinciple" class="detail-form-input" placeholder="添加行为原则" @keyup.enter="addPrinciple" /><button type="button" @click="addPrinciple"><Plus :size="16" /></button></div>
+        <div class="detail-form-chip-list detail-form-chip-list--stack">
           <span v-for="(item, index) in draft.behaviorPrinciples" :key="item + index">{{ item }}<button type="button" @click="draft.behaviorPrinciples.splice(index, 1)">×</button></span>
         </div>
-        <p v-if="!draft.behaviorPrinciples.length" class="empty-hint">暂无行为原则，添加后会在对局提示词中使用。</p>
+        <p v-if="!draft.behaviorPrinciples.length" class="detail-form-empty-hint">暂无行为原则，添加后会在对局提示词中使用。</p>
       </template>
 
       <template v-else-if="section === 'taboos'">
-        <div class="add-row"><input v-model="draftTaboo" class="field" placeholder="添加禁忌行为" @keyup.enter="addTaboo" /><button type="button" @click="addTaboo"><Plus :size="16" /></button></div>
-        <div class="chip-list chip-list--stack">
+        <div class="detail-form-add-row"><input v-model="draftTaboo" class="detail-form-input" placeholder="添加禁忌行为" @keyup.enter="addTaboo" /><button type="button" @click="addTaboo"><Plus :size="16" /></button></div>
+        <div class="detail-form-chip-list detail-form-chip-list--stack">
           <span v-for="(item, index) in draft.tabooBehaviors" :key="item + index">{{ item }}<button type="button" @click="draft.tabooBehaviors.splice(index, 1)">×</button></span>
         </div>
-        <p v-if="!draft.tabooBehaviors.length" class="empty-hint">暂无禁忌行为。</p>
+        <p v-if="!draft.tabooBehaviors.length" class="detail-form-empty-hint">暂无禁忌行为。</p>
       </template>
 
       <template v-else-if="section === 'strengths'">
-        <div class="add-row"><input v-model="draftStrength" class="field" placeholder="添加擅长项" @keyup.enter="addStrength" /><button type="button" @click="addStrength"><Plus :size="16" /></button></div>
-        <div class="chip-list">
+        <div class="detail-form-add-row"><input v-model="draftStrength" class="detail-form-input" placeholder="添加擅长项" @keyup.enter="addStrength" /><button type="button" @click="addStrength"><Plus :size="16" /></button></div>
+        <div class="detail-form-chip-list">
           <span v-for="(item, index) in draft.strengths" :key="item + index">{{ item }}<button type="button" @click="draft.strengths.splice(index, 1)">×</button></span>
         </div>
-        <p v-if="!draft.strengths.length" class="empty-hint">未标注擅长项。</p>
+        <p v-if="!draft.strengths.length" class="detail-form-empty-hint">未标注擅长项。</p>
       </template>
 
       <template v-else-if="section === 'weaknesses'">
-        <div class="add-row"><input v-model="draftWeakness" class="field" placeholder="添加短板" @keyup.enter="addWeakness" /><button type="button" @click="addWeakness"><Plus :size="16" /></button></div>
-        <div class="chip-list">
+        <div class="detail-form-add-row"><input v-model="draftWeakness" class="detail-form-input" placeholder="添加短板" @keyup.enter="addWeakness" /><button type="button" @click="addWeakness"><Plus :size="16" /></button></div>
+        <div class="detail-form-chip-list">
           <span v-for="(item, index) in draft.weaknesses" :key="item + index">{{ item }}<button type="button" @click="draft.weaknesses.splice(index, 1)">×</button></span>
         </div>
-        <p v-if="!draft.weaknesses.length" class="empty-hint">未标注短板。</p>
+        <p v-if="!draft.weaknesses.length" class="detail-form-empty-hint">未标注短板。</p>
       </template>
     </div>
   </DetailEditDialog>
 </template>
 
 <style scoped>
-.edit-error { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: rgba(239,68,68,.08); color: #dc2626; font-size: 13px; }
-.edit-field { display: grid; gap: 6px; margin-bottom: 12px; }
-.edit-field span { color: #6b759f; font-size: 12px; }
-.field { width: 100%; padding: 10px 12px; border: 1px solid rgba(130,142,207,.2); border-radius: 12px; background: rgba(255,255,255,.8); color: #243066; font: inherit; font-size: 14px; box-sizing: border-box; }
-.field-tall { min-height: 120px; resize: vertical; line-height: 1.65; }
-.edit-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid rgba(130,142,207,.12); border-radius: 14px; background: rgba(255,255,255,.45); }
-.edit-setting-row strong { display: block; color: #26305e; font-size: 14px; font-weight: 600; }
-.edit-setting-row span { display: block; margin-top: 3px; color: #7280b2; font-size: 12px; }
 .create-visual-preview { position: relative; height: 132px; margin-bottom: 12px; border-radius: 16px; overflow: hidden; background: rgba(255,255,255,.45); border: 1px solid rgba(130,142,207,.12); }
 .create-visual-preview__portrait { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
 .create-visual-preview__avatar { position: absolute; right: 10px; bottom: 10px; width: 52px; height: 52px; border-radius: 16px; object-fit: cover; box-shadow: 0 8px 18px rgba(50,56,120,.18); border: 2px solid rgba(255,255,255,.92); }
@@ -411,15 +410,4 @@ watch(show, (open) => {
 .preset-grid img { width: 32px; height: 32px; border-radius: 10px; object-fit: cover; }
 .preset-grid span { font-size: 12px; color: #4e5789; }
 .hidden-file { display: none; }
-.tag-editor, .segmented { display: flex; flex-wrap: wrap; gap: 8px; }
-.tag-editor button, .segmented button { height: 36px; padding: 0 12px; border: 1px solid rgba(130,142,207,.15); border-radius: 999px; background: rgba(255,255,255,.55); color: #5f6a9e; cursor: pointer; font: inherit; font-size: 13px; }
-.tag-editor button.active, .segmented button.active { border-color: rgba(108,99,255,.25); background: rgba(112,105,255,.12); color: #5b57f3; }
-.add-row { display: grid; grid-template-columns: minmax(0,1fr) 36px; gap: 8px; margin-top: 10px; }
-.add-row button { border: 1px solid rgba(130,142,207,.15); border-radius: 12px; background: rgba(255,255,255,.72); cursor: pointer; }
-.chip-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.chip-list--stack { flex-direction: column; align-items: stretch; }
-.chip-list span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(112,105,255,.08); color: #625cf0; font-size: 12px; }
-.chip-list--stack span { justify-content: space-between; border-radius: 12px; padding: 8px 12px; line-height: 1.5; }
-.chip-list button { border: 0; background: transparent; color: #7a6ff4; cursor: pointer; }
-.empty-hint { margin: 8px 0 0; color: #9aa3c7; font-size: 12px; }
 </style>

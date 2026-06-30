@@ -42,6 +42,8 @@ import {
 } from '@renderer/services/arena'
 import { formatYuan } from '@renderer/utils/id'
 import { resolveSpeechDisplayConfig } from '@shared/arena/speech-display'
+import { ROUNDTABLE_TOPIC_PRESETS } from '@shared/arena/social-paradigm'
+import { isBrainstormGameModeId } from '@shared/arena/builtin-game-mode-registry'
 import type { Character, GameMode, IdentityAssignMode } from '@shared/arena/types'
 import type { MatchCostEstimate } from '@renderer/services/arena/match-cost-estimator'
 
@@ -71,8 +73,10 @@ const enabledExpansions = ref<WerewolfExpansionRoleId[]>(
 const enabledRuleModules = ref<WerewolfRuleModuleId[]>([])
 const sheriffEnabled = ref(true)
 const winCondition = ref<WerewolfWinCondition>(DEFAULT_WEREWOLF_WIN_CONDITION)
-const discussionTopic = ref('AI 时代人类社交博弈的未来')
+const discussionTopic = ref<string>(ROUNDTABLE_TOPIC_PRESETS[0])
+const designTarget = ref('')
 const roundtableRounds = ref(3)
+const isBrainstormMode = computed(() => isBrainstormGameModeId(mode.value.id))
 const showModeInfo = ref(false)
 const showModePicker = ref(false)
 const showDlcPicker = ref(false)
@@ -118,9 +122,9 @@ const canStart = computed(
     !starting.value
 )
 const launchHeadline = computed(() => {
-  if (starting.value) return '正在开局'
-  if (canStart.value) return '可以开局'
-  return '还差一点'
+  if (starting.value) return '正在启动'
+  if (canStart.value) return '可以开始'
+  return '配置未完成'
 })
 const estimatedCost = computed(() => costEstimate.value.totalCents)
 const costSourceLabel = computed(() => {
@@ -135,6 +139,9 @@ const selectedExpansionRoles = computed(() =>
 
 const isWerewolf = computed(() => mode.value.id === 'werewolf' || mode.value.engineKind === 'werewolf')
 const isRoundtable = computed(() => mode.value.id === 'roundtable' || mode.value.engineKind === 'roundtable')
+const isRoundtableFamily = computed(
+  () => isRoundtable.value || mode.value.engineKind === 'brainstorm' || isBrainstormGameModeId(mode.value.id)
+)
 const winConditionHint = computed(() => werewolfWinConditionDesc(winCondition.value))
 const rolePlan = computed(() =>
   isWerewolf.value ? buildWerewolfRolePlanWithExpansions(targetPlayerCount.value, enabledExpansions.value) : []
@@ -169,8 +176,10 @@ const roleSummaryLine = computed(() =>
     .join(' · ')
 )
 const gameBriefText = computed(() => {
-  if (isRoundtable.value) {
-    return `${targetPlayerCount.value} 人圆桌讨论，议题「${discussionTopic.value}」，共 ${roundtableRounds.value} 轮发言。`
+  if (isRoundtableFamily.value) {
+    const label = isBrainstormMode.value ? '头脑风暴' : '圆桌讨论'
+    const focus = designTarget.value.trim() ? `，焦点「${designTarget.value.trim()}」` : ''
+    return `${targetPlayerCount.value} 人${label}，议题「${discussionTopic.value}」${focus}，共 ${roundtableRounds.value} 轮发言。`
   }
   const lines: string[] = []
   lines.push(
@@ -422,7 +431,7 @@ async function checkLearningBeforeStart(): Promise<boolean | null> {
     message: '以下角色尚未完成玩法学习或考试：',
     detail: issues.join('\n') + '\n\n是否跳过检查并继续开局？',
     tone: 'warning',
-    confirmText: '继续开局',
+    confirmText: '继续启动',
   })
   return confirmed ? true : null
 }
@@ -436,8 +445,9 @@ async function createMatch(skipLearningCheck: boolean) {
     werewolfRuleModules: isWerewolf.value ? enabledRuleModules.value : undefined,
     sheriffEnabled: isWerewolf.value ? sheriffEnabled.value : undefined,
     werewolfWinCondition: isWerewolf.value ? winCondition.value : undefined,
-    discussionTopic: isRoundtable.value ? discussionTopic.value : undefined,
-    roundtableRounds: isRoundtable.value ? roundtableRounds.value : undefined,
+    discussionTopic: isRoundtableFamily.value ? discussionTopic.value : undefined,
+    roundtableRounds: isRoundtableFamily.value ? roundtableRounds.value : undefined,
+    designTarget: isBrainstormMode.value && designTarget.value.trim() ? designTarget.value.trim() : undefined,
     skipLearningCheck,
   })
   arenaSession.clearSelectedMode()
@@ -451,7 +461,7 @@ async function createMatch(skipLearningCheck: boolean) {
 }
 async function startMatch() {
   if (!canStart.value) {
-    error.value = warnings.value[0] || '请先完成开局配置'
+    error.value = warnings.value[0] || '请先完成场景配置'
     playArenaTone('warn')
     return
   }
@@ -470,7 +480,7 @@ async function startMatch() {
     if (settings.value.matchDefaults.pauseOnLowBalance || settings.value.balanceReminder) {
       const balance = await billingService.getBalanceCents(true)
       if (balance !== null && balance < settings.value.balanceReminderThresholdCents && settings.value.matchDefaults.pauseOnLowBalance) {
-        error.value = '当前余额低于 ' + (settings.value.balanceReminderThresholdCents / 100).toFixed(2) + ' 元，请补充余额后再开局。'
+        error.value = '当前余额低于 ' + (settings.value.balanceReminderThresholdCents / 100).toFixed(2) + ' 元，请补充余额后再启动场景。'
         playArenaTone('warn')
         return
       }
@@ -490,7 +500,7 @@ onMounted(() => void load())
 <template>
   <ArenaPageShell class="create-page" viewport-lock>
     <div class="create-root">
-      <ArenaPageState :loading="loading" skeleton="create-match" loading-label="正在整理开局资料..." @retry="() => load()">
+      <ArenaPageState :loading="loading" skeleton="create-match" loading-label="正在整理场景配置..." @retry="() => load()">
         <main class="create-board">
           <aside class="setup-panel glass-panel">
             <button type="button" class="mode-cover" @click="showModePicker = true">
@@ -498,7 +508,7 @@ onMounted(() => void load())
               <span><Lock :size="13" /> {{ mode.name }}</span>
             </button>
             <div class="mode-title">
-              <span>当前玩法</span>
+              <span>当前场景</span>
               <div class="mode-title-row">
                 <h2>{{ mode.name }}</h2>
                 <button type="button" class="info-btn" aria-label="查看玩法说明" @click.stop="showModeInfo = true">
@@ -506,15 +516,32 @@ onMounted(() => void load())
                 </button>
               </div>
               <p>{{ mode.subtitle }}</p>
-              <button type="button" class="link-action" @click="showModePicker = true">切换玩法<ChevronDown :size="14" /></button>
+              <button type="button" class="link-action" @click="showModePicker = true">切换场景<ChevronDown :size="14" /></button>
             </div>
             <div class="mode-stats">
               <span><Users :size="14" /> {{ playerCountMin }}-{{ playerCountMax }} 人</span>
               <span>{{ mode.estimatedDurationMinutes }} 分钟</span>
             </div>
 
+            <div v-if="isRoundtableFamily" class="setup-block roundtable-setup">
+              <label>{{ isBrainstormMode ? '头脑风暴议题' : '讨论议题' }}</label>
+              <p class="setup-hint">
+                {{ isBrainstormMode ? '讨论后将归纳产物（规则草案 / 角色清单），无经验教训沉淀。' : '纯讨论，无胜负、无产物。' }}
+              </p>
+              <select v-model="discussionTopic" class="topic-select">
+                <option v-for="topic in ROUNDTABLE_TOPIC_PRESETS" :key="topic" :value="topic">{{ topic }}</option>
+              </select>
+              <input v-model="discussionTopic" type="text" placeholder="或输入自定义议题" />
+              <template v-if="isBrainstormMode">
+                <label class="setup-sub-label">设计焦点</label>
+                <input v-model="designTarget" type="text" placeholder="如：6 人狼人杀开局配置、某角色人设草案…" />
+              </template>
+              <label class="setup-sub-label">发言轮数</label>
+              <input v-model.number="roundtableRounds" type="number" min="1" max="8" />
+            </div>
+
             <div class="setup-block">
-              <label>对局人数</label>
+              <label>参与人数</label>
               <div class="slider-head">
                 <strong>{{ targetPlayerCount }} 人</strong>
                 <em>推荐 {{ mode.recommendedPlayers }} 人</em>
@@ -568,11 +595,6 @@ onMounted(() => void load())
               <small>{{ winConditionHint }}</small>
             </div>
 
-            <div v-if="isRoundtable" class="setup-block roundtable-setup">
-              <label>讨论议题<input v-model="discussionTopic" type="text" placeholder="输入圆桌议题" /></label>
-              <label>讨论轮数<input v-model.number="roundtableRounds" type="number" min="1" max="8" /></label>
-            </div>
-
           </aside>
 
           <section class="pick-panel glass-panel">
@@ -590,7 +612,7 @@ onMounted(() => void load())
             <div v-if="!characters.length" class="empty-pick">
               <AlertCircle :size="28" />
               <strong>还没有可用角色</strong>
-              <p>创建并启用至少 {{ targetPlayerCount }} 名角色后，就可以开始 {{ mode.name }} 对局。</p>
+              <p>创建并启用至少 {{ targetPlayerCount }} 名角色后，就可以开始 {{ mode.name }} 场景演练。</p>
               <button type="button" @click="navigate('/characters?create=1')">创建角色</button>
             </div>
             <div v-else class="character-grid">
@@ -648,7 +670,7 @@ onMounted(() => void load())
             </div>
 
             <section class="game-brief">
-              <span>本局说明</span>
+              <span>场景说明</span>
               <p>{{ gameBriefText }}</p>
             </section>
 
@@ -687,7 +709,7 @@ onMounted(() => void load())
             <button type="button" class="start-button" :disabled="!canStart" @click="startMatch">
               <Loader2 v-if="starting" :size="20" class="spin" />
               <Play v-else :size="20" />
-              {{ starting ? '正在开局' : '开始对局' }}
+              {{ starting ? '正在启动' : '开始场景' }}
             </button>
           </aside>
         </main>
@@ -985,12 +1007,53 @@ onMounted(() => void load())
   color: #5e55a3;
   font-size: 12px;
 }
+.roundtable-setup .setup-hint {
+  margin: 0 0 8px;
+  color: #8a82aa;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.roundtable-setup .topic-select,
 .roundtable-setup input {
   height: 34px;
   padding: 0 10px;
   border: 1px solid rgba(126, 99, 255, 0.12);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.62);
+  color: #243066;
+  font: inherit;
+  font-size: 13px;
+}
+.roundtable-setup .setup-sub-label {
+  margin-top: 8px;
+}
+.session-kind-row {
+  display: grid;
+  gap: 8px;
+}
+.session-kind-row button {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 99, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.62);
+  text-align: left;
+  cursor: pointer;
+}
+.session-kind-row button.active {
+  border-color: rgba(91, 87, 243, 0.4);
+  background: rgba(112, 105, 255, 0.1);
+}
+.session-kind-row strong {
+  color: #17205a;
+  font-size: 13px;
+}
+.session-kind-row em {
+  color: #7a85b0;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.45;
 }
 .setup-stats.bottom {
   margin-top: auto;

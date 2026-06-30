@@ -4,7 +4,7 @@ import { ArenaError } from './errors'
 import { gameModeService } from './character-service'
 import { matchService } from './match-service'
 import { modelCallService, cancelActiveSpeechStream } from './model-call-service'
-import { registerSheriffCampaign } from './werewolf-sheriff'
+import { registerSheriffCampaign, finalizeSheriffCandidates } from './werewolf-sheriff'
 import { completeVoteTallyMessage } from './werewolf-vote-tally'
 import {
   collectNightLastWordsTargets,
@@ -27,7 +27,15 @@ import {
   transferSheriffIfNeeded,
   triggerDeathSkill,
 } from './phase-engine'
-import { advanceRoundtablePhase, checkRoundtableComplete, isRoundtableMode } from './roundtable-engine'
+import { advanceRoundtablePhase, checkRoundtableComplete, isDiscussionEngineMode, isRoundtableMode } from './roundtable-engine'
+import {
+  advanceUndercoverPhase,
+  assignUndercoverWords,
+  checkUndercoverComplete,
+  createUndercoverState,
+  isUndercoverMode,
+} from './undercover-engine'
+import { humanPlayerService } from './human-player-service'
 import type { Match, MatchMessage, MatchParticipant, MatchPublicEvent, MatchSnapshot } from '@shared/arena/types'
 
 export type MatchStreamPatch = {
@@ -69,7 +77,16 @@ function endAdvance(matchId: string, token: number): void {
   }
 }
 
+function isHumanPendingMessage(match: Match, message: MatchMessage): boolean {
+  return (
+    Boolean(match.runtime.humanInputKind) &&
+    message.id === match.runtime.humanInputMessageId &&
+    message.isHumanPlayer === true
+  )
+}
+
 function hasIncompleteLiveMessages(match: Match): boolean {
+  if (match.runtime.humanInputKind) return false
   return match.messages.some(
     (m) =>
       !m.confirmed &&
@@ -92,6 +109,7 @@ function rollbackInProgressStep(match: Match): Match {
   )
 
   match.messages = match.messages.filter((m) => {
+    if (isHumanPendingMessage(match, m)) return true
     if (m.kind === 'speech' && !m.confirmed && (m.streamStatus === 'pending' || m.streamStatus === 'streaming')) {
       return false
     }
@@ -466,6 +484,14 @@ async function afterActorStep(match: Match, matchId: string, options?: AdvanceSt
     return finishMatch(match, roundtableDone.summary, null)
   }
 
+  const undercoverDone = checkUndercoverComplete(match, mode)
+  if (undercoverDone) {
+    appendSystemEvent(match, '🕵️', undercoverDone.summary)
+    appendRoomMessage(match, undercoverDone.summary, 'judge')
+    match = await matchService.save(match)
+    return finishMatch(match, undercoverDone.summary, undercoverDone.winnerCamp)
+  }
+
   if (deferPhaseAdvance) {
     match.runtime.stepAdvanceState = 'ready'
     match = await matchService.save(match)
@@ -478,7 +504,8 @@ async function afterActorStep(match: Match, matchId: string, options?: AdvanceSt
     match.runtime.pendingLastWordsIds = undefined
   }
 
-  if (isRoundtableMode(mode)) advanceRoundtablePhase(match, mode)
+  if (isDiscussionEngineMode(mode)) advanceRoundtablePhase(match, mode)
+  else if (isUndercoverMode(mode)) advanceUndercoverPhase(match, mode)
   else advanceToNextPhase(match, mode)
   const phaseText = '进入' + match.runtime.currentPhaseName + '。'
   appendSystemEvent(match, '🔔', phaseText)
@@ -503,6 +530,7 @@ export const matchEngine = {
   async load(matchId: string): Promise<Match> {
     let match = await matchService.get(matchId)
     if (
+      !match.runtime.humanInputKind &&
       (match.runtime.stepAdvanceState === 'waiting' || hasIncompleteLiveMessages(match)) &&
       (match.status === 'active' || match.status === 'paused')
     ) {
@@ -515,7 +543,10 @@ export const matchEngine = {
   async abortAndRollback(matchId: string): Promise<Match> {
     await abortInProgressStep(matchId)
     let match = await matchService.get(matchId)
-    if (match.runtime.stepAdvanceState === 'waiting' || hasIncompleteLiveMessages(match)) {
+    if (
+      !match.runtime.humanInputKind &&
+      (match.runtime.stepAdvanceState === 'waiting' || hasIncompleteLiveMessages(match))
+    ) {
       match = rollbackInProgressStep(match)
       if (match.status === 'active') {
         match.runtime.stepAdvanceState = 'ready'
@@ -552,6 +583,9 @@ export const matchEngine = {
     let match = await matchService.get(matchId)
     if (match.status === 'completed' || match.status === 'archived') throw new ArenaError('VALIDATION', '对局已结束', 'engine')
     if (match.status === 'paused') throw new ArenaError('ENGINE_PAUSED', '对局已暂停，请在 ESC 菜单中继续对局。', 'engine')
+    if (match.runtime.humanInputKind) {
+      throw new ArenaError('ENGINE_PAUSED', '等待真人玩家操作。', 'engine')
+    }
     if (match.runtime.stepAdvanceState === 'waiting') throw new ArenaError('ENGINE_PAUSED', '当前步骤尚未完成', 'engine')
 
     const advanceToken = beginAdvance(matchId)
@@ -567,6 +601,46 @@ export const matchEngine = {
 
     try {
       if (match.runtime.currentActionKind === 'night') {
+        const guardPending = humanPlayerService.prepareHumanGuardNight(match)
+        if (guardPending) {
+          match = guardPending
+          match.runtime.modelCallStatus = null
+          match = await matchService.save(match)
+          notifyDelta(match, options, true)
+          endAdvance(matchId, advanceToken)
+          return match
+        }
+
+        const wolfPending = humanPlayerService.prepareHumanWolfNight(match)
+        if (wolfPending) {
+          match = wolfPending
+          match.runtime.modelCallStatus = null
+          match = await matchService.save(match)
+          notifyDelta(match, options, true)
+          endAdvance(matchId, advanceToken)
+          return match
+        }
+
+        const seerPending = humanPlayerService.prepareHumanSeerNight(match)
+        if (seerPending) {
+          match = seerPending
+          match.runtime.modelCallStatus = null
+          match = await matchService.save(match)
+          notifyDelta(match, options, true)
+          endAdvance(matchId, advanceToken)
+          return match
+        }
+
+        const witchPending = humanPlayerService.prepareHumanWitchNight(match)
+        if (witchPending) {
+          match = witchPending
+          match.runtime.modelCallStatus = null
+          match = await matchService.save(match)
+          notifyDelta(match, options, true)
+          endAdvance(matchId, advanceToken)
+          return match
+        }
+
         const result = resolveNightAction(match, mode)
         appendSystemEvent(match, result.icon, result.text)
         const publicBody = result.text + (result.publicDetails.length ? '\n' + result.publicDetails.join('\n') : '')
@@ -618,17 +692,29 @@ export const matchEngine = {
         notifyDelta(match, options)
 
         const voteBase = structuredClone(match)
-        await Promise.all(
-          voters.map(async (voter) => {
-            const result = await modelCallService.performVote(structuredClone(voteBase), voter.characterId)
-            match.votes.push(result.vote)
-            match.totalCostCents += result.costCents
-            for (const record of result.callRecords) match.modelCalls.push(record)
-            markActorDone(match, result.participant.characterId)
-            updateLiveVoteMessage(match, options)
+        for (const voter of voters) {
+          if (voter.characterId === match.runtime.humanControlledId) {
+            if (match.runtime.currentPhaseId === 'sheriff-vote') {
+              finalizeSheriffCandidates(match)
+            }
+            match.runtime.humanInputKind = 'vote'
+            match.runtime.modelCallStatus = null
+            match.runtime.stepAdvanceState = 'ready'
+            match.runtime.waitingHint = '请选择投票目标后确认。'
             match = await matchService.save(match)
-          })
-        )
+            notifyDelta(match, options, true)
+            endAdvance(matchId, advanceToken)
+            return match
+          }
+          const result = await modelCallService.performVote(structuredClone(voteBase), voter.characterId)
+          match.votes.push(result.vote)
+          match.totalCostCents += result.costCents
+          for (const record of result.callRecords) match.modelCalls.push(record)
+          markActorDone(match, result.participant.characterId)
+          updateLiveVoteMessage(match, options)
+          match = await matchService.save(match)
+          notifyDelta(match, options)
+        }
         finalizeLiveVoteMessage(match)
         match.runtime.modelCallStatus = 'success'
         setSpeaking(match, null)
@@ -646,6 +732,17 @@ export const matchEngine = {
       setSpeaking(match, actorId)
       const speaker = match.participants.find((p) => p.characterId === actorId)
       if (!speaker) throw new ArenaError('NOT_FOUND', '发言角色不存在', 'engine')
+
+      if (match.runtime.humanControlledId === actorId && match.runtime.currentActionKind === 'speech') {
+        humanPlayerService.createHumanSpeechPlaceholder(match, speaker)
+        match.runtime.modelCallStatus = null
+        match.runtime.stepAdvanceState = 'ready'
+        match.runtime.waitingHint = '等待真人玩家发言，请在消息区输入后提交。'
+        match = await matchService.save(match)
+        notifyDelta(match, options, true)
+        endAdvance(matchId, advanceToken)
+        return match
+      }
 
       const messageId = randomUUID()
       const placeholder: MatchMessage = {
@@ -767,5 +864,59 @@ export const matchEngine = {
     match.runtime.stepAdvanceState = 'ready'
     match.runtime.waitingHint = '对局已恢复，可以继续推进。'
     return matchService.save(match)
+  },
+
+  async submitHumanSpeech(matchId: string, content: string, options?: AdvanceStepOptions): Promise<Match> {
+    let match = await humanPlayerService.submitSpeech(matchId, content)
+    notifyDelta(match, options, true)
+    const advanceToken = beginAdvance(matchId)
+    try {
+      match = await afterActorStep(match, matchId, options)
+      return match
+    } finally {
+      endAdvance(matchId, advanceToken)
+    }
+  },
+
+  async submitHumanVote(matchId: string, targetId: string | null, abstain = false, options?: AdvanceStepOptions): Promise<Match> {
+    let match = await humanPlayerService.submitVote(matchId, targetId, abstain)
+    notifyDelta(match, options, true)
+    return match
+  },
+
+  async submitHumanWolfChat(matchId: string, content: string, options?: AdvanceStepOptions): Promise<Match> {
+    const match = await humanPlayerService.submitWolfChat(matchId, content)
+    notifyDelta(match, options, true)
+    return match
+  },
+
+  async submitHumanWolfKill(matchId: string, targetId: string, options?: AdvanceStepOptions): Promise<Match> {
+    const match = await humanPlayerService.submitWolfKill(matchId, targetId)
+    notifyDelta(match, options, true)
+    return match
+  },
+
+  async submitHumanWitchAntidote(matchId: string, useAntidote: boolean, options?: AdvanceStepOptions): Promise<Match> {
+    const match = await humanPlayerService.submitWitchAntidote(matchId, useAntidote)
+    notifyDelta(match, options, true)
+    return match
+  },
+
+  async submitHumanWitchPoison(matchId: string, targetId: string | null, options?: AdvanceStepOptions): Promise<Match> {
+    const match = await humanPlayerService.submitWitchPoison(matchId, targetId)
+    notifyDelta(match, options, true)
+    return match
+  },
+
+  async submitHumanGuardProtect(matchId: string, targetId: string | null, options?: AdvanceStepOptions): Promise<Match> {
+    const match = await humanPlayerService.submitGuardProtect(matchId, targetId)
+    notifyDelta(match, options, true)
+    return match
+  },
+
+  async submitHumanSeerCheck(matchId: string, targetId: string, options?: AdvanceStepOptions): Promise<Match> {
+    const match = await humanPlayerService.submitSeerCheck(matchId, targetId)
+    notifyDelta(match, options, true)
+    return match
   },
 }

@@ -1,12 +1,24 @@
 import type { GameMode, Match } from '@shared/arena/types'
 import { preparePhaseStep } from './phase-engine'
+import { isBrainstormGameModeId } from '@shared/arena/builtin-game-mode-registry'
 
-export function createRoundtableState(topic: string, totalRounds: number, hostEnabled: boolean, narratorEnabled: boolean) {
+export function createRoundtableState(
+  topic: string,
+  totalRounds: number,
+  hostEnabled: boolean,
+  narratorEnabled: boolean,
+  options?: {
+    designTarget?: string
+    brainstormCategory?: import('@shared/arena/social-paradigm').BrainstormCategoryId
+  }
+) {
   return {
     discussionTopic: topic,
     totalRounds: Math.max(1, totalRounds),
     hostEnabled,
     narratorEnabled,
+    designTarget: options?.designTarget?.trim() || undefined,
+    brainstormCategory: options?.brainstormCategory,
   }
 }
 
@@ -14,14 +26,33 @@ export function isRoundtableMode(mode: GameMode): boolean {
   return mode.engineKind === 'roundtable' || mode.id === 'roundtable'
 }
 
+export function isBrainstormMode(mode: GameMode): boolean {
+  return mode.engineKind === 'brainstorm' || isBrainstormGameModeId(mode.id)
+}
+
+/** 圆桌 + 头脑风暴共用步进引擎 */
+export function isDiscussionEngineMode(mode: GameMode): boolean {
+  return isRoundtableMode(mode) || isBrainstormMode(mode)
+}
+
 export function checkRoundtableComplete(match: Match, mode: GameMode): { summary: string } | null {
-  if (!isRoundtableMode(mode)) return null
+  if (!isDiscussionEngineMode(mode)) return null
   const sorted = [...mode.phases].sort((a, b) => a.order - b.order)
   const phase = sorted[match.runtime.phaseIndex]
   if (phase?.id !== 'closing') return null
   if (!match.runtime.actedCharacterIds.length) return null
-  const topic = match.runtime.roundtableState?.discussionTopic || '圆桌讨论'
-  return { summary: `圆桌讨论「${topic}」已结束，共 ${match.runtime.roundtableState?.totalRounds || 1} 轮发言。` }
+  const topic = match.runtime.roundtableState?.discussionTopic || mode.name
+  if (isBrainstormMode(mode)) {
+    const artifact = match.runtime.roundtableState?.artifactSummary
+    return {
+      summary: artifact
+        ? `头脑风暴「${topic}」已结束。产物：${artifact}`
+        : `头脑风暴「${topic}」已结束，共 ${match.runtime.roundtableState?.totalRounds || 1} 轮讨论。`,
+    }
+  }
+  return {
+    summary: `圆桌讨论「${topic}」已结束，共 ${match.runtime.roundtableState?.totalRounds || 1} 轮发言。`,
+  }
 }
 
 export function advanceRoundtablePhase(match: Match, mode: GameMode): Match {
@@ -53,7 +84,7 @@ export function advanceRoundtablePhase(match: Match, mode: GameMode): Match {
 
 export function openingNeedsHostSpeech(match: Match, mode: GameMode): boolean {
   return (
-    isRoundtableMode(mode) &&
+    isDiscussionEngineMode(mode) &&
     match.runtime.currentPhaseId === 'opening' &&
     Boolean(match.runtime.roundtableState?.hostEnabled) &&
     !match.runtime.actedCharacterIds.includes('host')

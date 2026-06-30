@@ -8,6 +8,7 @@ import CreateGameModeDialog from '@renderer/components/arena/CreateGameModeDialo
 import { modeImageById } from '@renderer/data/arena-visual-assets'
 import { navigate } from '../router'
 import { formatUserMessage, gameModeService, isModePlayable, loadGameModeOverrides, portableDataService } from '@renderer/services/arena'
+import { groupGameModesByParadigm } from '@shared/arena/social-paradigm'
 import type { GameMode } from '@shared/arena/types'
 
 const modes = ref<GameMode[]>([])
@@ -20,10 +21,12 @@ const importing = ref(false)
 const error = ref('')
 
 const tagMap: Record<string, string[]> = {
-  werewolf: ['身份推理', '逻辑对抗', '阵营对抗'],
-  avalon: ['阵营对抗', '策略投票', '角色能力'],
-  undercover: ['语言推理', '词语猜测', '轻松娱乐'],
-  roundtable: ['自由讨论', '观点碰撞', '角色互动'],
+  werewolf: ['规则化博弈', '信息不对称', '提示词工程'],
+  avalon: ['规则化博弈', '阵营决策', '角色能力'],
+  undercover: ['语言推理', '轻量社交', '观点表达'],
+  roundtable: ['纯讨论', '议题碰撞', '倾听追问'],
+  'brainstorm-game-design': ['头脑风暴', '玩法设计', '规则产物'],
+  'brainstorm-character-design': ['头脑风暴', '角色塑造', '人设产物'],
 }
 
 onMounted(async () => {
@@ -66,6 +69,8 @@ const filteredModes = computed(() => {
   return list
 })
 
+const groupedModes = computed(() => groupGameModesByParadigm(filteredModes.value))
+
 function openMode(mode: GameMode) {
   navigate(`/game-mode-detail/${mode.id}`)
 }
@@ -95,10 +100,10 @@ function onModeCreated(modeId: string) {
 
 <template>
   <ArenaPageShell class="modes-page" viewport-lock>
-    <section class="list-toolbar" aria-label="玩法筛选">
+    <section class="list-toolbar" aria-label="场景筛选">
       <label class="search-pill">
         <Search :size="17" />
-        <input v-model="query" type="text" placeholder="搜索玩法名称、标签或说明..." />
+        <input v-model="query" type="text" placeholder="搜索场景名称、范式标签或说明..." />
       </label>
       <div class="toolbar-right">
         <div class="filter-cluster">
@@ -120,7 +125,7 @@ function onModeCreated(modeId: string) {
         </button>
         <button class="toolbar-action" type="button" @click="createOpen = true">
           <Plus :size="17" />
-          新建玩法
+          新建场景
         </button>
       </div>
     </section>
@@ -131,43 +136,56 @@ function onModeCreated(modeId: string) {
       :loading="loading"
       :empty="!loading && !filteredModes.length"
       skeleton="immersive-cards"
-      loading-label="正在整理玩法库..."
+      loading-label="正在整理场景目录..."
     >
       <template #skeleton>
-        <ArenaPageSkeleton variant="immersive-cards" embedded label="正在整理玩法库..." />
+        <ArenaPageSkeleton variant="immersive-cards" embedded label="正在整理场景目录..." />
       </template>
       <template #empty>
-        <strong>还没有符合条件的玩法</strong>
+        <strong>还没有符合条件的场景</strong>
         <span>试试调整搜索词或筛选条件。</span>
       </template>
 
-      <section class="modes-grid arena-stagger" aria-label="玩法场景">
-        <article
-          v-for="mode in filteredModes"
-          :key="mode.id"
-          class="mode-card"
-          :class="{ disabled: !isModeAvailable(mode) }"
-          @click="openMode(mode)"
-        >
-          <div class="mode-card__media">
-            <img class="mode-card__img" :src="modeImageById(mode.id)" :alt="mode.name" />
-            <span v-if="!isModeAvailable(mode)" class="mode-card__status">筹备中</span>
-            <div class="mode-card__caption">
-              <h2 class="mode-card__name">{{ mode.name }}</h2>
-              <p v-if="mode.subtitle" class="mode-card__subtitle">{{ mode.subtitle }}</p>
-              <div class="mode-card__meta">
-                <Users :size="14" />
-                <span>{{ mode.minPlayers }}-{{ mode.maxPlayers }} 人</span>
-                <span class="mode-card__meta-sep" aria-hidden="true">·</span>
-                <span>推荐 {{ mode.recommendedPlayers }} 人</span>
-              </div>
-              <div v-if="tagMap[mode.id]?.length" class="mode-card__tags">
-                <span v-for="tag in tagMap[mode.id].slice(0, 3)" :key="tag">{{ tag }}</span>
-              </div>
+      <div class="modes-catalog arena-stagger">
+        <section v-for="group in groupedModes" :key="group.paradigm.id" class="paradigm-section">
+          <header class="paradigm-section__head">
+            <div>
+              <h2>{{ group.paradigm.label }}</h2>
+              <p>{{ group.paradigm.description }}</p>
             </div>
+            <div class="paradigm-section__focus">
+              <span v-for="focus in group.paradigm.promptFocus" :key="focus">{{ focus }}</span>
+            </div>
+          </header>
+          <div class="modes-grid" :aria-label="`${group.paradigm.label}场景`">
+            <article
+              v-for="mode in group.items"
+              :key="mode.id"
+              class="mode-card"
+              :class="{ disabled: !isModeAvailable(mode) }"
+              @click="openMode(mode)"
+            >
+              <div class="mode-card__media">
+                <img class="mode-card__img" :src="modeImageById(mode.id)" :alt="mode.name" />
+                <span v-if="!isModeAvailable(mode)" class="mode-card__status">筹备中</span>
+                <div class="mode-card__caption">
+                  <h3 class="mode-card__name">{{ mode.name }}</h3>
+                  <p v-if="mode.subtitle" class="mode-card__subtitle">{{ mode.subtitle }}</p>
+                  <div class="mode-card__meta">
+                    <Users :size="14" />
+                    <span>{{ mode.minPlayers }}-{{ mode.maxPlayers }} 人</span>
+                    <span class="mode-card__meta-sep" aria-hidden="true">·</span>
+                    <span>推荐 {{ mode.recommendedPlayers }} 人</span>
+                  </div>
+                  <div v-if="tagMap[mode.id]?.length" class="mode-card__tags">
+                    <span v-for="tag in tagMap[mode.id].slice(0, 3)" :key="tag">{{ tag }}</span>
+                  </div>
+                </div>
+              </div>
+            </article>
           </div>
-        </article>
-      </section>
+        </section>
+      </div>
     </ArenaPageState>
 
     <CreateGameModeDialog v-model:open="createOpen" @created="onModeCreated" />
@@ -320,6 +338,52 @@ function onModeCreated(modeId: string) {
   font-size: 18px;
 }
 
+.modes-catalog {
+  display: grid;
+  gap: 22px;
+  width: 100%;
+  padding: 2px 4px 24px;
+}
+
+.paradigm-section__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+
+.paradigm-section__head h2 {
+  margin: 0;
+  color: #17205a;
+  font-size: 18px;
+}
+
+.paradigm-section__head p {
+  margin: 4px 0 0;
+  color: #66709d;
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 640px;
+}
+
+.paradigm-section__focus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.paradigm-section__focus span {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(112, 105, 255, 0.1);
+  color: #5b57f3;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .modes-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -327,7 +391,6 @@ function onModeCreated(modeId: string) {
   align-content: start;
   width: 100%;
   max-width: 100%;
-  padding: 2px 4px 24px;
 }
 
 .modes-page :deep(.aa-skeleton-grid) {

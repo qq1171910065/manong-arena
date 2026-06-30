@@ -4,12 +4,14 @@ import ImmersiveShell from '../layouts/ImmersiveShell.vue'
 import PageViewHost from '../components/arena/PageViewHost.vue'
 import LoginPage from '../pages/login/LoginPage.vue'
 import StarterInitPage from '../pages/starter/StarterInitPage.vue'
+import UserProfileSetupPage from '../pages/starter/UserProfileSetupPage.vue'
 import UiProvider from '../ui/UiProvider.vue'
 import { route, navigate } from '../router'
 import { isPortalPath } from '../pages/settings/portal-routes'
 import { refreshSessionFromStorage, ensureGatewayKey, getAppKeyName } from '../services'
 import { resolveAuthPhase } from '../services/auth-session'
 import { matchWindowService, settingsService, setArenaAudioHostWindow, unlockArenaAudio, loadGameModeOverrides, loadGameScenarios, needsStarterInit } from '../services/arena'
+import { needsUserProfileSetup } from '../services/arena/user-profile-service'
 import { isWebRuntime } from '../composables/useRuntime'
 import { configureRuntime } from '../composables/runtime-config'
 import { applyGeneralSettingsEffects } from '../composables/useGeneralSettings'
@@ -50,7 +52,7 @@ export function createMntoolsApp(config: MntoolsRendererConfig) {
   return defineComponent({
     name: 'MntoolsRoot',
     setup() {
-      const phase = ref<'boot' | 'login' | 'init' | 'main'>('boot')
+      const phase = ref<'boot' | 'login' | 'init' | 'profile' | 'main'>('boot')
       const windowKind = ref<'main' | 'match-room'>('main')
       const pageComponent = ref<Component | null>(null)
       const pageError = ref<string | null>(null)
@@ -87,13 +89,26 @@ export function createMntoolsApp(config: MntoolsRendererConfig) {
           phase.value = 'init'
           return
         }
+        if (await needsUserProfileSetup()) {
+          phase.value = 'profile'
+          return
+        }
         await enterMainShell()
       }
 
       async function onStarterInitComplete() {
+        if (await needsUserProfileSetup()) {
+          phase.value = 'profile'
+          return
+        }
         phase.value = 'main'
         await loadGameModeOverrides().catch((error) => console.warn('[game-modes] overrides load failed', error))
         await loadGameScenarios().catch((error) => console.warn('[game-scenarios] load failed', error))
+        await enterMainShell()
+      }
+
+      async function onUserProfileComplete() {
+        phase.value = 'main'
         await enterMainShell()
       }
 
@@ -250,6 +265,13 @@ export function createMntoolsApp(config: MntoolsRendererConfig) {
             return h(StarterInitPage, {
               appName: config.appName,
               onComplete: () => void onStarterInitComplete(),
+            })
+          }
+
+          if (phase.value === 'profile') {
+            return h(UserProfileSetupPage, {
+              appName: config.appName,
+              onComplete: () => void onUserProfileComplete(),
             })
           }
 

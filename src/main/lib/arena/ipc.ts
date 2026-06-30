@@ -18,7 +18,7 @@ import {
   writeCharacterAssetFile,
 } from './character-assets'
 import { ArenaStore, fail, ok } from './store'
-import { seedDefaultCharacters, seedStarterByModelId, seedStarterGameMode, finalizeStarterInit } from './seed'
+import { seedDefaultCharacters, seedStarterByModelId, seedStarterGameMode, finalizeStarterInit, createUserProfileCharacter, type UserProfileCharacterInput } from './seed'
 import type {
   ArenaLogEntry,
   ArenaResult,
@@ -105,6 +105,19 @@ export function registerArenaHandlers(appId: string): void {
       finalizeStarterInit(requireStore())
       await requireStore().flush()
       return requireStore().getStats()
+    })
+  )
+
+  ipcMain.removeHandler('arena:userProfile:getId')
+  ipcMain.handle('arena:userProfile:getId', () =>
+    wrap(() => requireStore().getUserProfileCharacterId())
+  )
+
+  ipcMain.removeHandler('arena:userProfile:create')
+  ipcMain.handle('arena:userProfile:create', (_event, input: UserProfileCharacterInput) =>
+    wrapAsync(async () => {
+      const created = createUserProfileCharacter(requireStore(), input)
+      return persistCharacterWithAssets(appId, created)
     })
   )
 
@@ -383,6 +396,45 @@ export function registerArenaHandlers(appId: string): void {
   ipcMain.removeHandler('arena:characterGrowth:append')
   ipcMain.handle('arena:characterGrowth:append', (_event, record: import('@shared/arena/types').CharacterGrowthRecord) =>
     wrap(() => requireStore().appendCharacterGrowth(record))
+  )
+
+  ipcMain.removeHandler('arena:characterGrowthSnapshots:list')
+  ipcMain.handle('arena:characterGrowthSnapshots:list', (_event, characterId: string) =>
+    wrap(() => requireStore().listCharacterGrowthSnapshots(characterId))
+  )
+
+  ipcMain.removeHandler('arena:characterGrowthSnapshots:append')
+  ipcMain.handle('arena:characterGrowthSnapshots:append', (_event, snapshot: import('@shared/arena/types').CharacterGrowthSnapshot) =>
+    wrap(() => requireStore().appendCharacterGrowthSnapshot(snapshot))
+  )
+
+  ipcMain.removeHandler('arena:lineups:list')
+  ipcMain.handle('arena:lineups:list', () => wrap(() => requireStore().listLineups()))
+
+  ipcMain.removeHandler('arena:lineups:save')
+  ipcMain.handle('arena:lineups:save', (_event, lineup: import('@shared/arena/types').CharacterLineup) =>
+    wrap(() => requireStore().saveLineup(lineup))
+  )
+
+  ipcMain.removeHandler('arena:lineups:delete')
+  ipcMain.handle('arena:lineups:delete', (_event, id: string) => wrap(() => requireStore().deleteLineup(id)))
+
+  ipcMain.removeHandler('arena:lineups:getActiveId')
+  ipcMain.handle('arena:lineups:getActiveId', () => wrap(() => requireStore().getActiveLineupId()))
+
+  ipcMain.removeHandler('arena:lineups:setActiveId')
+  ipcMain.handle('arena:lineups:setActiveId', (_event, id: string | null) =>
+    wrap(() => requireStore().setActiveLineupId(id))
+  )
+
+  ipcMain.removeHandler('arena:lineupGrowth:list')
+  ipcMain.handle('arena:lineupGrowth:list', (_event, lineupId: string) =>
+    wrap(() => requireStore().listLineupGrowth(lineupId))
+  )
+
+  ipcMain.removeHandler('arena:lineupGrowth:append')
+  ipcMain.handle('arena:lineupGrowth:append', (_event, record: import('@shared/arena/types').LineupGrowthRecord) =>
+    wrap(() => requireStore().appendLineupGrowth(record))
   )
 
   ipcMain.removeHandler('arena:gameModeQA:list')

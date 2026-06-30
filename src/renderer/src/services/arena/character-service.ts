@@ -3,6 +3,7 @@ import { BUILTIN_GAME_MODES, DEFAULT_ARENA_MODEL_ID } from '@shared/arena/consta
 import { isUserGameModeId } from '@shared/arena/export-packages'
 import { buildPackVisualPatch, normalizeCharacterVisuals } from '@shared/arena/character-visuals'
 import { resolveTtsVoiceId } from '@shared/arena/voice-presets'
+import { createDefaultGrowthState, resolveCharacterGrowth } from '@shared/arena/character-growth'
 import { arenaInvoke, ensureArenaReady } from './client'
 import { estimateMatchCost } from './match-cost-estimator'
 import { ArenaError } from './errors'
@@ -56,6 +57,11 @@ function sortCharacters(items: Character[], sort: CharacterFilter['sort']): Char
       return next.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     case 'matches':
       return next.sort((a, b) => b.stats.matchCount - a.stats.matchCount)
+    case 'level':
+      return next.sort(
+        (a, b) => resolveCharacterGrowth(b).level - resolveCharacterGrowth(a).level ||
+          resolveCharacterGrowth(b).totalExp - resolveCharacterGrowth(a).totalExp
+      )
     case 'updated':
     default:
       return next.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -120,6 +126,7 @@ export function createEmptyCharacter(partial?: Partial<Character>): Character {
     status: 'enabled',
     accentColor: '#6366f1',
     stats: { matchCount: 0, winCount: 0, avgCostCents: 0, lastMatchAt: null },
+    growth: createDefaultGrowthState(),
     createdAt: now,
     updatedAt: now,
     ...visualDefaults,

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Brain, BookOpen, MessageCircle, Swords, X } from 'lucide-vue-next'
+import { Brain, BookOpen, MessageCircle, Sparkles, X } from 'lucide-vue-next'
 import { formatTimeLabel } from '@renderer/utils/id'
+import { resolveCharacterGrowth } from '@shared/arena/character-growth'
 import type { Character, CharacterGrowthRecord, BehaviorChangeRecord } from '@shared/arena/types'
 
-export type CharacterStatsTab = 'matches' | 'thinking' | 'growth' | 'behavior'
+export type CharacterStatsTab = 'overview' | 'thinking' | 'growth' | 'behavior'
 
 const show = defineModel<boolean>({ default: false })
 
@@ -16,17 +17,9 @@ const props = defineProps<{
   initialTab?: CharacterStatsTab
 }>()
 
-const activeTab = computed(() => props.initialTab || 'matches')
+const activeTab = computed(() => props.initialTab || 'overview')
 
-const winRate = computed(() => {
-  if (props.character.stats.matchCount === 0) return '0%'
-  return `${Math.round((props.character.stats.winCount / props.character.stats.matchCount) * 100)}%`
-})
-
-const lossCount = computed(() =>
-  Math.max(0, props.character.stats.matchCount - props.character.stats.winCount)
-)
-
+const characterGrowth = computed(() => resolveCharacterGrowth(props.character))
 const learnedSkills = computed(() => props.character.gameSkills.filter((s) => s.learned))
 
 const learningEntries = computed(() => {
@@ -35,18 +28,17 @@ const learningEntries = computed(() => {
     scenarioName: string
     source: string
     summary: string
-    detail?: string
     createdAt?: string
   }> = []
   for (const skill of props.character.gameSkills) {
     const name = skill.scenarioName || skill.scenarioId
     for (const entry of skill.learningLog || []) {
+      if (entry.source === 'initial') continue
       rows.push({
         id: entry.id,
         scenarioName: name,
-        source: entry.source === 'post_match' ? '赛后讨论' : entry.source === 'relearn' ? '再次学习' : '初始学习',
+        source: entry.source === 'post_match' ? '复盘领悟' : '再次学习',
         summary: entry.summary,
-        detail: entry.understanding,
         createdAt: entry.createdAt,
       })
     }
@@ -54,31 +46,15 @@ const learningEntries = computed(() => {
       rows.push({
         id: `${skill.scenarioId}-mental`,
         scenarioName: name,
-        source: '心智模型',
+        source: '范式理解',
         summary: skill.mentalModel,
       })
     }
-    for (const [i, hypo] of (skill.hypotheses || []).entries()) {
-      rows.push({
-        id: `${skill.scenarioId}-hypo-${i}`,
-        scenarioName: name,
-        source: '假设推演',
-        summary: hypo,
-      })
-    }
-    for (const [i, edge] of (skill.edgeCases || []).entries()) {
-      rows.push({
-        id: `${skill.scenarioId}-edge-${i}`,
-        scenarioName: name,
-        source: '边界情况',
-        summary: edge,
-      })
-    }
-    for (const [i, mistake] of (skill.commonMistakes || []).entries()) {
+    for (const [i, mistake] of (skill.commonMistakes || []).slice(0, 2).entries()) {
       rows.push({
         id: `${skill.scenarioId}-mistake-${i}`,
         scenarioName: name,
-        source: '常见误区',
+        source: '常见教训',
         summary: mistake,
       })
     }
@@ -86,10 +62,10 @@ const learningEntries = computed(() => {
   return rows
 })
 
-const tabMeta: Record<CharacterStatsTab, { title: string; icon: typeof Swords }> = {
-  matches: { title: '对局数据', icon: Swords },
-  thinking: { title: '学习与思考', icon: Brain },
-  growth: { title: '养成记录', icon: MessageCircle },
+const tabMeta: Record<CharacterStatsTab, { title: string; icon: typeof Sparkles }> = {
+  overview: { title: '养成概览', icon: Sparkles },
+  thinking: { title: '范式学习', icon: Brain },
+  growth: { title: '人设微调', icon: MessageCircle },
   behavior: { title: '行为变更', icon: BookOpen },
 }
 </script>
@@ -109,25 +85,24 @@ const tabMeta: Record<CharacterStatsTab, { title: string; icon: typeof Swords }>
           </header>
 
           <div class="stats-dialog__body">
-            <template v-if="activeTab === 'matches'">
+            <template v-if="activeTab === 'overview'">
               <div class="stats-dialog__grid">
-                <article><span>总对局</span><strong>{{ character.stats.matchCount }}</strong></article>
-                <article><span>胜场</span><strong>{{ character.stats.winCount }}</strong></article>
-                <article><span>负场/未胜</span><strong>{{ lossCount }}</strong></article>
-                <article><span>胜率</span><strong>{{ winRate }}</strong></article>
-                <article><span>最近对局</span><strong>{{ character.stats.lastMatchAt ? formatTimeLabel(character.stats.lastMatchAt) : '暂无' }}</strong></article>
-                <article><span>已学玩法</span><strong>{{ learnedSkills.length }} / {{ character.gameSkills.length }}</strong></article>
+                <article><span>等级</span><strong>Lv.{{ characterGrowth.level }}</strong></article>
+                <article><span>累计经验</span><strong>{{ characterGrowth.totalExp }} EXP</strong></article>
+                <article><span>已学场景</span><strong>{{ learnedSkills.length }} / {{ character.gameSkills.length }}</strong></article>
                 <article><span>私聊消息</span><strong>{{ chatMessageCount }} 条</strong></article>
+                <article><span>最近演练</span><strong>{{ character.stats.lastMatchAt ? formatTimeLabel(character.stats.lastMatchAt) : '暂无' }}</strong></article>
+                <article><span>行为原则</span><strong>{{ character.behaviorPrinciples.length }} 条</strong></article>
               </div>
+              <p class="stats-dialog__note">Manong Arena 以 AI 养成为核心。场景演练用于检验与沉淀范式，不在此强调胜负统计。</p>
               <template v-if="learnedSkills.length">
-                <h3>玩法技能概览</h3>
+                <h3>已掌握场景范式</h3>
                 <ul class="stats-dialog__list">
                   <li v-for="skill in character.gameSkills" :key="skill.scenarioId">
                     <strong>{{ skill.scenarioName || skill.scenarioId }}</strong>
                     <span>
                       {{ skill.learned ? '已学习' : '未学习' }}
-                      · 考试 {{ skill.examPassed ? '已通过' : skill.examBypassed ? '免考' : '未通过' }}
-                      · 学习记录 {{ skill.learningLog?.length || 0 }} 条
+                      · {{ skill.examPassed ? '已通过校验' : skill.examBypassed ? '已免考' : '待校验' }}
                     </span>
                   </li>
                 </ul>
@@ -135,22 +110,18 @@ const tabMeta: Record<CharacterStatsTab, { title: string; icon: typeof Swords }>
             </template>
 
             <template v-else-if="activeTab === 'thinking'">
-              <p v-if="!learningEntries.length" class="stats-dialog__empty">尚无学习与思考记录。参局学习或赛后讨论后会沉淀在这里。</p>
+              <p v-if="!learningEntries.length" class="stats-dialog__empty">尚无范式学习记录。学习场景规则或完成复盘后，可迁移的理解会出现在这里。</p>
               <article v-for="row in learningEntries" :key="row.id" class="stats-dialog__timeline">
                 <em>{{ row.scenarioName }} · {{ row.source }}{{ row.createdAt ? ` · ${formatTimeLabel(row.createdAt)}` : '' }}</em>
                 <strong>{{ row.summary }}</strong>
-                <p v-if="row.detail">{{ row.detail }}</p>
               </article>
             </template>
 
             <template v-else-if="activeTab === 'growth'">
-              <p v-if="!growthRecords.length" class="stats-dialog__empty">尚无养成记录。与角色私聊或完成赛后复盘后会出现。</p>
+              <p v-if="!growthRecords.length" class="stats-dialog__empty">尚无人设微调记录。与角色私聊或完成复盘后会出现。</p>
               <article v-for="record in growthRecords" :key="record.id" class="stats-dialog__timeline">
-                <em>{{ record.source === 'chat' ? '对话' : '赛后' }} · {{ formatTimeLabel(record.createdAt) }}</em>
+                <em>{{ record.source === 'chat' ? '私聊' : '复盘' }} · {{ formatTimeLabel(record.createdAt) }}</em>
                 <strong>{{ record.summary }}</strong>
-                <p v-if="record.addedPrinciples.length">+ {{ record.addedPrinciples.join('、') }}</p>
-                <p v-if="record.addedPhrases.length">新表达：{{ record.addedPhrases.join('、') }}</p>
-                <p v-if="record.removedPrinciples.length">− {{ record.removedPrinciples.join('、') }}</p>
               </article>
             </template>
 
@@ -159,7 +130,6 @@ const tabMeta: Record<CharacterStatsTab, { title: string; icon: typeof Swords }>
               <article v-for="record in behaviorChanges" :key="record.id" class="stats-dialog__timeline">
                 <em>{{ formatTimeLabel(record.createdAt) }} · {{ record.applied ? '已应用' : '待确认' }}</em>
                 <strong>{{ record.summary }}</strong>
-                <p>+ {{ record.addedPrinciples.join('、') || '无' }} / − {{ record.removedPrinciples.join('、') || '无' }}</p>
               </article>
             </template>
           </div>
@@ -260,6 +230,16 @@ const tabMeta: Record<CharacterStatsTab, { title: string; icon: typeof Swords }>
   font-size: 16px;
 }
 
+.stats-dialog__note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(112, 105, 255, 0.06);
+  color: #66709d;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .stats-dialog__body h3 {
   margin: 16px 0 8px;
   color: #17205a;
@@ -308,13 +288,6 @@ const tabMeta: Record<CharacterStatsTab, { title: string; icon: typeof Swords }>
   color: #17205a;
   font-size: 14px;
   line-height: 1.5;
-}
-
-.stats-dialog__timeline p {
-  margin: 6px 0 0;
-  color: #66709d;
-  font-size: 12px;
-  line-height: 1.55;
 }
 
 .stats-dialog__empty {

@@ -9,7 +9,7 @@ import { NButton, NCard, useMessage } from '../../ui'
 
 const message = useMessage()
 const config = getRuntimeConfig()
-const version = ref('0.1.0')
+const version = ref('0.1.1')
 
 async function loadVersion() {
   const r = await window.api.getVersion?.()

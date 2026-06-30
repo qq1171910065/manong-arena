@@ -149,6 +149,11 @@ function ringDashOffset(ringPercent: number): number {
   return RING_CIRCUMFERENCE * (1 - ringPercent / 100)
 }
 
+function isStarterAssetError(error: unknown): error is Error {
+  if (!(error instanceof Error)) return false
+  return /找不到素材包|初始素材|素材包|素材下载|素材准备/.test(error.message)
+}
+
 async function startInit(fromIndex = 0, skipAssets = false) {
   running.value = true
   error.value = ''
@@ -160,9 +165,9 @@ async function startInit(fromIndex = 0, skipAssets = false) {
     }, { startIndex: fromIndex, skipAssets })
     emit('complete')
   } catch (e) {
-    if (e instanceof StarterAssetFetchError) {
+    if (e instanceof StarterAssetFetchError || isStarterAssetError(e)) {
       assetFetchFailed.value = true
-      assetFetchMessage.value = e.message
+      assetFetchMessage.value = e instanceof Error ? e.message : '初始素材准备失败'
       running.value = false
       return
     }
