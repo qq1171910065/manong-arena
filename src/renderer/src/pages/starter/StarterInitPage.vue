@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Sparkles } from 'lucide-vue-next'
+import { CloudDownload, FolderOpen, Loader2, Sparkles } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { NAlert } from '@renderer/ui'
 import {
@@ -13,6 +13,7 @@ import {
   importStarterAssetsFromZip,
   skipStarterAssetsWithBundled,
 } from '@renderer/services/arena/starter-assets-step'
+import { isRemoteAssetDownloadAvailable, isUserAssetPackInstalled } from '@renderer/services/arena/asset-pack-service'
 import { arenaHomeAssets } from '@renderer/data/arena-home-assets'
 
 const emit = defineEmits<{
@@ -24,7 +25,7 @@ defineProps<{
 }>()
 
 type InitPhase = {
-  id: 'assets' | 'character' | 'gameMode'
+  id: 'assets' | 'initData'
   label: string
   startIndex: number
   count: number
@@ -35,12 +36,12 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 18
 const INIT_PHASES: InitPhase[] = (() => {
   const phases: InitPhase[] = []
   let start = 0
-  for (const kind of ['assets', 'character', 'gameMode'] as const) {
+  for (const kind of ['assets', 'initData'] as const) {
     const count = STARTER_INIT_STEPS.filter((step) => step.kind === kind).length
     if (!count) continue
     phases.push({
       id: kind,
-      label: kind === 'assets' ? '初始素材' : kind === 'character' ? 'AI 角色' : '默认玩法',
+      label: kind === 'assets' ? '初始素材' : '初始化数据',
       startIndex: start,
       count,
     })
@@ -49,6 +50,12 @@ const INIT_PHASES: InitPhase[] = (() => {
   return phases
 })()
 
+type ViewMode = 'choose-assets' | 'running'
+
+const viewMode = ref<ViewMode>('choose-assets')
+const assetsCheckDone = ref(false)
+const remoteDownloadAvailable = ref(false)
+
 const progress = ref<StarterInitProgress>({
   index: 0,
   total: STARTER_INIT_TOTAL,
@@ -56,15 +63,23 @@ const progress = ref<StarterInitProgress>({
   percent: 0,
   step: null,
 })
-const running = ref(true)
+const running = ref(false)
 const error = ref('')
 const assetFetchFailed = ref(false)
 const assetFetchMessage = ref('')
 const assetActionBusy = ref(false)
+const assetImportError = ref('')
 
 const loginBgStyle = {
   '--arena-login-bg': `url(${arenaHomeAssets.bgClean})`,
 }
+
+const assetChoiceDescription = computed(() => {
+  if (remoteDownloadAvailable.value) {
+    return '角色立绘与玩法封面需单独安装。请选择从远程下载完整素材包，或从本地选择 zip 压缩包导入。'
+  }
+  return '角色立绘与玩法封面需单独安装。请从本地选择 zip 压缩包导入，或跳过并使用内置默认素材。'
+})
 
 function findPhase(id: InitPhase['id']): InitPhase {
   return INIT_PHASES.find((phase) => phase.id === id) || INIT_PHASES[0]
@@ -77,8 +92,7 @@ const progressHint = computed(() => {
   const step = progress.value.step
   if (!step) return '正在启动初始化…'
   if (step.kind === 'assets') return '正在导入初始素材包'
-  if (step.kind === 'gameMode') return '正在导入默认玩法'
-  return '正在导入内置 AI 角色'
+  return '正在导入内置角色与玩法数据'
 })
 
 const progressDetail = computed(() => {
@@ -98,15 +112,7 @@ const progressDetail = computed(() => {
     return '正在准备 character-packs 与 game-mode-packs…'
   }
 
-  if (step.kind === 'character') {
-    const phase = findPhase('character')
-    const localIndex = Math.max(1, progress.value.index - phase.startIndex + 1)
-    return `正在创建角色 ${localIndex}/${phase.count}：${step.label}`
-  }
-
-  const phase = findPhase('gameMode')
-  const localIndex = Math.max(1, progress.value.index - phase.startIndex + 1)
-  return `正在安装玩法 ${localIndex}/${phase.count}：${step.label}`
+  return '正在导入 16 个内置 AI 角色与全部默认玩法…'
 })
 
 function phaseStatus(phase: InitPhase): 'pending' | 'active' | 'done' {
@@ -155,6 +161,7 @@ function isStarterAssetError(error: unknown): error is Error {
 }
 
 async function startInit(fromIndex = 0, skipAssets = false) {
+  viewMode.value = 'running'
   running.value = true
   error.value = ''
   assetFetchFailed.value = false
@@ -177,6 +184,7 @@ async function startInit(fromIndex = 0, skipAssets = false) {
 }
 
 async function skipOnlineAssets() {
+  viewMode.value = 'running'
   assetActionBusy.value = true
   error.value = ''
   try {
@@ -193,21 +201,50 @@ async function skipOnlineAssets() {
   }
 }
 
-async function importAssetsZip() {
+async function importAssetsZip(
+  options: { returnToChoiceOnCancel?: boolean; deferRunningView?: boolean } = {}
+) {
+  if (!options.deferRunningView) {
+    viewMode.value = 'running'
+    running.value = true
+  }
   assetActionBusy.value = true
   error.value = ''
+  assetImportError.value = ''
+  assetFetchFailed.value = false
+  assetFetchMessage.value = ''
   try {
     const assetsStep = STARTER_INIT_STEPS[0]
     await importStarterAssetsFromZip((next) => {
       progress.value = next
     }, 0, assetsStep.label)
+    viewMode.value = 'running'
+    running.value = true
     await startInit(1, true)
   } catch (e) {
-    if (e instanceof StarterAssetFetchError) {
+    if (e instanceof StarterAssetFetchError && e.message === '已取消导入素材包') {
+      if (options.returnToChoiceOnCancel) {
+        viewMode.value = 'choose-assets'
+        running.value = false
+        return
+      }
       assetFetchFailed.value = true
       assetFetchMessage.value = e.message
+      running.value = false
+      return
+    }
+    const message = e instanceof Error ? e.message : '导入失败，请重试'
+    if (options.returnToChoiceOnCancel || options.deferRunningView) {
+      viewMode.value = 'choose-assets'
+      running.value = false
+      assetImportError.value = message
+      return
+    }
+    if (e instanceof StarterAssetFetchError) {
+      assetFetchFailed.value = true
+      assetFetchMessage.value = message
     } else {
-      error.value = e instanceof Error ? e.message : '导入失败，请重试'
+      error.value = message
     }
     running.value = false
   } finally {
@@ -215,12 +252,38 @@ async function importAssetsZip() {
   }
 }
 
+async function chooseRemoteDownload() {
+  viewMode.value = 'running'
+  await startInit(0, false)
+}
+
+async function chooseLocalZip() {
+  await importAssetsZip({ returnToChoiceOnCancel: true, deferRunningView: true })
+}
+
 async function retryOnlineAssets() {
   await startInit(0, false)
 }
 
-onMounted(() => {
-  void startInit()
+function backToAssetChoice() {
+  assetFetchFailed.value = false
+  assetFetchMessage.value = ''
+  assetImportError.value = ''
+  error.value = ''
+  running.value = false
+  viewMode.value = 'choose-assets'
+}
+
+onMounted(async () => {
+  remoteDownloadAvailable.value = await isRemoteAssetDownloadAvailable().catch(() => false)
+  const installed = await isUserAssetPackInstalled().catch(() => false)
+  assetsCheckDone.value = true
+  if (installed) {
+    viewMode.value = 'running'
+    void startInit()
+    return
+  }
+  viewMode.value = 'choose-assets'
 })
 </script>
 
@@ -232,15 +295,81 @@ onMounted(() => {
 
     <main class="arena-starter-init__body">
       <div class="arena-starter-init__card">
-        <div class="arena-starter-init__icon" :class="{ 'is-running': running }">
-          <Sparkles v-if="!running && error" :size="28" />
+        <div class="arena-starter-init__icon" :class="{ 'is-running': running && viewMode === 'running' }">
+          <Sparkles v-if="viewMode === 'choose-assets' || (!running && error)" :size="28" />
           <Loader2 v-else :size="28" class="spin" />
         </div>
 
         <p class="arena-starter-init__eyebrow">FIRST SETUP</p>
-        <h1 class="arena-starter-init__title">正在准备你的竞技空间</h1>
-        <p class="arena-starter-init__desc">首次进入将下载素材并初始化角色与玩法，完成后即可进入大厅。</p>
+        <h1 class="arena-starter-init__title">
+          {{ viewMode === 'choose-assets' ? '准备初始素材' : '正在准备你的竞技空间' }}
+        </h1>
+        <p class="arena-starter-init__desc">
+          {{
+            viewMode === 'choose-assets'
+              ? assetChoiceDescription
+              : '首次进入将初始化角色与玩法，完成后即可进入大厅。'
+          }}
+        </p>
 
+        <div v-if="!assetsCheckDone" class="arena-starter-init__checking" role="status">
+          <Loader2 :size="18" class="spin" />
+          <span>正在检查本地素材…</span>
+        </div>
+
+        <div v-else-if="viewMode === 'choose-assets'" class="arena-starter-init__asset-choice">
+          <NAlert
+            v-if="assetImportError"
+            type="error"
+            :bordered="false"
+            class="arena-starter-init__asset-choice-error"
+          >
+            {{ assetImportError }}
+          </NAlert>
+          <button
+            v-if="remoteDownloadAvailable"
+            type="button"
+            class="arena-starter-init__asset-option"
+            :disabled="assetActionBusy"
+            @click="chooseRemoteDownload"
+          >
+            <span class="arena-starter-init__asset-option-icon">
+              <CloudDownload :size="22" />
+            </span>
+            <span class="arena-starter-init__asset-option-body">
+              <strong>从远程下载</strong>
+              <span>自动下载完整素材包（推荐）</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="arena-starter-init__asset-option"
+            :disabled="assetActionBusy"
+            @click="chooseLocalZip"
+          >
+            <span class="arena-starter-init__asset-option-icon">
+              <FolderOpen :size="22" />
+            </span>
+            <span class="arena-starter-init__asset-option-body">
+              <strong>选择本地 zip</strong>
+              <span>导入 zip（需含 character-packs 与 game-mode-packs）</span>
+            </span>
+          </button>
+          <p v-if="assetActionBusy" class="arena-starter-init__asset-choice-busy" role="status">
+            <Loader2 :size="16" class="spin" />
+            <span>正在打开文件选择器…</span>
+          </p>
+          <button
+            type="button"
+            class="arena-starter-init__asset-skip"
+            :disabled="assetActionBusy"
+            @click="skipOnlineAssets"
+          >
+            跳过，使用内置默认素材
+          </button>
+        </div>
+
+        <template v-else>
         <div
           class="arena-starter-init__progress"
           role="progressbar"
@@ -321,11 +450,20 @@ onMounted(() => {
             <button type="button" class="arena-starter-init__retry" :disabled="assetActionBusy" @click="skipOnlineAssets">
               跳过，使用默认素材
             </button>
-            <button type="button" class="arena-starter-init__retry" :disabled="assetActionBusy" @click="importAssetsZip">
+            <button type="button" class="arena-starter-init__retry" :disabled="assetActionBusy" @click="() => importAssetsZip()">
               导入本地 zip
             </button>
-            <button type="button" class="arena-starter-init__retry" :disabled="assetActionBusy" @click="retryOnlineAssets">
+            <button
+              v-if="remoteDownloadAvailable"
+              type="button"
+              class="arena-starter-init__retry"
+              :disabled="assetActionBusy"
+              @click="retryOnlineAssets"
+            >
               重试下载
+            </button>
+            <button type="button" class="arena-starter-init__retry" :disabled="assetActionBusy" @click="backToAssetChoice">
+              重新选择
             </button>
           </div>
         </NAlert>
@@ -334,6 +472,7 @@ onMounted(() => {
           {{ error }}
           <button type="button" class="arena-starter-init__retry" @click="startInit()">重试</button>
         </NAlert>
+        </template>
       </div>
     </main>
   </div>

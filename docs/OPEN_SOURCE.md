@@ -81,7 +81,7 @@ pnpm upload:release-assets
 
 若 `pack:assets` 更新了 `src/shared/arena/bundled-asset-pack-manifest.json`（sha256 / downloadUrl），请一并提交。
 
-> 安装包内置**默认素材**（`bundled-assets/` 纯色占位）。完整素材包走 Release 的 `assets/` 目录或应用内下载。未安装完整包或缺少某角色素材时，客户端会回退到「默认」占位图，不阻断初始化。
+> 安装包内置**默认占位图**在 `src/bundled-assets/`（仅 `default` 角色 + `custom` 玩法封面 PNG，**无 manifest**；元数据在 `pack-manifests/bundled-character-packs.json`）。**初始化数据**（16 角色 + 玩法）在 `src/shared/init-data/`，初始化时批量导入。完整图片素材包走 Release 下载。
 
 ## Platform 地址配置
 

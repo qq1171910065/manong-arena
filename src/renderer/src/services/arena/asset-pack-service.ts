@@ -1,3 +1,4 @@
+import { isRemoteAssetDownloadConfigured } from '@shared/app-release-config'
 import type { AssetPackProgressPayload } from '@shared/arena/initial-assets'
 import type { AssetPackStatus } from '@shared/arena/asset-pack-api'
 
@@ -5,6 +6,20 @@ export async function isInitialAssetsReady(): Promise<boolean> {
   if (typeof window.api?.isInitialAssetsReady !== 'function') return false
   const result = await window.api.isInitialAssetsReady()
   return Boolean(result.ready)
+}
+
+export async function isUserAssetPackInstalled(): Promise<boolean> {
+  if (typeof window.api?.isUserAssetPackInstalled !== 'function') return false
+  const result = await window.api.isUserAssetPackInstalled()
+  return Boolean(result.installed)
+}
+
+export async function isRemoteAssetDownloadAvailable(): Promise<boolean> {
+  if (typeof window.api?.getInitialAssetManifest !== 'function') return false
+  const result = await window.api.getInitialAssetManifest()
+  const manifestUrl = result.manifest?.downloadUrl ?? ''
+  const isDev = import.meta.env.DEV
+  return isRemoteAssetDownloadConfigured(manifestUrl, { allowManifestFallback: isDev })
 }
 
 export async function getAssetPackStatus(): Promise<AssetPackStatus | null> {

@@ -9,6 +9,12 @@ export const assetPackDomain = {
       ready?: boolean
     }>,
 
+  isUserAssetPackInstalled: () =>
+    ipcRenderer.invoke('asset-pack:is-user-installed') as Promise<{
+      ok: boolean
+      installed?: boolean
+    }>,
+
   getInitialAssetManifest: () =>
     ipcRenderer.invoke('asset-pack:get-manifest') as Promise<{
       ok: boolean

@@ -17,7 +17,11 @@ const iconClass = computed(() => {
 })
 
 function dismiss() {
-  resolveAppDialog(state.mode === 'choose' ? null : false)
+  if (state.mode === 'choose') {
+    resolveAppDialog({ choice: null, remember: state.rememberChecked })
+    return
+  }
+  resolveAppDialog(false)
 }
 
 function confirm() {
@@ -25,7 +29,7 @@ function confirm() {
 }
 
 function choose(id: string) {
-  resolveAppDialog(id)
+  resolveAppDialog({ choice: id, remember: state.rememberChecked })
 }
 </script>
 
@@ -51,7 +55,18 @@ function choose(id: string) {
         <p v-if="state.detail" class="app-dialog-detail">{{ state.detail }}</p>
         <component :is="state.content" v-if="state.content" />
 
-        <div v-if="state.mode === 'choose'" class="app-dialog-actions app-dialog-actions--stack">
+        <label v-if="state.mode === 'choose' && state.rememberLabel" class="app-dialog-remember">
+          <input v-model="state.rememberChecked" type="checkbox" />
+          <span>{{ state.rememberLabel }}</span>
+        </label>
+
+        <div
+          v-if="state.mode === 'choose'"
+          :class="[
+            'app-dialog-actions',
+            state.actionsLayout === 'row' ? 'app-dialog-actions--row' : 'app-dialog-actions--stack',
+          ]"
+        >
           <button
             v-for="choice in state.choices"
             :key="choice.id"
@@ -191,6 +206,33 @@ function choose(id: string) {
 .app-dialog-actions--stack {
   flex-direction: column;
   align-items: stretch;
+}
+
+.app-dialog-actions--row {
+  flex-direction: row;
+}
+
+.app-dialog-actions--row .app-dialog-btn {
+  flex: 1;
+}
+
+.app-dialog-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  color: #53619a;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.app-dialog-remember input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #4f46e5;
+  cursor: pointer;
 }
 
 .app-dialog-btn {

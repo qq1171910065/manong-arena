@@ -21,6 +21,7 @@ import type { AssetPackProgressPayload, InitialAssetPackManifest } from '@shared
 
 export interface AssetPackApi {
   isInitialAssetsReady: () => Promise<{ ok: boolean; ready?: boolean }>
+  isUserAssetPackInstalled: () => Promise<{ ok: boolean; installed?: boolean }>
   getInitialAssetManifest: () => Promise<{ ok: boolean; manifest?: InitialAssetPackManifest | null }>
   ensureInitialAssets: () => Promise<{
     ok: boolean
@@ -81,7 +82,8 @@ export interface ArenaApi {
   factoryResetStore: () => Promise<ArenaStoreStats>
   seedStarterCharacter: (modelId: string) => Promise<Character>
   seedStarterGameMode: (modeId: string) => Promise<boolean>
-  finalizeStarterInit: () => Promise<ArenaStoreStats>
+  importStarterInitBundle: () => Promise<{ characters: number; gameModes: number; seedKeys: string[] }>
+  finalizeStarterInit: (introducedSeedKeys?: string[]) => Promise<ArenaStoreStats>
   getUserProfileCharacterId: () => Promise<string | null>
   createUserProfileCharacter: (input: {
     displayName: string

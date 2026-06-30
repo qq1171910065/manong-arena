@@ -1,15 +1,17 @@
 {
   "version": "bundled-minimal-1",
   "packageId": "character-packs",
-  "generatedAt": "2026-06-28T02:41:28.299Z",
-  "usage": "Manong Arena 内置默认角色素材包（纯色占位，随客户端分发）",
+  "generatedAt": "2026-06-30T00:00:00.000Z",
+  "usage": "Manong Arena 内置默认角色素材（default，随客户端分发；完整 16 角色见远程素材包）",
   "characters": [
     {
       "id": "default",
       "name": "默认",
       "modelId": "default",
+      "vendor": "Platform",
+      "gender": "other",
       "accent": "#58c7df",
-      "palette": "teal / sky blue / white",
+      "palette": "teal / sky blue / white / soft yellow",
       "portrait": "default/portrait.png",
       "banner": "default/banner.png",
       "avatars": {

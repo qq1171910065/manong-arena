@@ -1,5 +1,6 @@
 import {
   applyCharacterAssetPack,
+  EMPTY_CHARACTER_ASSET_PACK_ID,
   type CharacterAssetPackOption,
 } from '@renderer/data/character-asset-catalog'
 import { cloneJson } from '@shared/clone-json'
@@ -11,6 +12,9 @@ export async function materializeCharacterPackSelection(
   option: CharacterAssetPackOption
 ): Promise<Character> {
   const seeded = applyCharacterAssetPack(cloneJson(character), option)
+  if (option.characterId === EMPTY_CHARACTER_ASSET_PACK_ID) {
+    return seeded
+  }
   if (!window.api?.materializeCharacterFromPack) {
     return seeded
   }

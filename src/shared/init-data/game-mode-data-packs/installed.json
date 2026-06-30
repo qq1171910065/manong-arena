@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "gameModeIds": [
+    "werewolf",
+    "roundtable",
+    "brainstorm-game-design",
+    "brainstorm-character-design",
+    "undercover",
+    "avalon"
+  ],
+  "generatedAt": "2026-06-30T02:20:07.827Z"
+}

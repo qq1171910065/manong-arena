@@ -1,6 +1,6 @@
 {
   "name": "manong-arena",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Manong Arena — AI 角色养成与规则化社交对局桌面客户端",
   "main": "./out/main/index.js",
   "license": "MIT",
@@ -16,8 +16,10 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "generate:bundled-assets": "node scripts/generate-bundled-placeholder-assets.mjs",
-    "pack:assets": "node scripts/pack-initial-assets.mjs",
+    "generate:bundled-assets": "node scripts/sync-bundled-default-assets.mjs",
+    "sync:bundled-assets": "node scripts/sync-bundled-default-assets.mjs",
+    "sync:init-data": "node scripts/extract-starter-seed-characters.mjs && node scripts/sync-init-data-packs.mjs",
+    "pack:assets": "node scripts/sync-init-data-packs.mjs && node scripts/pack-initial-assets.mjs",
     "init:dev-assets": "node scripts/init-dev-assets.mjs",
     "repair:dev-assets": "node scripts/repair-dev-asset-cache.mjs",
     "install:asset-pack-local": "node scripts/install-asset-pack-local.mjs",

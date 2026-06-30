@@ -18,7 +18,7 @@ import {
   writeCharacterAssetFile,
 } from './character-assets'
 import { ArenaStore, fail, ok } from './store'
-import { seedDefaultCharacters, seedStarterByModelId, seedStarterGameMode, finalizeStarterInit, createUserProfileCharacter, type UserProfileCharacterInput } from './seed'
+import { seedDefaultCharacters, seedStarterByModelId, seedStarterGameMode, importStarterInitBundle, finalizeStarterInit, createUserProfileCharacter, type UserProfileCharacterInput } from './seed'
 import type {
   ArenaLogEntry,
   ArenaResult,
@@ -99,10 +99,20 @@ export function registerArenaHandlers(appId: string): void {
     })
   )
 
-  ipcMain.removeHandler('arena:starter:finalize')
-  ipcMain.handle('arena:starter:finalize', async () =>
+  ipcMain.removeHandler('arena:starter:importBundle')
+  ipcMain.handle('arena:starter:importBundle', async () =>
     wrapAsync(async () => {
-      finalizeStarterInit(requireStore())
+      const result = importStarterInitBundle(requireStore(), appId)
+      await syncCharacterAssets(appId)
+      await requireStore().flush()
+      return result
+    })
+  )
+
+  ipcMain.removeHandler('arena:starter:finalize')
+  ipcMain.handle('arena:starter:finalize', async (_event, introducedSeedKeys?: string[]) =>
+    wrapAsync(async () => {
+      finalizeStarterInit(requireStore(), introducedSeedKeys)
       await requireStore().flush()
       return requireStore().getStats()
     })

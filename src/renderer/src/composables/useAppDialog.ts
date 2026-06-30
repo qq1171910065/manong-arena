@@ -20,6 +20,15 @@ export interface AppDialogConfirmOptions {
 
 export interface AppDialogChooseOptions extends Omit<AppDialogConfirmOptions, 'confirmText' | 'cancelText'> {
   choices: AppDialogChoice[]
+  /** 按钮横向排列（默认纵向堆叠） */
+  actionsLayout?: 'stack' | 'row'
+  /** 显示「记住选择」勾选框 */
+  rememberLabel?: string
+}
+
+export interface AppDialogChooseResult {
+  choice: string | null
+  remember: boolean
 }
 
 interface AppDialogState {
@@ -33,6 +42,9 @@ interface AppDialogState {
   mode: 'confirm' | 'choose'
   choices: AppDialogChoice[]
   content: (() => VNode) | null
+  actionsLayout: 'stack' | 'row'
+  rememberLabel: string
+  rememberChecked: boolean
 }
 
 const state = reactive<AppDialogState>({
@@ -46,6 +58,9 @@ const state = reactive<AppDialogState>({
   mode: 'confirm',
   choices: [],
   content: null,
+  actionsLayout: 'stack',
+  rememberLabel: '',
+  rememberChecked: false,
 })
 
 let pendingResolve: ((value: unknown) => void) | null = null
@@ -80,7 +95,7 @@ export function confirm(options: AppDialogConfirmOptions | string): Promise<bool
   })
 }
 
-export function choose(options: AppDialogChooseOptions): Promise<string | null> {
+export function choose(options: AppDialogChooseOptions): Promise<AppDialogChooseResult> {
   return new Promise((resolve) => {
     openDialog(
       {
@@ -93,8 +108,17 @@ export function choose(options: AppDialogChooseOptions): Promise<string | null> 
         mode: 'choose',
         choices: options.choices,
         content: options.content ?? null,
+        actionsLayout: options.actionsLayout ?? 'stack',
+        rememberLabel: options.rememberLabel ?? '',
+        rememberChecked: false,
       },
-      (value) => resolve(typeof value === 'string' ? value : null)
+      (value) => {
+        if (value && typeof value === 'object' && 'choice' in value) {
+          resolve(value as AppDialogChooseResult)
+          return
+        }
+        resolve({ choice: typeof value === 'string' ? value : null, remember: false })
+      }
     )
   })
 }
@@ -120,9 +144,25 @@ export function alert(options: AppDialogConfirmOptions | string): Promise<void> 
 }
 
 export function resolveAppDialog(value: unknown) {
+  const payload =
+    state.mode === 'choose'
+      ? {
+          choice:
+            value && typeof value === 'object' && 'choice' in value
+              ? (value as AppDialogChooseResult).choice
+              : typeof value === 'string'
+                ? value
+                : null,
+          remember:
+            value && typeof value === 'object' && 'remember' in value
+              ? Boolean((value as AppDialogChooseResult).remember)
+              : state.rememberChecked,
+        }
+      : value
   state.open = false
   state.content = null
-  pendingResolve?.(value)
+  state.rememberChecked = false
+  pendingResolve?.(payload)
   pendingResolve = null
 }
 
