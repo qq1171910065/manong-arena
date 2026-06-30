@@ -24,6 +24,7 @@ Thumbs.db
 # env & secrets
 .env
 .env.*
+!.env.example
 
 # editor
 .vscode/
