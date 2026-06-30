@@ -14,6 +14,10 @@ import {
 
   readFileSync,
 
+  readdirSync,
+
+  renameSync,
+
   rmSync,
 
   statSync,
@@ -39,6 +43,8 @@ import {
   getAssetPackCacheDir,
 
   getAssetPackZipPath,
+
+  hasPackContentAt,
 
   resolveDownloadUrl,
 
@@ -242,16 +248,50 @@ export function assertAssetPackStructure(destDir: string): void {
 
   if (!existsSync(marker)) {
 
-    throw new Error('素材包结构无效，缺少 character-packs/manifest.json')
+    throw new Error(
+
+      '素材包结构无效：zip 根目录需包含 character-packs/manifest.json 与 game-mode-packs/manifest.json（不要多套一层文件夹）'
+
+    )
 
   }
 
   if (!existsSync(gameMarker)) {
 
-    throw new Error('素材包结构无效，缺少 game-mode-packs/manifest.json')
+    throw new Error(
+
+      '素材包结构无效：zip 根目录需包含 character-packs/manifest.json 与 game-mode-packs/manifest.json（不要多套一层文件夹）'
+
+    )
 
   }
 
+}
+
+
+
+/** 兼容 zip 内多套一层目录（如 arena-initial-assets-1.0.0/character-packs/…） */
+export function normalizeExtractedAssetPackRoot(destDir: string): void {
+  if (hasPackContentAt(destDir)) return
+
+  const hoistFrom = (sourceDir: string): boolean => {
+    if (!hasPackContentAt(sourceDir)) return false
+    for (const name of readdirSync(sourceDir)) {
+      const src = join(sourceDir, name)
+      const dest = join(destDir, name)
+      if (existsSync(dest)) rmSync(dest, { recursive: true, force: true })
+      renameSync(src, dest)
+    }
+    if (existsSync(sourceDir)) rmSync(sourceDir, { recursive: true, force: true })
+    return true
+  }
+
+  const topDirs = readdirSync(destDir, { withFileTypes: true }).filter((entry) => entry.isDirectory())
+  if (topDirs.length === 1 && hoistFrom(join(destDir, topDirs[0].name))) return
+
+  for (const entry of topDirs) {
+    if (hoistFrom(join(destDir, entry.name))) return
+  }
 }
 
 
@@ -261,6 +301,8 @@ export async function extractAssetPackZip(destDir: string, zipPath: string): Pro
   mkdirSync(destDir, { recursive: true })
 
   await extractZip(zipPath, { dir: destDir })
+
+  normalizeExtractedAssetPackRoot(destDir)
 
   assertAssetPackStructure(destDir)
 

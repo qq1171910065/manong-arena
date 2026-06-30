@@ -73,6 +73,16 @@ export interface CharacterAssetPackOption {
   previewBannerUrl?: string
 }
 
+export const EMPTY_CHARACTER_ASSET_PACK_ID = '__empty__'
+
+export const EMPTY_CHARACTER_ASSET_PACK_OPTION: CharacterAssetPackOption = {
+  characterId: EMPTY_CHARACTER_ASSET_PACK_ID,
+  label: '无素材（空）',
+  previewPortraitUrl: '',
+  previewAvatarUrl: '',
+  previewBannerUrl: '',
+}
+
 export function buildCharacterAssetPackOptions(manifest: ManifestFile): CharacterAssetPackOption[] {
   if (!Array.isArray(manifest.characters) || !manifest.characters.length) return []
   return manifest.characters.map((item) => {
@@ -182,13 +192,13 @@ export function listCharacterAssetPackGroups(modelId = ''): Array<{ label: strin
   })
 
   const groups: Array<{ label: string; options: CharacterAssetPackOption[] }> = []
-  if (defaults.length) groups.push({ label: '默认素材包', options: defaults })
+  groups.push({ label: '占位 / 空', options: [EMPTY_CHARACTER_ASSET_PACK_OPTION, ...defaults] })
   if (installed.length && isFullInstalledPack(all)) {
     groups.push({ label: '已安装素材包', options: installed })
   } else if (installed.length && !defaults.length) {
     groups.push({ label: '可用素材', options: installed })
   }
-  return groups.length ? groups : [{ label: '默认素材包', options: defaults }]
+  return groups
 }
 
 function resolvePackRef(ref: string): string | null {
@@ -332,6 +342,16 @@ export function characterAvatarUrl(
 }
 
 export function applyCharacterAssetPack(character: Character, option: CharacterAssetPackOption): Character {
+  if (option.characterId === EMPTY_CHARACTER_ASSET_PACK_ID) {
+    return normalizeCharacterVisuals({
+      ...character,
+      visualPackId: undefined,
+      avatarUrl: '',
+      portraitUrl: '',
+      portraitHorizontalUrl: '',
+      expressionUrls: {},
+    })
+  }
   const patch = buildPackVisualPatch(option.characterId, option.accent || character.accentColor)
   return normalizeCharacterVisuals({
     ...character,

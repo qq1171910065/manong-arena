@@ -1,7 +1,12 @@
 import { existsSync } from 'node:fs'
 
-/** initial 素材 zip 包含的角色视觉包与玩法视觉包，不含 logo / 背景 / 登录贴图等 */
-export const ASSET_PACK_CONTENT_ROOTS = ['character-packs', 'game-mode-packs'] as const
+/** initial 素材 zip：图片包 + 初始化数据包（与 .dev-assets 顶层目录一致） */
+export const ASSET_PACK_CONTENT_ROOTS = [
+  'character-packs',
+  'game-mode-packs',
+  'character-data-packs',
+  'game-mode-data-packs',
+] as const
 
 export type AssetPackContentRoot = (typeof ASSET_PACK_CONTENT_ROOTS)[number]
 

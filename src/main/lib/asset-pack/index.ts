@@ -34,6 +34,7 @@ import {
   getProjectRoots,
   hasPackContentAt,
   isInitialAssetsReady,
+  isUserAssetPackInstalled,
   readInstallState,
   resolveAssetFilePath,
 } from './paths'
@@ -357,6 +358,12 @@ export function registerAssetPackHandlers(appId: string): void {
     ready: isInitialAssetsReady(appId),
   }))
 
+  ipcMain.removeHandler('asset-pack:is-user-installed')
+  ipcMain.handle('asset-pack:is-user-installed', () => ({
+    ok: true,
+    installed: isUserAssetPackInstalled(appId),
+  }))
+
   ipcMain.removeHandler('asset-pack:get-manifest')
   ipcMain.handle('asset-pack:get-manifest', () => {
     const manifest = resolveAssetPackManifest()
@@ -379,8 +386,23 @@ export function registerAssetPackHandlers(appId: string): void {
 
   ipcMain.removeHandler('asset-pack:install-from-file')
   ipcMain.handle('asset-pack:install-from-file', async (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    return pickAndInstallAssetPackFromFile(appId, win, event.sender)
+    try {
+      let win = BrowserWindow.fromWebContents(event.sender)
+      if (!win || win.isDestroyed()) {
+        const { getMainWindow } = await import('../window-manager')
+        win = getMainWindow()
+      }
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+      }
+      return await pickAndInstallAssetPackFromFile(appId, win, event.sender)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '本地素材包载入失败'
+      logAssetPack(`install-from-file failed: ${message}`)
+      return { ok: false, error: message }
+    }
   })
 
   ipcMain.removeHandler('asset-pack:ensure')

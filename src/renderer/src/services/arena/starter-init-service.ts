@@ -72,27 +72,24 @@ export async function runStarterInit(
           error instanceof Error ? error.message : '初始素材准备失败'
         )
       }
-    } else if (step.kind === 'character') {
-      await arenaInvoke('storage', 'seedStarterCharacter', () =>
-        window.api.seedStarterCharacter(step.id)
-      )
-    } else {
-      await arenaInvoke('storage', 'seedStarterGameMode', () =>
-        window.api.seedStarterGameMode(step.id)
-      )
+      await sleep(120)
+      continue
     }
 
-    await sleep(step.kind === 'assets' ? 120 : 280)
+    const result = await arenaInvoke('storage', 'importStarterInitBundle', () =>
+      window.api.importStarterInitBundle()
+    )
+    await arenaInvoke('storage', 'finalizeStarterInit', () =>
+      window.api.finalizeStarterInit(result.seedKeys)
+    )
+    onProgress({
+      index: STARTER_INIT_TOTAL,
+      total: STARTER_INIT_TOTAL,
+      label: '完成',
+      percent: 100,
+      step: null,
+    })
+    await sleep(400)
+    return
   }
-
-  onProgress({
-    index: STARTER_INIT_TOTAL,
-    total: STARTER_INIT_TOTAL,
-    label: '完成',
-    percent: 100,
-    step: null,
-  })
-
-  await arenaInvoke('storage', 'finalizeStarterInit', () => window.api.finalizeStarterInit())
-  await sleep(400)
 }

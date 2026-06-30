@@ -14,7 +14,7 @@ export function isValidAssetPackManifest(value: unknown): value is InitialAssetP
     manifest.packId &&
       manifest.version &&
       manifest.fileName &&
-      manifest.downloadUrl &&
+      typeof manifest.downloadUrl === 'string' &&
       typeof manifest.sha256 === 'string' &&
       typeof manifest.sizeBytes === 'number'
   )

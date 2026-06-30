@@ -1,9 +1,15 @@
 {
   "packId": "initial",
-  "version": "0.1.0",
-  "fileName": "arena-initial-assets-0.1.0.zip",
-  "downloadUrl": "https://github.com/qq1171910065/manong-arena/releases/download/v0.1.0/assets/arena-initial-assets-0.1.0.zip",
-  "sha256": "7033058b19031d4002134ce18d0d9f5a51a0a52740df6780ca851cc5eaf3af66",
-  "sizeBytes": 101280002,
-  "generatedAt": "2026-06-28T08:45:24.398Z"
+  "version": "0.1.2",
+  "fileName": "arena-initial-assets-0.1.2.zip",
+  "downloadUrl": "",
+  "sha256": "02575ab95caf6c4d953f62516008f6acba348b901503dc4dc8051b471fab95b6",
+  "sizeBytes": 101295721,
+  "generatedAt": "2026-06-30T02:20:09.602Z",
+  "contentRoots": [
+    "character-packs",
+    "game-mode-packs",
+    "character-data-packs",
+    "game-mode-data-packs"
+  ]
 }

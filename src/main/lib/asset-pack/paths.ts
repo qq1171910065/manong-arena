@@ -6,25 +6,33 @@ import {
   getInstalledAssetsDir as getAppInstalledAssetsDir,
 } from '../app-home'
 import {
-  BUNDLED_MINIMAL_ASSET_VERSION,
   INITIAL_ASSET_PACK_ID,
   type InitialAssetInstallState,
   type InitialAssetPackManifest,
 } from '@shared/arena/initial-assets'
-import { resolveAssetPackManifest } from './manifest'
+import { resolveAssetPackDownloadUrl } from '@shared/app-release-config'
 import { getProjectRoots } from './project-roots'
 
 export { getProjectRoots } from './project-roots'
 
 export const ASSET_PACK_MARKER_PATH = 'character-packs/manifest.json'
 export const ASSET_PACK_GAME_MARKER_PATH = 'game-mode-packs/manifest.json'
-export const ASSET_PACK_SYNC_DIRS = ['character-packs', 'game-mode-packs'] as const
+export const ASSET_PACK_SYNC_DIRS = [
+  'character-packs',
+  'game-mode-packs',
+  'character-data-packs',
+  'game-mode-data-packs',
+] as const
 
 export function hasPackContentAt(dir: string): boolean {
   if (!dir) return false
-  return (
-    existsSync(join(dir, ASSET_PACK_MARKER_PATH)) && existsSync(join(dir, ASSET_PACK_GAME_MARKER_PATH))
-  )
+  if (
+    existsSync(join(dir, ASSET_PACK_MARKER_PATH)) &&
+    existsSync(join(dir, ASSET_PACK_GAME_MARKER_PATH))
+  ) {
+    return true
+  }
+  return hasBundledDefaultAssets(dir)
 }
 
 /** 解压后的素材目录（安装目录） */
@@ -64,17 +72,30 @@ export function readInstallState(appId: string): InitialAssetInstallState | null
 export function findBundledAssetsDir(): string | null {
   if (app.isPackaged) {
     const resourceDir = join(process.resourcesPath, 'bundled-assets')
-    if (hasPackContentAt(resourceDir)) return resourceDir
+    if (hasBundledDefaultAssets(resourceDir)) return resourceDir
   }
   for (const root of getProjectRoots()) {
-    const dir = join(root, 'bundled-assets')
-    if (hasPackContentAt(dir)) return dir
+    const dir = join(root, 'src/bundled-assets')
+    if (hasBundledDefaultAssets(dir)) return dir
+    const legacyDir = join(root, 'bundled-assets')
+    if (hasBundledDefaultAssets(legacyDir)) return legacyDir
   }
   return null
 }
 
+/** 内置默认占位图（仅 default 角色 + custom 玩法封面，无 manifest） */
+export function hasBundledDefaultAssets(dir: string): boolean {
+  if (!dir) return false
+  return (
+    existsSync(join(dir, 'character-packs/default/portrait.png')) &&
+    existsSync(join(dir, 'game-mode-packs/custom/mode-cover.png'))
+  )
+}
+
 const DEFAULT_CHARACTER_PACK_ID = 'default'
+const DEFAULT_GAME_MODE_PACK_ID = 'custom'
 const CHARACTER_PACK_ASSET_RE = /^character-packs\/([^/]+)\/(.+)$/
+const GAME_MODE_PACK_ASSET_RE = /^game-mode-packs\/([^/]+)\/(.+)$/
 
 function resolveAssetFilePathExact(normalized: string, appId: string): string | null {
   const installed = join(getInstalledAssetsDir(appId), normalized)
@@ -105,26 +126,38 @@ export function resolveAssetFilePath(relativePath: string, appId: string): strin
   if (match && match[1] !== DEFAULT_CHARACTER_PACK_ID) {
     return resolveAssetFilePathExact(`character-packs/${DEFAULT_CHARACTER_PACK_ID}/${match[2]}`, appId)
   }
+
+  const modeMatch = normalized.match(GAME_MODE_PACK_ASSET_RE)
+  if (modeMatch && modeMatch[1] !== DEFAULT_GAME_MODE_PACK_ID) {
+    return resolveAssetFilePathExact(`game-mode-packs/${DEFAULT_GAME_MODE_PACK_ID}/${modeMatch[2]}`, appId)
+  }
   return null
 }
 
-export function isInitialAssetsReady(appId: string): boolean {
-  const marker = join(getInstalledAssetsDir(appId), ASSET_PACK_MARKER_PATH)
+/** userData 中是否已写入素材安装记录（不含 bundled / dev 回退） */
+export function isUserAssetPackInstalled(appId: string): boolean {
+  const installedDir = getInstalledAssetsDir(appId)
+  const marker = join(installedDir, ASSET_PACK_MARKER_PATH)
   const installed = readInstallState(appId)
-  if (!existsSync(marker) || installed?.packId !== INITIAL_ASSET_PACK_ID) {
-    return hasPackContentAt(findBundledAssetsDir() || '')
-  }
+  return (
+    existsSync(marker) &&
+    installed?.packId === INITIAL_ASSET_PACK_ID &&
+    hasPackContentAt(installedDir)
+  )
+}
 
-  const manifest = resolveAssetPackManifest()
-  if (!manifest) return true
-  if (installed.version === BUNDLED_MINIMAL_ASSET_VERSION) return true
-  return installed.version === manifest.version
+export function isInitialAssetsReady(appId: string): boolean {
+  if (isUserAssetPackInstalled(appId)) return true
+  return hasBundledDefaultAssets(findBundledAssetsDir() || '')
 }
 
 export function resolveDownloadUrl(manifest: InitialAssetPackManifest): string {
-  const override = String(process.env.ARENA_ASSETS_DOWNLOAD_URL || '').trim()
-  if (override.startsWith('http://') || override.startsWith('https://')) return override
-  return manifest.downloadUrl
+  if (!app.isPackaged) {
+    const override = String(process.env.ARENA_ASSETS_DOWNLOAD_URL || '').trim()
+    if (/^https?:\/\//i.test(override)) return override
+    return resolveAssetPackDownloadUrl(manifest.downloadUrl, { allowManifestFallback: true })
+  }
+  return resolveAssetPackDownloadUrl(manifest.downloadUrl, { allowManifestFallback: false })
 }
 
 export function findDevAssetsDir(): string | null {

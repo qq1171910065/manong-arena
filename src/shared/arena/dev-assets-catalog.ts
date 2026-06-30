@@ -12,8 +12,9 @@ export const DEV_ASSETS_DIR_NAME = '.dev-assets'
 /** 随安装包 / Vite 静态引用，不在 `.dev-assets/` 素材管理中维护 */
 export const RENDERER_STATIC_ASSET_DIRS = ['home', 'characters'] as const
 
-/** 同步到 renderer 的素材包目录（不含 shell 静态资源）— 已废弃，仅保留常量供 IPC 命名兼容 */
-export const DEV_ASSETS_SYNC_DIRS = ['character-packs', 'game-mode-packs'] as const
+import { DEV_ASSETS_SYNC_DIRS } from './dev-assets-layout'
+
+export { DEV_ASSETS_SYNC_DIRS }
 
 export const CHARACTER_PACK_VENDORS = [
   'default',
@@ -105,8 +106,11 @@ export const DEV_ASSETS_TREE: DevAssetsDirNode[] = [
 ## 顶层目录
 
 \`\`\`
-character-packs/      # 17 个角色目录 + manifest.json
-game-mode-packs/      # 4 个玩法目录 + manifest.json
+.dev-assets/
+├── character-packs/          # 16 角色图片素材（运行时仍用此名打进 zip）
+├── character-data-packs/     # 16 角色初始化 JSON（sync:init-data 生成）
+├── game-mode-packs/          # 玩法图片素材
+└── game-mode-data-packs/     # 玩法安装列表 JSON
 \`\`\`
 
 ## 工作流

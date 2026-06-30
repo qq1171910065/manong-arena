@@ -85,6 +85,113 @@
   color: var(--arena-muted);
 }
 
+.arena-starter-init__checking {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--arena-muted);
+  font-size: 13px;
+}
+
+.arena-starter-init__asset-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.arena-starter-init__asset-choice-error {
+  margin-bottom: 4px;
+}
+
+.arena-starter-init__asset-choice-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--arena-muted);
+  font-size: 13px;
+}
+
+.arena-starter-init__asset-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(123, 92, 255, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--arena-ink);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.arena-starter-init__asset-option:hover:not(:disabled) {
+  border-color: rgba(123, 92, 255, 0.42);
+  box-shadow: 0 10px 24px rgba(88, 72, 180, 0.1);
+  transform: translateY(-1px);
+}
+
+.arena-starter-init__asset-option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.arena-starter-init__asset-option-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--arena-brand);
+  background: rgba(123, 92, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.arena-starter-init__asset-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.arena-starter-init__asset-option-body strong {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--arena-ink);
+}
+
+.arena-starter-init__asset-option-body span {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--arena-muted);
+}
+
+.arena-starter-init__asset-skip {
+  align-self: center;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--arena-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.arena-starter-init__asset-skip:hover:not(:disabled) {
+  color: var(--arena-brand);
+}
+
+.arena-starter-init__asset-skip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .arena-starter-init__progress-track {
   height: 8px;
   border-radius: 999px;

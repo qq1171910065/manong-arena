@@ -9,21 +9,11 @@ import {
 
 export type StarterInitStep =
   | { kind: 'assets'; id: string; label: string }
-  | { kind: 'character'; id: string; label: string }
-  | { kind: 'gameMode'; id: string; label: string }
+  | { kind: 'initData'; id: string; label: string }
 
 export const STARTER_INIT_STEPS: StarterInitStep[] = [
   { kind: 'assets', id: 'initial', label: '初始素材包' },
-  ...STARTER_CHARACTER_MODEL_IDS.map((id) => ({
-    kind: 'character' as const,
-    id,
-    label: STARTER_CHARACTER_LABELS[id],
-  })),
-  ...STARTER_GAME_MODE_IDS.map((id) => ({
-    kind: 'gameMode' as const,
-    id,
-    label: STARTER_GAME_MODE_LABELS[id],
-  })),
+  { kind: 'initData', id: 'starter-bundle', label: '导入初始化数据' },
 ]
 
 export const STARTER_INIT_TOTAL = STARTER_INIT_STEPS.length

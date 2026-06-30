@@ -6,6 +6,7 @@ export const STARTER_GAME_MODE_IDS = [
   'brainstorm-game-design',
   'brainstorm-character-design',
   'undercover',
+  'avalon',
 ] as const
 
 export type StarterGameModeId = (typeof STARTER_GAME_MODE_IDS)[number]
@@ -16,4 +17,5 @@ export const STARTER_GAME_MODE_LABELS: Record<StarterGameModeId, string> = {
   'brainstorm-game-design': '头脑风暴 · 玩法设计',
   'brainstorm-character-design': '头脑风暴 · 角色塑造',
   undercover: '谁是卧底',
+  avalon: '阿瓦隆',
 }

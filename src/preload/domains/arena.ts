@@ -79,7 +79,10 @@ export const arenaDomain = {
 
   seedStarterCharacter: (modelId: string) => invoke<Character>('arena:starter:seed', modelId),
   seedStarterGameMode: (modeId: string) => invoke<boolean>('arena:starter:seedGameMode', modeId),
-  finalizeStarterInit: () => invoke<ArenaStoreStats>('arena:starter:finalize'),
+  importStarterInitBundle: () =>
+    invoke<{ characters: number; gameModes: number; seedKeys: string[] }>('arena:starter:importBundle'),
+  finalizeStarterInit: (introducedSeedKeys?: string[]) =>
+    invoke<ArenaStoreStats>('arena:starter:finalize', introducedSeedKeys),
   getUserProfileCharacterId: () => invoke<string | null>('arena:userProfile:getId'),
   createUserProfileCharacter: (input: {
     displayName: string

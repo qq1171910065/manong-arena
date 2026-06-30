@@ -11,6 +11,7 @@ export interface AssetPackStatus {
 
 export interface AssetPackApi {
   isInitialAssetsReady: () => Promise<{ ok: boolean; ready?: boolean }>
+  isUserAssetPackInstalled: () => Promise<{ ok: boolean; installed?: boolean }>
   getInitialAssetManifest: () => Promise<{ ok: boolean; manifest?: InitialAssetPackManifest | null }>
   getAssetPackStatus: () => Promise<AssetPackStatus>
   ensureInitialAssets: () => Promise<{
