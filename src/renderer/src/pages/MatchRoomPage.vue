@@ -248,13 +248,12 @@ async function setViewMode(mode: 'god' | 'player') {
   viewMode.value = mode
   if (mode === 'player') {
     ttsService.interrupt()
+    return
   }
-  if (mode !== 'god' || !match.value) return
-  let next = lockTakeoverOnGodView(match.value)
-  if (next.runtime.humanControlledId) {
-    next = await humanPlayerService.release(match.value.id)
-  }
-  match.value = await matchService.save(next)
+  if (!match.value) return
+  // 就地更新并后台持久化，避免 save 返回的克隆对象替换掉进行中的流式发言/思考。
+  lockTakeoverOnGodView(match.value)
+  void matchService.save(match.value).catch(() => undefined)
 }
 function hasActed(p: MatchParticipant): boolean { return Boolean(match.value?.runtime.actedCharacterIds.includes(p.characterId)) }
 function messageTone(msg: MatchMessage): string {
@@ -487,8 +486,16 @@ function syncMessagesInPlace(target: MatchMessage[], source: MatchMessage[]) {
       target.splice(0, target.length, ...source)
       return
     }
-    if (tm.content !== sm.content) tm.content = sm.content
-    if (tm.thought !== sm.thought) tm.thought = sm.thought
+    const targetStreaming = tm.streamStatus === 'pending' || tm.streamStatus === 'streaming'
+    const sourceFinalized = sm.streamStatus === 'done' || sm.streamStatus === 'failed'
+    const preferTargetContent =
+      targetStreaming && !sourceFinalized && sm.content.length < tm.content.length
+    const preferTargetThought =
+      targetStreaming &&
+      !sourceFinalized &&
+      (sm.thought || '').length < (tm.thought || '').length
+    if (!preferTargetContent && tm.content !== sm.content) tm.content = sm.content
+    if (!preferTargetThought && tm.thought !== sm.thought) tm.thought = sm.thought
     if (tm.streamStatus !== sm.streamStatus) tm.streamStatus = sm.streamStatus
     if (tm.confirmed !== sm.confirmed) tm.confirmed = sm.confirmed
     if (tm.roleLabel !== sm.roleLabel) tm.roleLabel = sm.roleLabel

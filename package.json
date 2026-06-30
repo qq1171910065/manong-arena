@@ -1,6 +1,6 @@
 {
   "name": "manong-arena",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Manong Arena — AI 角色养成与规则化社交对局桌面客户端",
   "main": "./out/main/index.js",
   "license": "MIT",
