@@ -762,6 +762,38 @@ html.theme-dark .aa-nav {
   outline: none;
 }
 
+/* Naive UI Select — 与 Arena 玻璃拟态风格统一 */
+.arena-shell .n-base-select .n-base-selection,
+#app .n-base-select .n-base-selection {
+  --n-border: 1px solid rgba(130, 142, 207, 0.18) !important;
+  --n-border-hover: 1px solid rgba(112, 105, 255, 0.28) !important;
+  --n-border-active: 1px solid rgba(91, 87, 243, 0.42) !important;
+  --n-border-focus: 1px solid rgba(91, 87, 243, 0.42) !important;
+  --n-box-shadow-active: 0 0 0 3px rgba(112, 105, 255, 0.12) !important;
+  --n-box-shadow-focus: 0 0 0 3px rgba(112, 105, 255, 0.12) !important;
+  --n-color: rgba(255, 255, 255, 0.82) !important;
+  --n-color-active: rgba(255, 255, 255, 0.92) !important;
+  --n-text-color: #243066 !important;
+  --n-placeholder-color: #9aa3c7 !important;
+  --n-border-radius: 12px !important;
+  backdrop-filter: blur(8px);
+}
+
+.arena-shell .n-base-select-menu,
+#app .n-base-select-menu {
+  border: 1px solid rgba(130, 142, 207, 0.14) !important;
+  border-radius: 14px !important;
+  background: rgba(251, 252, 255, 0.96) !important;
+  box-shadow: 0 18px 40px rgba(72, 82, 154, 0.16) !important;
+  backdrop-filter: blur(20px);
+}
+
+.arena-shell .n-base-select-option.n-base-select-option--selected,
+#app .n-base-select-option.n-base-select-option--selected {
+  color: #5b57f3 !important;
+  font-weight: 600;
+}
+
 /* ===== Status Bar (bottom) ===== */
 .aa-statusbar {
   position: absolute;
@@ -1493,6 +1525,95 @@ html.theme-dark .aa-statusbar {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* 列表页：筛选栏在布局原位固定，仅列表区滚动（非吸顶） */
+.arena-content:has(.aa-subpage--flow-scroll),
+.shell-main:has(.aa-subpage--flow-scroll) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.arena-content:has(.aa-subpage--flow-scroll) .page-view-host,
+.arena-content:has(.aa-subpage--flow-scroll) .page-view-host__page,
+.shell-main:has(.aa-subpage--flow-scroll) .page-view-host,
+.shell-main:has(.aa-subpage--flow-scroll) .page-view-host__page {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.aa-subpage--flow-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.aa-subpage--flow-scroll .aa-page-scroll,
+.aa-subpage--flow-scroll .aa-page-inner {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.aa-subpage--flow-scroll .list-flow-layout {
+  flex: 1 1 0;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.aa-subpage--flow-scroll .list-flow-layout__main,
+.aa-subpage--flow-scroll .list-flow-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+}
+
+.aa-subpage--flow-scroll .list-flow-layout__toolbar {
+  flex-shrink: 0;
+}
+
+.aa-subpage--flow-scroll .list-flow-layout__scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: clamp(32px, 6vh, 64px);
+}
+
+.aa-subpage--flow-scroll .list-flow-layout__scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.aa-subpage--flow-scroll .list-flow-layout__scroll .arena-page-state,
+.aa-subpage--flow-scroll .list-flow-layout__scroll .arena-page-state__frame,
+.aa-subpage--flow-scroll .list-flow-layout__scroll .arena-page-state__skeleton,
+.aa-subpage--flow-scroll .list-flow-layout__scroll .arena-page-state__revealed,
+.aa-subpage--flow-scroll .list-flow-layout__scroll .arena-page-state__content {
+  flex: none;
+  min-height: auto;
+  height: auto;
+  overflow: visible;
+}
+
+.aa-subpage--flow-scroll .list-flow-layout__scroll .arena-state-enter-active,
+.aa-subpage--flow-scroll .list-flow-layout__scroll .arena-state-leave-active {
+  flex: none;
+  min-height: auto;
+  display: block;
 }
 
 .detail-layout {

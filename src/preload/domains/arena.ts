@@ -141,6 +141,39 @@ export const arenaDomain = {
   appendHelpChat: (message: CharacterChatMessage) => invoke<CharacterChatMessage[]>('arena:helpChat:append', message),
   clearHelpChat: () => invoke<boolean>('arena:helpChat:clear'),
 
+  listCharacterWorkspaceFiles: (characterId: string) =>
+    invoke<import('@shared/arena/character-agent').CharacterWorkspaceFile[]>('arena:characterWorkspace:list', characterId),
+  readCharacterWorkspaceFile: (characterId: string, relativePath: string) =>
+    invoke<string>('arena:characterWorkspace:read', characterId, relativePath),
+  writeCharacterWorkspaceFile: (
+    characterId: string,
+    input: {
+      relativePath?: string
+      name: string
+      content: string
+      description?: string
+      id?: string
+    }
+  ) =>
+    invoke<{
+      file: import('@shared/arena/character-agent').CharacterWorkspaceFile
+      files: import('@shared/arena/character-agent').CharacterWorkspaceFile[]
+    }>('arena:characterWorkspace:write', characterId, input),
+  deleteCharacterWorkspaceFile: (characterId: string, relativePath: string) =>
+    invoke<import('@shared/arena/character-agent').CharacterWorkspaceFile[]>(
+      'arena:characterWorkspace:delete',
+      characterId,
+      relativePath
+    ),
+  importCharacterWorkspaceFile: (characterId: string, sourcePath: string) =>
+    invoke<{
+      file: import('@shared/arena/character-agent').CharacterWorkspaceFile
+      files: import('@shared/arena/character-agent').CharacterWorkspaceFile[]
+    }>('arena:characterWorkspace:import', characterId, sourcePath),
+  getCharacterWorkspaceDir: (characterId: string) => invoke<string>('arena:characterWorkspace:getDir', characterId),
+  readCharacterWorkspaceExcerpts: (characterId: string, maxChars?: number) =>
+    invoke<Array<{ name: string; content: string }>>('arena:characterWorkspace:readExcerpts', characterId, maxChars),
+
   getWindowKind: () => ipcRenderer.invoke('window:getKind') as Promise<'login' | 'main' | 'match-room'>,
   openMatchRoomWindow: (matchId: string) =>
     ipcRenderer.invoke('arena:matchWindow:open', matchId) as Promise<{ ok: boolean; error?: string }>,

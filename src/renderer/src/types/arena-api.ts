@@ -124,6 +124,31 @@ export interface ArenaApi {
   listHelpChat: () => Promise<CharacterChatMessage[]>
   appendHelpChat: (message: CharacterChatMessage) => Promise<CharacterChatMessage[]>
   clearHelpChat: () => Promise<boolean>
+  listCharacterWorkspaceFiles: (characterId: string) => Promise<import('@shared/arena/character-agent').CharacterWorkspaceFile[]>
+  readCharacterWorkspaceFile: (characterId: string, relativePath: string) => Promise<string>
+  writeCharacterWorkspaceFile: (
+    characterId: string,
+    input: {
+      relativePath?: string
+      name: string
+      content: string
+      description?: string
+      id?: string
+    }
+  ) => Promise<{
+    file: import('@shared/arena/character-agent').CharacterWorkspaceFile
+    files: import('@shared/arena/character-agent').CharacterWorkspaceFile[]
+  }>
+  deleteCharacterWorkspaceFile: (characterId: string, relativePath: string) => Promise<import('@shared/arena/character-agent').CharacterWorkspaceFile[]>
+  importCharacterWorkspaceFile: (
+    characterId: string,
+    sourcePath: string
+  ) => Promise<{
+    file: import('@shared/arena/character-agent').CharacterWorkspaceFile
+    files: import('@shared/arena/character-agent').CharacterWorkspaceFile[]
+  }>
+  getCharacterWorkspaceDir: (characterId: string) => Promise<string>
+  readCharacterWorkspaceExcerpts: (characterId: string, maxChars?: number) => Promise<Array<{ name: string; content: string }>>
   getWindowKind: () => Promise<'login' | 'main' | 'match-room'>
   openMatchRoomWindow: (matchId: string) => Promise<{ ok: boolean; error?: string }>
   closeMatchRoomWindow: (matchId: string) => Promise<{ ok: boolean }>

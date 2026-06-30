@@ -141,12 +141,10 @@ const activeGroupId = computed(() => {
 }
 
 .detail-rail-nav__item:hover {
-  background: rgba(112, 105, 255, 0.06);
   color: #4338ca;
 }
 
 .detail-rail-nav__item.active {
-  background: rgba(112, 105, 255, 0.12);
   color: #5b57f3;
   font-weight: 650;
 }
@@ -174,17 +172,17 @@ const activeGroupId = computed(() => {
 }
 
 .detail-rail-nav__badge {
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: rgba(130, 142, 207, 0.12);
-  color: #8b95bd;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #9aa3c7;
   font-style: normal;
   font-size: 10px;
   font-weight: 600;
 }
 
 .detail-rail-nav__item.active .detail-rail-nav__badge {
-  background: rgba(91, 87, 243, 0.14);
-  color: #5b57f3;
+  background: transparent;
+  color: #7b61ff;
 }
 </style>

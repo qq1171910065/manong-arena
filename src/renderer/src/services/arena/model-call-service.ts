@@ -9,6 +9,9 @@ import { resolveBrainstormCategory } from '@shared/arena/social-paradigm'
 import { isBrainstormMode } from './roundtable-engine'
 import { undercoverRoleContext } from './undercover-engine'
 import { resolvePromptFromPack } from './prompt-resolver'
+import { buildAgentContextPrompt, type MatchSkillPhase } from '@shared/arena/character-agent'
+import { buildMatchPersonalitySkillContext } from '@shared/arena/character-growth'
+import { resolveCharacterModelParams, toGatewayGenerationParams } from '@shared/arena/character-model-params'
 import { getFallbackModelId } from './settings-runtime'
 import { gatewayChatCompletion, gatewayChatStream } from '../gateway-api'
 import { detectPlainTextStream, previewSpeechFromStreamBuffer } from './speech-stream-preview'
@@ -324,7 +327,43 @@ function stripLeakPatterns(text: string): string {
     .trim()
 }
 
-function buildPromptContext(match: Match, participant: MatchParticipant, character?: { bio: string; speechStyle: string; commonPhrases: string[]; behaviorPrinciples: string[]; gameSkills?: import('@shared/arena/types').CharacterGameSkill[] }): import('@shared/arena/game-scenario').PromptRenderContext {
+function appendAgentContext(system: string, agentContext: string): string {
+  const extra = agentContext.trim()
+  if (!extra) return system
+  return `${system}\n\n${extra}`
+}
+
+function resolveMatchSkillPhase(match: Match, slot: 'speech' | 'vote'): MatchSkillPhase {
+  const phaseId = match.runtime.currentPhaseId
+  if (phaseId === 'last-words' || phaseId === 'sheriff-speech') return 'critical'
+  if (slot === 'vote' || phaseId.includes('vote')) return 'vote'
+  const mode = gameModeService.get(match.gameModeId)
+  if (mode?.phases?.some((p) => p.kind === 'discussion' && p.id === phaseId)) return 'discussion'
+  if (match.runtime.roundtableState?.discussionTopic) return 'discussion'
+  return 'speech'
+}
+
+async function resolveAgentContextForCharacter(
+  character: Character | null,
+  gameModeId: string,
+  matchPhase: MatchSkillPhase = 'speech'
+): Promise<string> {
+  if (!character) return ''
+  const workspaceExcerpts = await characterAgentService.readWorkspaceExcerpts(character.id, 1500).catch(() => [])
+  const agentCtx = buildAgentContextPrompt({
+    scope: 'match',
+    gameModeId,
+    memories: character.agentMemories,
+    skills: character.agentSkills,
+    workspaceExcerpts,
+    matchPhase,
+    profile: character.agentProfile,
+  })
+  const personalityCtx = buildMatchPersonalitySkillContext(character, matchPhase)
+  return [agentCtx, personalityCtx].filter(Boolean).join('\n\n')
+}
+
+function buildPromptContext(match: Match, participant: MatchParticipant, character?: Character): import('@shared/arena/game-scenario').PromptRenderContext {
   const werewolfCtx = buildWerewolfSpeechPromptContext(match, participant, character)
   const scenario = gameScenarioService.getByGameModeId(match.gameModeId)
   const gameMode = gameModeService.get(match.gameModeId)
@@ -334,6 +373,10 @@ function buildPromptContext(match: Match, participant: MatchParticipant, charact
   const rt = match.runtime.roundtableState
   const mode = gameModeService.get(match.gameModeId)
   const brainstormCat = rt?.brainstormCategory ? resolveBrainstormCategory(rt.brainstormCategory) : null
+  const latestBridge = rt?.refereeBridges?.slice(-1)[0]
+  const refereeBridge = latestBridge
+    ? `裁判${latestBridge.mode === 'live_commentary' ? '解说' : '引导'}：${latestBridge.content}\n`
+    : ''
   return {
     characterName: participant.characterName,
     characterBio: character?.bio || '',
@@ -355,12 +398,13 @@ function buildPromptContext(match: Match, participant: MatchParticipant, charact
     sessionGuide: brainstormCat?.sessionGuide || '',
     brainstormCategory: brainstormCat?.label || '',
     designTarget: rt?.designTarget?.trim() || '（未指定）',
+    refereeBridge,
     initialUnderstanding: skill?.initialUnderstanding || '',
     gameRulesDocument: scenario?.contentDocument || '',
   }
 }
 
-function tryResolvePrompt(match: Match, participant: MatchParticipant, slotId: import('@shared/arena/game-scenario').PromptSlotId, character?: Parameters<typeof buildPromptContext>[2]): { system: string; user: string } | null {
+function tryResolvePrompt(match: Match, participant: MatchParticipant, slotId: import('@shared/arena/game-scenario').PromptSlotId, character?: Character): { system: string; user: string } | null {
   const packId = match.runtime.promptPackId
   if (!packId) return null
   const pack = gameScenarioService.getPromptPack(packId)
@@ -378,19 +422,27 @@ function tryResolvePrompt(match: Match, participant: MatchParticipant, slotId: i
   return { system: resolved.system, user: resolved.user }
 }
 
-function buildSpeechPrompt(match: Match, participant: MatchParticipant, character?: Parameters<typeof buildPromptContext>[2]): { system: string; user: string } {
+function buildSpeechPrompt(
+  match: Match,
+  participant: MatchParticipant,
+  character?: Character,
+  agentContext = ''
+): { system: string; user: string } {
   const fromPack = tryResolvePrompt(match, participant, 'speech', character)
   if (match.runtime.currentPhaseId === 'last-words') {
     const lastWordsLead =
       '你已按规则出局，请发表遗言。这是最后一次公开发言，可总结站边、点狼、留信息或回应质疑；不要重复整段投票唱票内容。标准规则下多为首夜出局。'
     if (fromPack) {
       return {
-        system: fromPack.system + '\n' + lastWordsLead,
+        system: appendAgentContext(fromPack.system + '\n' + lastWordsLead, agentContext),
         user: fromPack.user || '请发表遗言。',
       }
     }
   } else if (fromPack) {
-    return fromPack
+    return {
+      system: appendAgentContext(fromPack.system, agentContext),
+      user: fromPack.user,
+    }
   }
   const ctx = buildWerewolfSpeechPromptContext(match, participant, character)
   const isSheriffSpeech = match.runtime.currentPhaseId === 'sheriff-speech'
@@ -434,10 +486,16 @@ function buildSpeechPrompt(match: Match, participant: MatchParticipant, characte
     '',
     isLastWords ? '轮到你发表遗言。' : isSheriffSpeech ? '轮到你警上发言。结合竞选意向与前文组织内容，勿机械质疑缺少验人的预言家。' : '轮到你发言。',
   ].join('\n')
-  return { system, user }
+  return { system: appendAgentContext(system, agentContext), user }
 }
 
-function buildVotePrompt(match: Match, participant: MatchParticipant, character?: Parameters<typeof buildPromptContext>[2], strict = false): { system: string; user: string } {
+function buildVotePrompt(
+  match: Match,
+  participant: MatchParticipant,
+  character?: Character,
+  strict = false,
+  agentContext = ''
+): { system: string; user: string } {
   const fromPack = tryResolvePrompt(match, participant, 'vote', character)
   const isSheriffVote = match.runtime.currentPhaseId === 'sheriff-vote'
   const sheriffCandidates = isSheriffVote ? resolveSheriffVoteTargets(match) : []
@@ -478,7 +536,7 @@ function buildVotePrompt(match: Match, participant: MatchParticipant, character?
         ? '请从竞选者中选出一人：投票：X号。'
         : '请给出投票决定。',
   ].filter(Boolean).join('\n\n')
-  return { system, user }
+  return { system: appendAgentContext(system, agentContext), user }
 }
 
 function isExplicitAbstain(text: string): boolean {
@@ -746,6 +804,15 @@ function awardModelOutputExp(
     .catch(() => undefined)
 }
 
+async function resolveParticipantGatewayParams(
+  participant: MatchParticipant
+): Promise<ReturnType<typeof toGatewayGenerationParams> | undefined> {
+  if (participant.characterId.startsWith('system:')) return undefined
+  const character = await characterService.get(participant.characterId).catch(() => null)
+  if (!character) return undefined
+  return toGatewayGenerationParams(resolveCharacterModelParams(character))
+}
+
 async function callModel(match: Match, participant: MatchParticipant, prompt: { system: string; user: string }, action: ModelAction): Promise<{ content: string; costCents: number; callRecord: ModelCallRecord }> {
   const balance = await billingService.getBalanceCents()
   if (balance !== null && balance <= 0) throw new ArenaError('INSUFFICIENT_BALANCE', '余额不足，对局已暂停。', 'model')
@@ -754,10 +821,11 @@ async function callModel(match: Match, participant: MatchParticipant, prompt: { 
   let lastError: unknown = null
   while (retryCount <= RETRY_ONCE) {
     try {
+      const gatewayParams = await resolveParticipantGatewayParams(participant)
       const result = await gatewayChatCompletion(participant.modelId, [
         { role: 'system', content: prompt.system },
         { role: 'user', content: prompt.user },
-      ])
+      ], gatewayParams)
       const content = result.content.trim()
       if (!content) throw new ArenaError('MODEL_FAILED', '模型返回为空', 'model')
       const costCents = await costFromUsage(participant.modelId, result.usage, prompt, content)
@@ -812,7 +880,13 @@ export const modelCallService = {
     if (balance !== null && balance <= 0) throw new ArenaError('INSUFFICIENT_BALANCE', '余额不足，对局已暂停。', 'model')
 
     const character = await characterService.get(participant.characterId).catch(() => null)
-    const prompt = buildSpeechPrompt(match, participant, character || undefined)
+    const agentContext = await resolveAgentContextForCharacter(
+      character,
+      match.gameModeId,
+      resolveMatchSkillPhase(match, 'speech')
+    )
+    const gatewayParams = character ? toGatewayGenerationParams(resolveCharacterModelParams(character)) : undefined
+    const prompt = buildSpeechPrompt(match, participant, character || undefined, agentContext)
     const requestAt = new Date().toISOString()
     let retryCount = 0
 
@@ -878,7 +952,8 @@ export const modelCallService = {
                 resolve(buffer)
               },
               onError: (err) => reject(new Error(err)),
-            }
+            },
+            gatewayParams
           ).then((cancel) => {
             activeSpeechCancel = cancel
           })
@@ -970,7 +1045,12 @@ export const modelCallService = {
     const participant = match.participants.find((p) => p.characterId === voterId)
     if (!participant) throw new ArenaError('NOT_FOUND', '投票角色不存在', 'model')
     const character = await characterService.get(participant.characterId).catch(() => null)
-    let result = await callModel(match, participant, buildVotePrompt(match, participant, character || undefined), 'vote')
+    const agentContext = await resolveAgentContextForCharacter(
+      character,
+      match.gameModeId,
+      resolveMatchSkillPhase(match, 'vote')
+    )
+    let result = await callModel(match, participant, buildVotePrompt(match, participant, character || undefined, false, agentContext), 'vote')
     let vote = parseVoteResponse(result.content, match, voterId)
     let totalCost = result.costCents
     const callRecords = [result.callRecord]
@@ -978,7 +1058,7 @@ export const modelCallService = {
     let lastRaw = result.content
 
     if (vote.abstain && vote.abstainReason === 'parse_failed') {
-      const retry = await callModel(match, participant, buildVotePrompt(match, participant, character || undefined, true), 'vote')
+      const retry = await callModel(match, participant, buildVotePrompt(match, participant, character || undefined, true, agentContext), 'vote')
       lastRaw = retry.content
       vote = parseVoteResponse(retry.content, match, voterId)
       totalCost += retry.costCents

@@ -17,6 +17,7 @@ import {
   resetWolfNightFlow,
   resetWitchNightFlow,
 } from './phase-engine'
+import { isDiscussionGameModeId } from '@shared/arena/discussion-mode'
 import type { HumanInputKind, Match, MatchParticipant, MatchVoteRecord } from '@shared/arena/types'
 
 function setSpeaking(match: Match, characterId: string | null): void {
@@ -49,6 +50,7 @@ export function isUserProfileInMatch(match: Match, profileId: string | null): bo
 
 export function canTakeOverMatch(match: Match, profileId: string | null): boolean {
   if (!profileId || !isUserProfileInMatch(match, profileId)) return false
+  if (isDiscussionGameModeId(match.gameModeId)) return false
   if (match.runtime.humanTakeoverLocked) return false
   if (match.status !== 'active' && match.status !== 'paused') return false
   const participant = match.participants.find((p) => p.characterId === profileId)
@@ -616,6 +618,50 @@ export const humanPlayerService = {
     clearHumanInput(match)
     match.runtime.stepAdvanceState = 'ready'
     match.runtime.waitingHint = '预言家查验已确认，可继续推进夜晚。'
+    return matchService.save(match)
+  },
+
+  async submitRefereeBridge(matchId: string, content: string): Promise<Match> {
+    const trimmed = content.trim()
+    if (!trimmed) throw new ArenaError('VALIDATION', '裁判引导内容不能为空', 'match')
+
+    let match = await matchService.get(matchId)
+    const kind = match.runtime.humanInputKind
+    if (kind !== 'referee_bridge' && kind !== 'referee_commentary') {
+      throw new ArenaError('VALIDATION', '当前不在裁判引导阶段', 'match')
+    }
+
+    const state = match.runtime.roundtableState
+    if (!state) throw new ArenaError('VALIDATION', '讨论状态不存在', 'match')
+
+    const round = match.runtime.currentRound
+    state.refereeBridges = [
+      ...(state.refereeBridges || []),
+      {
+        round,
+        mode: kind === 'referee_commentary' ? 'live_commentary' : 'round_bridge',
+        content: trimmed,
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    match.messages.push({
+      id: randomUUID(),
+      kind: 'judge',
+      participantId: 'judge',
+      participantName: '裁判',
+      roleLabel: kind === 'referee_commentary' ? '圆桌解说' : '轮间引导',
+      content: trimmed,
+      streamStatus: 'done',
+      confirmed: true,
+      createdAt: new Date().toISOString(),
+      round,
+      phaseId: match.runtime.currentPhaseId,
+    })
+
+    clearHumanInput(match)
+    match.runtime.stepAdvanceState = 'ready'
+    match.runtime.waitingHint = '裁判引导已发布，可继续推进进入下一轮。'
     return matchService.save(match)
   },
 }

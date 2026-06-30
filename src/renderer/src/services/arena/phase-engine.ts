@@ -99,7 +99,14 @@ export function initRuntimeForMode(mode: GameMode): Match['runtime'] {
     werewolfState: mode.id === 'werewolf' ? createWerewolfState() : undefined,
     roundtableState:
       mode.engineKind === 'roundtable' || mode.id === 'roundtable'
-        ? { discussionTopic: '待设置议题', totalRounds: 3, hostEnabled: true, narratorEnabled: false }
+        ? {
+            discussionTopic: '待设置议题',
+            totalRounds: 3,
+            hostEnabled: false,
+            narratorEnabled: false,
+            facilitationMode: 'round_bridge',
+            refereeBridges: [],
+          }
         : undefined,
   }
 }
@@ -119,6 +126,20 @@ export function normalizeRuntime(runtime: Match['runtime'], mode: GameMode): Mat
     voteOpen: phase.kind === 'vote',
     sheriffId: runtime.werewolfState?.sheriffId ?? runtime.sheriffId ?? null,
     werewolfState: mode.id === 'werewolf' ? { ...createWerewolfState(), ...runtime.werewolfState } : runtime.werewolfState,
+    roundtableState: runtime.roundtableState
+      ? {
+          discussionTopic: runtime.roundtableState.discussionTopic || '待设置议题',
+          totalRounds: runtime.roundtableState.totalRounds || 3,
+          hostEnabled: false,
+          narratorEnabled: false,
+          facilitationMode: runtime.roundtableState.facilitationMode || 'round_bridge',
+          refereeBridges: runtime.roundtableState.refereeBridges || [],
+          designTarget: runtime.roundtableState.designTarget,
+          brainstormCategory: runtime.roundtableState.brainstormCategory,
+          artifactSummary: runtime.roundtableState.artifactSummary,
+          artifact: runtime.roundtableState.artifact,
+        }
+      : runtime.roundtableState,
   }
 }
 

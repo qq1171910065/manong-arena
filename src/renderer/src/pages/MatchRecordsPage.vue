@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { Clock, Play, Search, SlidersHorizontal, Sparkles, Users } from 'lucide-vue-next'
 import { formatWinnerCampLabel } from '@shared/arena/camp-labels'
 import ArenaPageShell from '@renderer/components/arena/ArenaPageShell.vue'
+import ArenaSelect from '@renderer/components/common/ArenaSelect.vue'
 import ArenaPageState from '@renderer/components/arena/ArenaPageState.vue'
 import { characterAvatarByName, matchImageByModeId } from '@renderer/data/arena-visual-assets'
 import { navigate } from '../router'
@@ -100,8 +101,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <ArenaPageShell class="records-page" viewport-lock>
-    <section class="list-toolbar" aria-label="对局筛选">
+  <ArenaPageShell class="records-page" flow-scroll>
+    <div class="list-flow-page">
+    <section class="list-toolbar list-flow-layout__toolbar" aria-label="对局筛选">
       <label class="search-pill">
         <Search :size="17" />
         <input v-model="query" type="text" placeholder="搜索对局、玩法或角色..." />
@@ -109,24 +111,33 @@ onMounted(() => {
       <div class="toolbar-right">
         <div class="filter-cluster">
           <SlidersHorizontal :size="17" />
-          <select v-model="statusFilter">
-            <option value="all">全部状态</option>
-            <option value="active">进行中</option>
-            <option value="completed">已结束</option>
-            <option value="interrupted">中断</option>
-          </select>
-          <select v-model="modeFilter">
+          <ArenaSelect
+            v-model="statusFilter"
+            :options="[
+              { label: '全部状态', value: 'all' },
+              { label: '进行中', value: 'active' },
+              { label: '已结束', value: 'completed' },
+              { label: '中断', value: 'interrupted' },
+            ]"
+            aria-label="对局状态"
+          />
+          <ArenaSelect v-model="modeFilter" aria-label="玩法筛选">
             <option value="all">全部玩法</option>
             <option v-for="mode in modeOptions" :key="mode.id" :value="mode.id">{{ mode.name }}</option>
-          </select>
-          <select v-model="sortBy">
-            <option value="updated-desc">最近更新</option>
-            <option value="updated-asc">最早更新</option>
-          </select>
+          </ArenaSelect>
+          <ArenaSelect
+            v-model="sortBy"
+            :options="[
+              { label: '最近更新', value: 'updated-desc' },
+              { label: '最早更新', value: 'updated-asc' },
+            ]"
+            aria-label="排序方式"
+          />
         </div>
       </div>
     </section>
 
+    <div class="list-flow-layout__scroll">
     <ArenaPageState
       :loading="loading"
       :error="error || undefined"
@@ -203,6 +214,8 @@ onMounted(() => {
         </article>
       </div>
     </ArenaPageState>
+    </div>
+    </div>
   </ArenaPageShell>
 </template>
 
@@ -211,24 +224,17 @@ onMounted(() => {
   max-width: none;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 28px 38px 0;
+  flex: 1 1 0;
   min-height: 0;
+  padding: 20px 38px 16px;
 }
 
-.records-page :deep(.arena-page-state) {
+.list-flow-page {
   flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.records-page :deep(.arena-page-state__skeleton),
-.records-page :deep(.arena-page-state__content) {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  gap: 14px;
 }
 
 .list-toolbar {
@@ -277,17 +283,6 @@ onMounted(() => {
 .filter-cluster {
   gap: 4px;
   padding: 0 10px 0 14px;
-}
-
-.filter-cluster select {
-  height: 32px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #243066;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
 }
 
 .record-grid {

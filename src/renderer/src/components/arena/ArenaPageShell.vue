@@ -1,13 +1,21 @@
 <script setup lang="ts">
 defineProps<{
   padded?: boolean
-  /** 锁定视口高度，仅内容列内部滚动 */
+  /** 锁定视口高度，仅内容列内部滚动（详情/编辑页） */
   viewportLock?: boolean
+  /** 列表页：随外层 shell 整体滚动，避免内容被内嵌区域裁切 */
+  flowScroll?: boolean
 }>()
 </script>
 
 <template>
-  <div class="aa-subpage" :class="{ 'aa-subpage--viewport-lock': viewportLock }">
+  <div
+    class="aa-subpage"
+    :class="{
+      'aa-subpage--viewport-lock': viewportLock && !$props.flowScroll,
+      'aa-subpage--flow-scroll': flowScroll,
+    }"
+  >
     <div class="aa-page-scroll">
       <div class="aa-page-inner" :class="{ 'aa-page-inner--padded': padded !== false }">
         <slot />
@@ -41,6 +49,23 @@ defineProps<{
 
 .aa-subpage--viewport-lock .aa-page-inner {
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.aa-subpage--flow-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.aa-subpage--flow-scroll .aa-page-scroll,
+.aa-subpage--flow-scroll .aa-page-inner {
+  flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
   display: flex;

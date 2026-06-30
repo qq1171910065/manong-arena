@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Bug, Download, FileQuestion, FolderOpen, Info, Minus, Plus, X } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Database, Download, FileQuestion, FolderOpen, Gamepad2, Info, Key, LogOut, Minus, Settings, SlidersHorizontal, User, Volume2, Wallet, X } from 'lucide-vue-next'
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import { goBack, navigate, route } from '../router'
 import { portalPathForTab } from '../pages/settings/portal-routes'
@@ -9,7 +9,13 @@ import SleepyCatWidget from '../components/support/SleepyCatWidget.vue'
 import { useArenaWallet } from '../composables/useArenaWallet'
 import { useClientUpdate } from '../composables/useClientUpdate'
 import { confirm } from '../composables/useAppDialog'
-import { userInfoRef } from '../services/auth'
+import { authApi, userInfoRef } from '../services/auth'
+import {
+  getUserLocalProfile,
+  localProfileRevision,
+  resolveUserAvatarUrl,
+  resolveUserDisplayName,
+} from '../services/user-local-profile'
 import MarkdownContent from '../components/common/MarkdownContent.vue'
 import { arenaHomeAssets } from '../data/arena-home-assets'
 import type { FeatureRegistry } from '../types/registry'
@@ -31,10 +37,21 @@ const {
 
 const showRecharge = ref(false)
 const showDevAssets = ref(false)
+const showProfilePopover = ref(false)
+const profileWrapRef = ref<HTMLElement | null>(null)
+const signingOut = ref(false)
 const { balanceCents, formatBalance, refresh } = useArenaWallet()
-const userName = computed(() => userInfoRef.value?.name || userInfoRef.value?.username || 'Agent Player')
+const userLocalProfile = computed(() => {
+  void localProfileRevision.value
+  return getUserLocalProfile(userInfoRef.value?.id)
+})
+const userName = computed(
+  () => resolveUserDisplayName(userInfoRef.value, userLocalProfile.value) || 'Agent Player'
+)
 const userEmail = computed(() => userInfoRef.value?.emailDisplay || '模型服务账户')
-const userStatus = computed(() => (userInfoRef.value?.gatewayReady === false ? '网关待验证' : '网关已就绪'))
+const userAvatarUrl = computed(() =>
+  resolveUserAvatarUrl(userInfoRef.value, userLocalProfile.value, arenaHomeAssets.charGemini)
+)
 
 const backEntry = computed(() => {
   const name = route.value.name
@@ -42,10 +59,10 @@ const backEntry = computed(() => {
     return { label: '返回角色库', path: '/characters' }
   }
   if (name === 'game-mode-detail') {
-    return { label: '返回玩法场景', path: '/game-modes' }
+    return { label: '返回场景库', path: '/game-modes' }
   }
   if (name === 'create-match') {
-    return { label: '返回玩法场景', path: '/game-modes' }
+    return { label: '返回场景库', path: '/game-modes' }
   }
   if (name === 'match-detail') {
     return { label: '返回对局记录', path: '/match-records' }
@@ -55,9 +72,26 @@ const backEntry = computed(() => {
 
 const navItems = computed(() =>
   props.registry
-    .filter((item) => item.group === 'main' || isSidebarFooterGroup(item.group))
+    .filter(
+      (item) =>
+        (item.group === 'main' || isSidebarFooterGroup(item.group)) && !item.hideInNav
+    )
     .sort((a, b) => a.order - b.order)
 )
+
+const profileQuickLinks = [
+  { id: 'profile', label: '用户中心', path: '/profile', icon: User },
+  { id: 'wallet', label: '钱包充值', path: portalPathForTab('wallet'), icon: Wallet },
+  { id: 'keys', label: 'API Key 管理', path: portalPathForTab('keys'), icon: Key },
+  { id: 'records', label: '对局记录', path: '/match-records', icon: FileQuestion },
+] as const
+
+const profileSettingLinks = [
+  { id: 'display', label: '显示与界面', path: portalPathForTab('settings-display'), icon: SlidersHorizontal },
+  { id: 'match', label: '对局偏好', path: portalPathForTab('settings-match'), icon: Gamepad2 },
+  { id: 'audio', label: '声音', path: portalPathForTab('settings-audio'), icon: Volume2 },
+  { id: 'data', label: '数据管理', path: portalPathForTab('settings-data'), icon: Database },
+] as const
 
 function isActive(path: string): boolean {
   const current = route.value.path.split('?')[0]
@@ -83,8 +117,50 @@ function onRechargePaid() {
   void refresh(true)
 }
 
+function toggleProfilePopover() {
+  showProfilePopover.value = !showProfilePopover.value
+}
+
+function closeProfilePopover() {
+  showProfilePopover.value = false
+}
+
 function openProfile() {
+  closeProfilePopover()
   navigate('/profile')
+}
+
+function onProfileNavigate(path: string) {
+  closeProfilePopover()
+  navigate(path)
+}
+
+function onDocumentClick(event: MouseEvent) {
+  if (!showProfilePopover.value) return
+  const root = profileWrapRef.value
+  if (root && !root.contains(event.target as Node)) {
+    closeProfilePopover()
+  }
+}
+
+async function onLogoutClick() {
+  if (signingOut.value) return
+  const confirmed = await confirm({
+    title: '退出登录',
+    message: '确定要退出当前账号吗？',
+    tone: 'warning',
+    confirmText: '退出登录',
+  })
+  if (!confirmed) return
+  signingOut.value = true
+  closeProfilePopover()
+  try {
+    await authApi.logout()
+  } catch (err) {
+    console.warn(err instanceof Error ? err.message : '退出登录失败')
+  } finally {
+    signingOut.value = false
+  }
 }
 
 function openSettingsHelp(tab: 'support-version' | 'support-bug' | 'support-help') {
@@ -115,6 +191,7 @@ watch(
 
 onMounted(async () => {
   startPolling()
+  document.addEventListener('click', onDocumentClick)
   if (import.meta.env.DEV) {
     try {
       const res = await window.api.isDevAssetsAvailable()
@@ -127,6 +204,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPolling()
+  document.removeEventListener('click', onDocumentClick)
 })
 
 </script>
@@ -149,7 +227,7 @@ onUnmounted(() => {
           type="button"
           class="arena-tab"
           :class="{ 'arena-tab--active': isActive(item.path) }"
-          @click="navigate(item.path)"
+                @click="onProfileNavigate(item.path)"
         >
           <component v-if="item.icon" :is="item.icon" :size="19" :stroke-width="2.35" />
           <span>{{ item.label }}</span>
@@ -168,27 +246,75 @@ onUnmounted(() => {
         >
           <Download :size="18" />
         </button>
-        <button type="button" class="arena-balance" aria-label="余额充值" @click="showRecharge = true">
-          <span>余额</span>
-          <strong>{{ formatBalance(balanceCents) }}</strong>
-          <span class="arena-balance__plus"><Plus :size="18" /></span>
-        </button>
-        <div class="arena-profile-wrap">
-          <button type="button" class="arena-profile" aria-label="用户信息" @click="openProfile">
-            <img :src="arenaHomeAssets.charGemini" alt="" />
+        <div ref="profileWrapRef" class="arena-profile-wrap" :class="{ 'is-open': showProfilePopover }">
+          <button
+            type="button"
+            class="arena-profile"
+            aria-label="用户菜单"
+            :aria-expanded="showProfilePopover"
+            @click.stop="toggleProfilePopover"
+          >
+            <img :src="userAvatarUrl" alt="" />
             <span></span>
           </button>
-          <div class="arena-profile-popover" role="dialog" aria-label="用户信息">
+          <div
+            v-show="showProfilePopover"
+            class="arena-profile-popover"
+            role="dialog"
+            aria-label="用户菜单"
+            @click.stop
+          >
             <div class="arena-profile-popover__head">
-              <img :src="arenaHomeAssets.charGemini" alt="" />
-              <div>
-                <strong>{{ userName }}</strong>
-                <span>{{ userEmail }}</span>
-              </div>
+              <button type="button" class="arena-profile-popover__identity" @click="openProfile">
+                <img :src="userAvatarUrl" alt="" />
+                <div>
+                  <strong>{{ userName }}</strong>
+                  <span>{{ userEmail }}</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                class="arena-profile-popover__logout"
+                aria-label="退出登录"
+                title="退出登录"
+                :disabled="signingOut"
+                @click="onLogoutClick"
+              >
+                <LogOut :size="16" />
+              </button>
             </div>
-            <div class="arena-profile-popover__status">
-              <i></i>
-              {{ userStatus }}
+            <button type="button" class="arena-profile-popover__balance" @click="showRecharge = true">
+              <span>账户余额</span>
+              <strong>{{ formatBalance(balanceCents) }}</strong>
+            </button>
+            <div class="arena-profile-popover__section">
+              <p class="arena-profile-popover__section-title">常用入口</p>
+              <button
+                v-for="item in profileQuickLinks"
+                :key="item.id"
+                type="button"
+                class="arena-profile-popover__link"
+                @click="onProfileNavigate(item.path)"
+              >
+                <component :is="item.icon" :size="16" />
+                <span>{{ item.label }}</span>
+              </button>
+            </div>
+            <div class="arena-profile-popover__section">
+              <p class="arena-profile-popover__section-title">
+                <Settings :size="14" />
+                应用设置
+              </p>
+              <button
+                v-for="item in profileSettingLinks"
+                :key="item.id"
+                type="button"
+                class="arena-profile-popover__link"
+                @click="onProfileNavigate(item.path)"
+              >
+                <component :is="item.icon" :size="16" />
+                <span>{{ item.label }}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -477,64 +603,6 @@ onUnmounted(() => {
   cursor: wait;
 }
 
-.arena-balance {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  height: 44px;
-  min-width: 142px;
-  padding: 0 8px 0 15px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.84);
-  color: #1c255c;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  cursor: pointer;
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    background 0.18s ease;
-}
-
-.arena-balance:hover {
-  transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 10px 18px rgba(86, 91, 190, 0.12);
-}
-
-.arena-balance:active {
-  transform: translateY(0) scale(0.985);
-}
-
-.arena-balance:hover .arena-balance__plus {
-  transform: rotate(90deg) scale(1.06);
-}
-
-.arena-balance span:first-child {
-  font-size: 14px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.arena-balance strong {
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.arena-balance__plus {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  color: #fff;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #9a95ff, #625cf0);
-  box-shadow: 0 8px 14px rgba(89, 77, 228, 0.22);
-  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
 .arena-profile-wrap {
   position: relative;
   -webkit-app-region: no-drag;
@@ -617,50 +685,89 @@ onUnmounted(() => {
 
 .arena-profile-popover {
   position: absolute;
-  top: 58px;
-  right: -42px;
-  width: 230px;
-  padding: 14px;
+  top: calc(100% + 10px);
+  right: -24px;
+  width: 268px;
+  padding: 12px;
   border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: 20px;
-  background: rgba(251, 252, 255, 0.86);
+  background: rgba(251, 252, 255, 0.92);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
     0 22px 44px rgba(72, 82, 154, 0.18);
   backdrop-filter: blur(24px) saturate(1.2);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-8px) scale(0.96);
   transform-origin: 78% top;
-  transition:
-    opacity 0.2s ease,
-    transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: arenaProfilePopoverIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 12;
 }
 
-.arena-profile-popover::before {
-  content: '';
-  position: absolute;
-  top: -16px;
-  right: 44px;
-  width: 92px;
-  height: 18px;
-}
-
-.arena-profile-wrap:hover .arena-profile-popover,
-.arena-profile-wrap:focus-within .arena-profile-popover {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0) scale(1);
+@keyframes arenaProfilePopoverIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .arena-profile-popover__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.arena-profile-popover__identity {
   display: grid;
   grid-template-columns: 46px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease;
 }
 
-.arena-profile-popover__head img {
+.arena-profile-popover__identity:hover {
+  background: rgba(112, 105, 255, 0.08);
+}
+
+.arena-profile-popover__logout {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(243, 95, 125, 0.08);
+  color: #d84a6a;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.arena-profile-popover__logout:hover:not(:disabled) {
+  background: rgba(243, 95, 125, 0.16);
+  color: #c73558;
+  transform: translateY(-1px);
+}
+
+.arena-profile-popover__logout:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.arena-profile-popover__identity img {
   width: 46px;
   height: 46px;
   border-radius: 16px;
@@ -668,7 +775,7 @@ onUnmounted(() => {
   box-shadow: 0 10px 18px rgba(86, 91, 190, 0.14);
 }
 
-.arena-profile-popover__head strong {
+.arena-profile-popover__identity strong {
   display: block;
   overflow: hidden;
   color: #151e57;
@@ -678,7 +785,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.arena-profile-popover__head span {
+.arena-profile-popover__identity span {
   display: block;
   overflow: hidden;
   margin-top: 3px;
@@ -688,28 +795,88 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.arena-profile-popover__status {
+.arena-profile-popover__balance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: calc(100% - 8px);
+  margin: 10px 4px 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(112, 105, 255, 0.08);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    transform 0.18s ease;
+}
+
+.arena-profile-popover__balance:hover {
+  background: rgba(112, 105, 255, 0.14);
+  transform: translateY(-1px);
+}
+
+.arena-profile-popover__balance span {
+  color: #66709d;
+  font-size: 12px;
+}
+
+.arena-profile-popover__balance strong {
+  color: #17205a;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.arena-profile-popover__section {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(130, 142, 207, 0.12);
+}
+
+.arena-profile-popover__section-title {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  height: 28px;
-  margin: 12px 0;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(35, 198, 121, 0.1);
-  color: #1a9a61;
-  font-size: 12px;
-  font-weight: 520;
+  gap: 6px;
+  margin: 0 4px 4px;
+  color: #9aa3c7;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.arena-profile-popover__status i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #21c77a;
-  box-shadow: 0 0 0 4px rgba(33, 199, 122, 0.12);
+.arena-profile-popover__link {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #3a4478;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
 }
 
+.arena-profile-popover__link:hover {
+  background: rgba(112, 105, 255, 0.1);
+  color: #5b57f3;
+  transform: translateX(2px);
+}
 
 .arena-window-controls {
   display: flex;

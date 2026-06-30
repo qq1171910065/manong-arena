@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Brain, BookOpen, MessageCircle, Sparkles, X } from 'lucide-vue-next'
+import { Brain, BookOpen, MessageCircle, Sparkles } from 'lucide-vue-next'
 import { formatTimeLabel } from '@renderer/utils/id'
+import ArenaDialogShell from '@renderer/components/common/ArenaDialogShell.vue'
 import { resolveCharacterGrowth } from '@shared/arena/character-growth'
 import type { Character, CharacterGrowthRecord, BehaviorChangeRecord } from '@shared/arena/types'
 
@@ -71,20 +72,15 @@ const tabMeta: Record<CharacterStatsTab, { title: string; icon: typeof Sparkles 
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="detail-edit-fade">
-      <div v-if="show" class="stats-dialog-overlay" @click.self="show = false">
-        <section class="stats-dialog" role="dialog" :aria-label="tabMeta[activeTab].title">
-          <header class="stats-dialog__head">
-            <div>
-              <component :is="tabMeta[activeTab].icon" :size="18" />
-              <strong>{{ tabMeta[activeTab].title }}</strong>
-              <span>{{ character.name }}</span>
-            </div>
-            <button type="button" title="关闭" @click="show = false"><X :size="18" /></button>
-          </header>
-
-          <div class="stats-dialog__body">
+  <ArenaDialogShell
+    v-model="show"
+    :title="tabMeta[activeTab].title"
+    :subtitle="character.name"
+    variant="preview"
+    size="lg"
+    show-header-close
+  >
+    <div class="stats-dialog__body">
             <template v-if="activeTab === 'overview'">
               <div class="stats-dialog__grid">
                 <article><span>等级</span><strong>Lv.{{ characterGrowth.level }}</strong></article>
@@ -132,76 +128,12 @@ const tabMeta: Record<CharacterStatsTab, { title: string; icon: typeof Sparkles 
                 <strong>{{ record.summary }}</strong>
               </article>
             </template>
-          </div>
-        </section>
-      </div>
-    </Transition>
-  </Teleport>
+    </div>
+  </ArenaDialogShell>
 </template>
 
 <style scoped>
-.stats-dialog-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1300;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(15, 18, 42, 0.42);
-  backdrop-filter: blur(6px);
-}
-
-.stats-dialog {
-  width: min(640px, 100%);
-  max-height: min(82vh, 760px);
-  border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 32px 80px rgba(50, 56, 120, 0.22);
-  overflow: hidden;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-}
-
-.stats-dialog__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 18px;
-  border-bottom: 1px solid rgba(130, 142, 207, 0.12);
-}
-
-.stats-dialog__head div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #5b57f3;
-}
-
-.stats-dialog__head strong {
-  color: #171145;
-  font-size: 18px;
-}
-
-.stats-dialog__head span {
-  color: #7a85b0;
-  font-size: 13px;
-}
-
-.stats-dialog__head button {
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.78);
-  cursor: pointer;
-  color: #4c4776;
-}
-
 .stats-dialog__body {
-  overflow: auto;
-  padding: 16px 18px 20px;
   scrollbar-width: thin;
 }
 
@@ -295,15 +227,5 @@ const tabMeta: Record<CharacterStatsTab, { title: string; icon: typeof Sparkles 
   color: #7a85b0;
   font-size: 13px;
   line-height: 1.6;
-}
-
-.detail-edit-fade-enter-active,
-.detail-edit-fade-leave-active {
-  transition: opacity 0.18s ease;
-}
-
-.detail-edit-fade-enter-from,
-.detail-edit-fade-leave-to {
-  opacity: 0;
 }
 </style>

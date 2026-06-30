@@ -47,7 +47,7 @@ export function isBrainstormGameModeId(modeId: string): boolean {
   return modeId === 'brainstorm-game-design' || modeId === 'brainstorm-character-design'
 }
 
-/** 是否为纯讨论圆桌（无产物、无教训沉淀） */
+/** 是否为纯讨论圆桌（产物为讨论纪要，无经验教训沉淀） */
 export function isPureDiscussionGameModeId(modeId: string): boolean {
   return modeId === 'roundtable'
 }

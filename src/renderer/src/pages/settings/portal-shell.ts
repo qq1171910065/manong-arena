@@ -16,7 +16,9 @@ import type { PortalTab, SettingsTab } from './portal-routes'
 export interface PortalShellContext {
   profile: Ref<UserInfo | null>
   displayName: ComputedRef<string>
+  avatarUrl: ComputedRef<string>
   avatarInitial: ComputedRef<string>
+  keys: Ref<PortalUserKey[]>
   gatewayReady: ComputedRef<boolean>
   activeKeysCount: ComputedRef<number>
   recentUsage: Ref<PortalUsageRecord[]>
@@ -85,6 +87,7 @@ export interface PortalShellContext {
   unbindOAuth: (channel: string, label: string) => void
   openOAuthBind: (binding: PortalOAuthBinding) => void
   forceLogout: () => Promise<void>
+  updateLocalProfile: (payload: { displayName?: string; avatarDataUrl?: string }) => void
   resetArenaSettings: () => Promise<void>
   setArenaSetting: <K extends keyof ArenaSettings>(key: K, value: ArenaSettings[K]) => void
   setMatchDefault: <K extends keyof ArenaSettings['matchDefaults']>(

@@ -4,6 +4,12 @@ import type {
   CharacterGrowthRecord,
   Match,
 } from '@shared/arena/types'
+import type { CharacterGrowthSnapshot } from '@shared/arena/character-growth'
+import {
+  formatLessonFromSnapshot,
+  isGrowthLogSnapshot,
+  sanitizeGrowthSummary,
+} from '@shared/arena/growth-display'
 import { characterDisplayName } from '@shared/arena/character-display-names'
 import { formatTimeLabel, matchStatusLabel } from '@renderer/utils/id'
 import {
@@ -160,13 +166,26 @@ export interface HomeCharacterActivity {
   characterName: string
   avatar: string
   accent: string
-  kind: 'create' | 'update' | 'learn' | 'exam' | 'chat' | 'behavior' | 'relearn'
+  kind:
+    | 'create'
+    | 'update'
+    | 'learn'
+    | 'exam'
+    | 'chat'
+    | 'behavior'
+    | 'relearn'
+    | 'post_match'
+    | 'review'
+    | 'match'
+    | 'growth'
   kindLabel: string
   title: string
   detail?: string
   time: string
   timeLabel: string
   clickable: boolean
+  target: 'character' | 'match'
+  matchId?: string
 }
 
 function activityKindLabel(kind: HomeCharacterActivity['kind']): string {
@@ -179,15 +198,64 @@ function activityKindLabel(kind: HomeCharacterActivity['kind']): string {
       return '学习'
     case 'relearn':
       return '复习'
+    case 'post_match':
+      return '复盘'
     case 'exam':
       return '考试'
     case 'chat':
       return '私聊'
     case 'behavior':
       return '准则'
+    case 'review':
+      return '复盘'
+    case 'match':
+      return '对局'
+    case 'growth':
+      return '成长'
     default:
       return '动态'
   }
+}
+
+function growthSnapshotTitle(snapshot: CharacterGrowthSnapshot): string {
+  if (snapshot.levelDelta && snapshot.levelDelta > 0) {
+    return `升到了 Lv.${snapshot.level}`
+  }
+  switch (snapshot.source) {
+    case 'match':
+      return '在对局中历练'
+    case 'chat':
+      return '私聊互动带来成长'
+    case 'review':
+      return '复盘后有所领悟'
+    case 'initial':
+      return '建档完成'
+    case 'migration':
+      return '成长数据已同步'
+    default:
+      return '有了新的成长记录'
+  }
+}
+
+function matchActivityTitle(match: Match, won: boolean): string {
+  if (match.status === 'completed') {
+    return won ? `在「${match.title}」中获胜` : `完成了「${match.title}」`
+  }
+  if (match.status === 'active') return `正在「${match.title}」中对局`
+  if (match.status === 'paused') return `暂停了「${match.title}」`
+  return `参与了「${match.title}」`
+}
+
+function learningLogTitle(source: 'initial' | 'relearn' | 'post_match', scenarioName: string): string {
+  if (source === 'relearn') return `再次学习「${scenarioName}」`
+  if (source === 'post_match') return `复盘后深化「${scenarioName}」理解`
+  return `深化「${scenarioName}」理解`
+}
+
+function learningLogKind(source: 'initial' | 'relearn' | 'post_match'): HomeCharacterActivity['kind'] {
+  if (source === 'relearn') return 'relearn'
+  if (source === 'post_match') return 'post_match'
+  return 'learn'
 }
 
 function pushActivity(
@@ -212,11 +280,37 @@ export function mapCharacterActivityFeed(input: {
   characters: Character[]
   behaviorChanges: BehaviorChangeRecord[]
   growthRecords: CharacterGrowthRecord[]
+  growthSnapshots?: CharacterGrowthSnapshot[]
+  recentMatches?: Match[]
   limit?: number
 }): HomeCharacterActivity[] {
-  const limit = input.limit ?? 20
+  const limit = input.limit ?? 50
   const rows: HomeCharacterActivity[] = []
   const characterById = new Map(input.characters.map((c, index) => [c.id, { character: c, index }]))
+
+  for (const match of input.recentMatches || []) {
+    const time = match.endedAt || match.updatedAt
+    for (const participant of match.participants) {
+      const meta = characterById.get(participant.characterId)
+      if (!meta) continue
+      const visuals = characterVisuals(meta.character, meta.index)
+      const won = Boolean(match.winnerCamp && participant.roleCamp && participant.roleCamp === match.winnerCamp)
+      pushActivity(rows, {
+        id: `match-${match.id}-${participant.characterId}`,
+        characterId: participant.characterId,
+        characterName: meta.character.name,
+        avatar: visuals.avatar,
+        accent: visuals.accent,
+        kind: 'match',
+        title: matchActivityTitle(match, won),
+        detail: match.gameModeName,
+        time,
+        clickable: true,
+        target: 'match',
+        matchId: match.id,
+      })
+    }
+  }
 
   for (const character of input.characters) {
     const meta = characterById.get(character.id)
@@ -234,6 +328,7 @@ export function mapCharacterActivityFeed(input: {
       detail: character.subtitle || '角色档案已创建',
       time: character.createdAt,
       clickable: true,
+      target: 'character',
     })
 
     const createdAtMs = new Date(character.createdAt).getTime()
@@ -250,6 +345,7 @@ export function mapCharacterActivityFeed(input: {
         detail: character.bio ? character.bio.slice(0, 48) : character.subtitle || undefined,
         time: character.updatedAt,
         clickable: true,
+        target: 'character',
       })
     }
 
@@ -267,6 +363,7 @@ export function mapCharacterActivityFeed(input: {
           detail: skill.initialUnderstanding || skill.mentalModel || undefined,
           time: skill.learnedAt,
           clickable: true,
+          target: 'character',
         })
       }
       if (skill.examPassed && skill.examPassedAt) {
@@ -281,61 +378,95 @@ export function mapCharacterActivityFeed(input: {
           detail: skill.examBypassed ? '已免考通过' : '玩法理解已达标',
           time: skill.examPassedAt,
           clickable: true,
+          target: 'character',
         })
       }
       for (const entry of skill.learningLog || []) {
-        if (entry.source === 'post_match') continue
         pushActivity(rows, {
           id: entry.id,
           characterId: character.id,
           characterName: character.name,
           avatar: visuals.avatar,
           accent: visuals.accent,
-          kind: entry.source === 'relearn' ? 'relearn' : 'learn',
-          title: entry.source === 'relearn' ? `再次学习「${scenarioName}」` : `深化「${scenarioName}」理解`,
+          kind: learningLogKind(entry.source),
+          title: learningLogTitle(entry.source, scenarioName),
           detail: entry.summary || entry.understanding,
           time: entry.createdAt,
           clickable: true,
+          target: 'character',
         })
       }
     }
   }
 
+  for (const snapshot of input.growthSnapshots || []) {
+    if (!isGrowthLogSnapshot(snapshot)) continue
+    const meta = characterById.get(snapshot.characterId)
+    if (!meta) continue
+    const visuals = characterVisuals(meta.character, meta.index)
+    const detail = formatLessonFromSnapshot(snapshot)
+    pushActivity(rows, {
+      id: `growth-${snapshot.id}`,
+      characterId: snapshot.characterId,
+      characterName: meta.character.name,
+      avatar: visuals.avatar,
+      accent: visuals.accent,
+      kind: 'growth',
+      title: growthSnapshotTitle(snapshot),
+      detail,
+      time: snapshot.createdAt,
+      clickable: true,
+      target: snapshot.matchId ? 'match' : 'character',
+      matchId: snapshot.matchId,
+    })
+  }
+
   for (const record of input.growthRecords) {
-    if (record.source !== 'chat') continue
+    const summary = sanitizeGrowthSummary(record.summary)
+    if (!summary) continue
     const meta = characterById.get(record.characterId)
     if (!meta) continue
     const visuals = characterVisuals(meta.character, meta.index)
     pushActivity(rows, {
-      id: record.id,
+      id: `growth-record-${record.id}`,
       characterId: record.characterId,
       characterName: meta.character.name,
       avatar: visuals.avatar,
       accent: visuals.accent,
-      kind: 'chat',
-      title: '在私聊中完成了养成',
-      detail: record.summary,
+      kind: record.source === 'chat' ? 'chat' : 'review',
+      title: record.source === 'chat' ? '在私聊中完成了养成' : '赛后复盘有了新领悟',
+      detail: summary,
       time: record.createdAt,
       clickable: true,
+      target: record.matchId ? 'match' : 'character',
+      matchId: record.matchId,
     })
   }
 
   for (const record of input.behaviorChanges) {
-    if (record.trigger === 'post_game_review') continue
+    const summary = sanitizeGrowthSummary(record.summary)
+    if (!summary) continue
     const meta = characterById.get(record.characterId)
     if (!meta) continue
     const visuals = characterVisuals(meta.character, meta.index)
+    const title =
+      record.trigger === 'chat'
+        ? '通过私聊调整了行为准则'
+        : record.trigger === 'post_game_review'
+          ? '赛后复盘调整了行为准则'
+          : '更新了行为准则'
     pushActivity(rows, {
-      id: record.id,
+      id: `behavior-${record.id}`,
       characterId: record.characterId,
       characterName: meta.character.name,
       avatar: visuals.avatar,
       accent: visuals.accent,
-      kind: 'behavior',
-      title: record.trigger === 'chat' ? '通过私聊调整了行为准则' : '更新了行为准则',
-      detail: record.summary,
+      kind: record.trigger === 'post_game_review' ? 'review' : 'behavior',
+      title,
+      detail: summary,
       time: record.createdAt,
       clickable: true,
+      target: 'character',
     })
   }
 
@@ -353,6 +484,7 @@ export function mapCharacterActivityFeed(input: {
       time: new Date(Date.now() - i * 3_600_000).toISOString(),
       timeLabel: i === 0 ? '刚刚' : `${i} 小时前`,
       clickable: false,
+      target: 'character' as const,
     }))
   }
 

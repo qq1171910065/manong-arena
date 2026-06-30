@@ -293,35 +293,19 @@ function buildRoundtableCallSpecs(
 
   playerCount: number,
 
-  rounds: number,
-
-  hostEnabled: boolean,
-
-  narratorEnabled: boolean
+  rounds: number
 
 ): CallSpec[] {
 
   const safeRounds = Math.min(8, Math.max(1, Math.floor(rounds)))
 
-  const specs: CallSpec[] = [
+  return [
 
     { assignTo: 'participant', count: playerCount * safeRounds, promptChars: 3600, completionChars: 420 },
 
+    { assignTo: 'system', systemKind: 'judge', count: 1, promptChars: 3200, completionChars: 480 },
+
   ]
-
-  if (hostEnabled) {
-
-    specs.push({ assignTo: 'system', systemKind: 'host', count: safeRounds + 1, promptChars: 2800, completionChars: 280 })
-
-  }
-
-  if (narratorEnabled) {
-
-    specs.push({ assignTo: 'system', systemKind: 'narrator', count: safeRounds, promptChars: 2400, completionChars: 200 })
-
-  }
-
-  return specs
 
 }
 
@@ -369,17 +353,13 @@ function buildCallSpecs(modeId: string, playerCount: number, options: MatchCostE
 
   }
 
-  if (engineKind === 'roundtable' || modeId === 'roundtable') {
+  if (engineKind === 'roundtable' || modeId === 'roundtable' || engineKind === 'brainstorm' || modeId.startsWith('brainstorm-')) {
 
     return buildRoundtableCallSpecs(
 
       playerCount,
 
-      options.roundtableRounds ?? 3,
-
-      options.roundtableHostEnabled !== false,
-
-      options.roundtableNarratorEnabled !== false
+      options.roundtableRounds ?? 3
 
     )
 

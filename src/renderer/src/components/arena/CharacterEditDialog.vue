@@ -74,12 +74,6 @@ const draftWeakness = ref('')
 
 const isCreate = computed(() => props.section === 'create')
 
-const dialogLayout = computed((): 'default' | 'wide' | 'extra-wide' => {
-  if (props.section === 'create') return 'wide'
-  if (props.section === 'principles' || props.section === 'taboos' || props.section === 'voice') return 'wide'
-  return 'default'
-})
-
 const statusEnabled = computed({
   get: () => draft.value.status === 'enabled',
   set: (enabled: boolean) => {
@@ -225,20 +219,24 @@ async function save() {
   }
 }
 
-watch(show, (open) => {
-  if (!open) return
-  error.value = ''
-  draftPhrase.value = ''
-  draftPrinciple.value = ''
-  draftTaboo.value = ''
-  draftStrength.value = ''
-  draftWeakness.value = ''
-  void nextTick(async () => {
-    if (!show.value) return
-    if (props.section === 'create') await loadPackCatalog()
-    loadDraft()
-  })
-}, { immediate: true })
+watch(
+  () => [show.value, props.section, props.character?.id] as const,
+  ([open]) => {
+    if (!open) return
+    error.value = ''
+    draftPhrase.value = ''
+    draftPrinciple.value = ''
+    draftTaboo.value = ''
+    draftStrength.value = ''
+    draftWeakness.value = ''
+    void nextTick(async () => {
+      if (!show.value) return
+      if (props.section === 'create') await loadPackCatalog()
+      loadDraft()
+    })
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -247,7 +245,6 @@ watch(show, (open) => {
     :title="sectionMeta[section].title"
     :subtitle="sectionMeta[section].subtitle"
     :save-label="sectionMeta[section].saveLabel"
-    :layout="dialogLayout"
     :saving="saving"
     @save="save"
   >

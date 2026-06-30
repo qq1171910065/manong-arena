@@ -31,6 +31,8 @@ export interface FeatureRegistryItem {
   icon?: Component
   badge?: string | number
   module?: MntoolsModuleId
+  /** 不在顶部主导航展示，仍可通过路由或快捷入口访问 */
+  hideInNav?: boolean
 }
 
 export interface FeatureRegistryGroup {

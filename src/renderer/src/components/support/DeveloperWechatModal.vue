@@ -1,29 +1,13 @@
 <script setup lang="ts">
-import { MessageCircle } from 'lucide-vue-next'
-import { NModal } from '../../ui'
+import ArenaDialogShell from '@renderer/components/common/ArenaDialogShell.vue'
 import { arenaHomeAssets } from '../../data/arena-home-assets'
 
 const show = defineModel<boolean>({ default: false })
 </script>
 
 <template>
-  <NModal
-    v-model:show="show"
-    preset="card"
-    class="developer-wechat-modal"
-    :style="{ width: '380px', maxWidth: '94vw' }"
-  >
-    <template #header>
-      <div class="developer-wechat-modal__head">
-        <span class="developer-wechat-modal__icon" aria-hidden="true">
-          <MessageCircle :size="20" />
-        </span>
-        <div>
-          <div class="developer-wechat-modal__title">添加开发者微信</div>
-          <div class="developer-wechat-modal__desc">扫码添加，反馈建议或试用问题都可以找我</div>
-        </div>
-      </div>
-    </template>
+  <ArenaDialogShell v-model="show" title="添加开发者微信" variant="preview" size="md">
+    <p class="developer-wechat-modal__desc">扫码添加，反馈建议或试用问题都可以找我</p>
 
     <div class="developer-wechat-modal__body">
       <div class="developer-wechat-modal__qr-frame">
@@ -31,36 +15,12 @@ const show = defineModel<boolean>({ default: false })
       </div>
       <p class="developer-wechat-modal__hint">打开微信扫一扫，添加开发者好友</p>
     </div>
-  </NModal>
+  </ArenaDialogShell>
 </template>
 
 <style scoped>
-.developer-wechat-modal__head {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.developer-wechat-modal__icon {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  color: #fff;
-  background: linear-gradient(180deg, #7b76ff, #5c57ef);
-  box-shadow: 0 8px 16px rgba(89, 77, 228, 0.22);
-}
-
-.developer-wechat-modal__title {
-  color: #151e57;
-  font-size: 16px;
-  font-weight: 650;
-}
-
 .developer-wechat-modal__desc {
-  margin-top: 4px;
+  margin: 0 0 14px;
   color: #65709f;
   font-size: 13px;
   line-height: 1.45;
@@ -71,7 +31,6 @@ const show = defineModel<boolean>({ default: false })
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  padding: 4px 0 8px;
 }
 
 .developer-wechat-modal__qr-frame {

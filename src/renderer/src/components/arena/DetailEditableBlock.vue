@@ -1,54 +1,91 @@
 <script setup lang="ts">
-import { Pencil } from 'lucide-vue-next'
+import type { Component } from 'vue'
+import DetailRegionEmpty from './DetailRegionEmpty.vue'
 
-defineProps<{
-  title?: string
-  hint?: string
-  editable?: boolean
-  empty?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    title?: string
+    hint?: string
+    editable?: boolean
+    empty?: boolean
+    emptyTitle?: string
+    emptyDescription?: string
+    emptyIcon?: Component
+    flat?: boolean
+  }>(),
+  {
+    editable: true,
+    flat: false,
+  }
+)
 
 const emit = defineEmits<{
   edit: []
 }>()
+
+function onBlockClick(event: MouseEvent) {
+  if (props.editable === false) return
+  const target = event.target as HTMLElement | null
+  if (target?.closest('button, input, textarea, select, a, label, [data-no-edit]')) return
+  emit('edit')
+}
 </script>
 
 <template>
-  <article class="detail-editable-block" :class="{ 'detail-editable-block--empty': empty }">
+  <article
+    class="detail-editable-block"
+    :class="{
+      'detail-editable-block--empty': empty,
+      'detail-editable-block--flat': flat,
+      'detail-editable-block--clickable': editable !== false,
+    }"
+    @click="onBlockClick"
+  >
     <header v-if="title" class="detail-editable-block__head">
       <div class="detail-editable-block__titles">
         <h3>{{ title }}</h3>
         <p v-if="hint" class="detail-editable-block__hint">{{ hint }}</p>
       </div>
-      <button
-        v-if="editable !== false"
-        type="button"
-        class="detail-editable-block__edit"
-        :aria-label="`编辑${title}`"
-        @click="emit('edit')"
-      >
-        <Pencil :size="14" />
-        <span>编辑</span>
-      </button>
     </header>
     <div class="detail-editable-block__body">
-      <slot />
+      <slot v-if="!empty" />
+      <slot v-else name="empty">
+        <DetailRegionEmpty
+          :title="emptyTitle || (title ? `暂无${title}` : '暂无内容')"
+          :description="emptyDescription"
+          :icon="emptyIcon"
+        />
+      </slot>
     </div>
   </article>
 </template>
 
 <style scoped>
 .detail-editable-block {
+  --detail-block-min-height: 168px;
   overflow: hidden;
+  min-height: var(--detail-block-min-height);
+  display: flex;
+  flex-direction: column;
   border: 1px solid rgba(130, 142, 207, 0.14);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.72);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
-.detail-editable-block--empty {
-  border-style: dashed;
-  background: rgba(255, 255, 255, 0.48);
+.detail-editable-block--flat {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.detail-editable-block--clickable {
+  cursor: pointer;
+}
+
+.detail-editable-block--clickable:hover:not(.detail-editable-block--flat) {
+  border-color: rgba(91, 87, 243, 0.22);
 }
 
 .detail-editable-block__head {
@@ -57,6 +94,10 @@ const emit = defineEmits<{
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px 0;
+}
+
+.detail-editable-block--flat .detail-editable-block__head {
+  padding: 0 0 8px;
 }
 
 .detail-editable-block__titles h3 {
@@ -74,31 +115,20 @@ const emit = defineEmits<{
   line-height: 1.45;
 }
 
-.detail-editable-block__edit {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: none;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid rgba(130, 142, 207, 0.16);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #66709d;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
-}
-
-.detail-editable-block__edit:hover {
-  border-color: rgba(91, 87, 243, 0.28);
-  background: rgba(112, 105, 255, 0.08);
-  color: #5b57f3;
-}
-
 .detail-editable-block__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(var(--detail-block-min-height) - 40px);
   padding: 10px 14px 14px;
+}
+
+.detail-editable-block--flat .detail-editable-block__body {
+  min-height: calc(var(--detail-block-min-height) - 28px);
+  padding: 0;
+}
+
+.detail-editable-block--flat.detail-editable-block--clickable:hover .detail-editable-block__titles h3 {
+  color: #5b57f3;
 }
 </style>

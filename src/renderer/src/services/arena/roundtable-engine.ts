@@ -1,13 +1,17 @@
 import type { GameMode, Match } from '@shared/arena/types'
-import { preparePhaseStep } from './phase-engine'
+import {
+  formatDiscussionArtifactLabel,
+  hasRefereeBridgeForRound,
+  type DiscussionFacilitationMode,
+} from '@shared/arena/discussion-mode'
 import { isBrainstormGameModeId } from '@shared/arena/builtin-game-mode-registry'
+import { preparePhaseStep } from './phase-engine'
 
 export function createRoundtableState(
   topic: string,
   totalRounds: number,
-  hostEnabled: boolean,
-  narratorEnabled: boolean,
   options?: {
+    facilitationMode?: DiscussionFacilitationMode
     designTarget?: string
     brainstormCategory?: import('@shared/arena/social-paradigm').BrainstormCategoryId
   }
@@ -15,10 +19,12 @@ export function createRoundtableState(
   return {
     discussionTopic: topic,
     totalRounds: Math.max(1, totalRounds),
-    hostEnabled,
-    narratorEnabled,
+    hostEnabled: false,
+    narratorEnabled: false,
+    facilitationMode: options?.facilitationMode || 'round_bridge',
     designTarget: options?.designTarget?.trim() || undefined,
     brainstormCategory: options?.brainstormCategory,
+    refereeBridges: [],
   }
 }
 
@@ -35,23 +41,40 @@ export function isDiscussionEngineMode(mode: GameMode): boolean {
   return isRoundtableMode(mode) || isBrainstormMode(mode)
 }
 
+export function needsRefereeBridge(match: Match, mode: GameMode): boolean {
+  if (!isDiscussionEngineMode(mode)) return false
+  if (match.runtime.currentPhaseId !== 'round-discuss') return false
+  if (match.runtime.currentActionKind !== 'speech') return false
+  const state = match.runtime.roundtableState
+  if (!state) return false
+  if (match.runtime.currentRound >= state.totalRounds) return false
+  return !hasRefereeBridgeForRound(state.refereeBridges, match.runtime.currentRound)
+}
+
 export function checkRoundtableComplete(match: Match, mode: GameMode): { summary: string } | null {
   if (!isDiscussionEngineMode(mode)) return null
   const sorted = [...mode.phases].sort((a, b) => a.order - b.order)
   const phase = sorted[match.runtime.phaseIndex]
   if (phase?.id !== 'closing') return null
   if (!match.runtime.actedCharacterIds.length) return null
-  const topic = match.runtime.roundtableState?.discussionTopic || mode.name
+  const state = match.runtime.roundtableState
+  const topic = state?.discussionTopic || mode.name
+  const rounds = state?.totalRounds || 1
+  const artifact = state?.artifact
+  const artifactLabel = artifact ? formatDiscussionArtifactLabel(artifact.kind) : '讨论产物'
+
   if (isBrainstormMode(mode)) {
-    const artifact = match.runtime.roundtableState?.artifactSummary
     return {
       summary: artifact
-        ? `头脑风暴「${topic}」已结束。产物：${artifact}`
-        : `头脑风暴「${topic}」已结束，共 ${match.runtime.roundtableState?.totalRounds || 1} 轮讨论。`,
+        ? `头脑风暴「${topic}」已结束。${artifactLabel}：${state?.artifactSummary || artifact.summary}`
+        : `头脑风暴「${topic}」已结束，共 ${rounds} 轮讨论。`,
     }
   }
+
   return {
-    summary: `圆桌讨论「${topic}」已结束，共 ${match.runtime.roundtableState?.totalRounds || 1} 轮发言。`,
+    summary: artifact
+      ? `圆桌讨论「${topic}」已结束。${artifactLabel}：${state?.artifactSummary || artifact.summary}`
+      : `圆桌讨论「${topic}」已结束，共 ${rounds} 轮发言。`,
   }
 }
 
@@ -82,11 +105,6 @@ export function advanceRoundtablePhase(match: Match, mode: GameMode): Match {
   return preparePhaseStep(match, mode)
 }
 
-export function openingNeedsHostSpeech(match: Match, mode: GameMode): boolean {
-  return (
-    isDiscussionEngineMode(mode) &&
-    match.runtime.currentPhaseId === 'opening' &&
-    Boolean(match.runtime.roundtableState?.hostEnabled) &&
-    !match.runtime.actedCharacterIds.includes('host')
-  )
+export function openingNeedsHostSpeech(_match: Match, _mode: GameMode): boolean {
+  return false
 }

@@ -31,14 +31,14 @@ const shell = inject(PORTAL_SHELL_KEY)!
 const {
   profile,
   displayName,
-  avatarInitial,
+  avatarUrl,
   gatewayReady,
   activeKeysCount,
+  keys,
   appKeyPlain,
   oauthBindings,
   wallet,
   balancePoints,
-  recentUsage,
   usageColumns,
   tickets,
   loading,
@@ -65,7 +65,6 @@ const {
   bindSending,
   bindSubmitting,
   bindCountdown,
-  signingOut,
   arenaSettings,
   arenaSettingsSaving,
   settingsTabMeta,
@@ -81,16 +80,14 @@ const {
       v-if="tab === 'overview'"
       :profile="profile"
       :display-name="displayName"
-      :avatar-initial="avatarInitial"
+      :avatar-url="avatarUrl"
       :gateway-ready="gatewayReady"
       :active-keys-count="activeKeysCount"
       :has-local-key="Boolean(appKeyPlain)"
       :wechat-bound="oauthBindings.some((item) => item.channel === 'wechat' && item.bound)"
       :wallet="wallet"
       :balance-points="balancePoints"
-      :recent-usage="recentUsage"
-      :usage-columns="usageColumns"
-      @navigate="shell.goTab($event as PortalTab)"
+      @update-profile="shell.updateLocalProfile($event)"
     />
 
     <UserStatsPanel v-else-if="tab === 'user-stats'" />
@@ -106,8 +103,6 @@ const {
       :bind-sending="bindSending"
       :bind-submitting="bindSubmitting"
       :bind-countdown="bindCountdown"
-      :signing-out="signingOut"
-      @force-logout="shell.forceLogout()"
       @send-bind-code="shell.sendBindCode()"
       @submit-bind-email="shell.submitBindEmail()"
       @unbind-oauth="(channel, label) => shell.unbindOAuth(channel, label)"
@@ -130,7 +125,7 @@ const {
     <AppKeyPanel
       v-else-if="tab === 'keys'"
       :app-key-name="appKeyName"
-      :app-display-name="appDisplayName"
+      :keys="keys"
       :app-key="appSoftwareKey"
       :key-plain="appKeyPlain"
       :new-key-plain="newKeyPlain"

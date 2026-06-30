@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { Loader2, Send, Trash2, X } from 'lucide-vue-next'
+import { Loader2, Send, Trash2 } from 'lucide-vue-next'
+import ArenaDialogShell from '@renderer/components/common/ArenaDialogShell.vue'
 import ArenaChatBubble from '@renderer/components/arena/ArenaChatBubble.vue'
 import { confirm } from '@renderer/composables/useAppDialog'
 import { modeImageById } from '@renderer/data/arena-visual-assets'
@@ -105,40 +106,42 @@ onMounted(() => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="show" class="qa-overlay" @click.self="show = false">
-      <div class="qa-dialog" role="dialog" aria-label="玩法答疑">
-        <header class="qa-header">
-          <div class="qa-identity">
-            <img :src="modeImageById(mode.id)" alt="" />
-            <div>
-              <strong>{{ mode.name }} · 答疑</strong>
-              <span>基于官方玩法文档回答你的问题</span>
-            </div>
-          </div>
-          <div class="qa-header-actions">
-            <button type="button" title="清空" @click="clearChat"><Trash2 :size="16" /></button>
-            <button type="button" title="关闭" @click="show = false"><X :size="18" /></button>
-          </div>
-        </header>
+  <ArenaDialogShell
+    v-model="show"
+    :title="`${mode.name} · 答疑`"
+    variant="form"
+    :mask-closable="false"
+    height="min(72vh, 680px)"
+    body-flush
+    show-footer
+    footer-stack
+  >
+    <div class="qa-dialog__content">
+      <div class="qa-identity">
+        <img :src="modeImageById(mode.id)" alt="" />
+        <p>基于官方玩法文档回答你的问题</p>
+      </div>
 
-        <div ref="logRef" class="qa-log">
-          <div v-if="loading" class="qa-loading"><Loader2 :size="20" class="spin" /> 加载中…</div>
-          <ArenaChatBubble
-            v-for="msg in messages"
-            :key="msg.id"
-            :message="msg"
-            thinking-label="正在查阅玩法文档…"
-          />
-        </div>
+      <div ref="logRef" class="qa-log">
+        <div v-if="loading" class="qa-loading"><Loader2 :size="20" class="spin" /> 加载中…</div>
+        <ArenaChatBubble
+          v-for="msg in messages"
+          :key="msg.id"
+          :message="msg"
+          thinking-label="正在查阅玩法文档…"
+        />
+      </div>
 
-        <div v-if="messages.length <= 1" class="qa-suggestions">
-          <button v-for="s in suggestions" :key="s" type="button" @click="send(s)">{{ s }}</button>
-        </div>
+      <div v-if="messages.length <= 1" class="qa-suggestions">
+        <button v-for="s in suggestions" :key="s" type="button" @click="send(s)">{{ s }}</button>
+      </div>
 
-        <p v-if="error" class="qa-error">{{ error }}</p>
+      <p v-if="error" class="qa-error">{{ error }}</p>
+    </div>
 
-        <footer class="qa-footer">
+    <template #footer>
+      <div class="qa-footer">
+        <div class="qa-footer-input">
           <textarea
             v-model="input"
             rows="2"
@@ -150,49 +153,33 @@ onMounted(() => {
             <Loader2 v-if="sending" :size="18" class="spin" />
             <Send v-else :size="18" />
           </button>
-        </footer>
+        </div>
+        <div class="qa-footer-bar">
+          <button type="button" class="qa-footer-bar__secondary" title="清空" @click="clearChat">
+            <Trash2 :size="16" />
+            清空记录
+          </button>
+          <button type="button" class="arena-dialog__btn" @click="show = false">关闭</button>
+        </div>
       </div>
-    </div>
-  </Teleport>
+    </template>
+  </ArenaDialogShell>
 </template>
 
 <style scoped>
-.qa-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(15, 18, 42, 0.42);
-  backdrop-filter: blur(6px);
-}
-
-.qa-dialog {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
-  width: min(560px, 100%);
-  height: min(72vh, 680px);
-  border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 32px 80px rgba(50, 56, 120, 0.22);
-  overflow: hidden;
-}
-
-.qa-header {
+.qa-dialog__content {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 18px;
-  border-bottom: 1px solid rgba(130, 142, 207, 0.12);
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
 }
 
 .qa-identity {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(130, 142, 207, 0.1);
 }
 
 .qa-identity img {
@@ -202,35 +189,15 @@ onMounted(() => {
   object-fit: cover;
 }
 
-.qa-identity strong {
-  display: block;
-  color: #17205a;
-  font-size: 16px;
-}
-
-.qa-identity span {
+.qa-identity p {
+  margin: 0;
   color: #7a85b0;
   font-size: 12px;
 }
 
-.qa-header-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.qa-header-actions button {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: 10px;
-  background: rgba(130, 142, 207, 0.1);
-  color: #5e68a0;
-  cursor: pointer;
-}
-
 .qa-log {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   padding: 16px 18px;
   display: flex;
@@ -273,13 +240,39 @@ onMounted(() => {
 
 .qa-footer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px;
   gap: 10px;
-  padding: 14px 18px 18px;
-  border-top: 1px solid rgba(130, 142, 207, 0.12);
+  width: 100%;
 }
 
-.qa-footer textarea {
+.qa-footer-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 10px;
+}
+
+.qa-footer-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.qa-footer-bar__secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(130, 142, 207, 0.15);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #5e68a0;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.qa-footer-input textarea {
   resize: none;
   padding: 10px 12px;
   border: 1px solid rgba(130, 142, 207, 0.18);

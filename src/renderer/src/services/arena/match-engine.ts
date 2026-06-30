@@ -27,7 +27,9 @@ import {
   transferSheriffIfNeeded,
   triggerDeathSkill,
 } from './phase-engine'
-import { advanceRoundtablePhase, checkRoundtableComplete, isDiscussionEngineMode, isRoundtableMode } from './roundtable-engine'
+import { advanceRoundtablePhase, checkRoundtableComplete, isBrainstormMode, isDiscussionEngineMode, isRoundtableMode, needsRefereeBridge } from './roundtable-engine'
+import { discussionArtifactService } from './discussion-artifact-service'
+import { formatRefereeBridgeHint } from '@shared/arena/discussion-mode'
 import {
   advanceUndercoverPhase,
   assignUndercoverWords,
@@ -478,10 +480,12 @@ async function afterActorStep(match: Match, matchId: string, options?: AdvanceSt
 
   const roundtableDone = checkRoundtableComplete(match, mode)
   if (roundtableDone) {
-    appendSystemEvent(match, '🎙️', roundtableDone.summary)
-    appendRoomMessage(match, roundtableDone.summary, 'judge')
+    match = await discussionArtifactService.ensureArtifact(match)
+    const summary = discussionArtifactService.buildResultSummary(match)
+    appendSystemEvent(match, '🎙️', summary)
+    appendRoomMessage(match, summary, 'judge')
     match = await matchService.save(match)
-    return finishMatch(match, roundtableDone.summary, null)
+    return finishMatch(match, summary, null)
   }
 
   const undercoverDone = checkUndercoverComplete(match, mode)
@@ -502,6 +506,21 @@ async function afterActorStep(match: Match, matchId: string, options?: AdvanceSt
 
   if (match.runtime.currentPhaseId === 'last-words') {
     match.runtime.pendingLastWordsIds = undefined
+  }
+
+  if (needsRefereeBridge(match, mode)) {
+    const state = match.runtime.roundtableState!
+    match.runtime.humanInputKind =
+      state.facilitationMode === 'live_commentary' ? 'referee_commentary' : 'referee_bridge'
+    match.runtime.waitingHint = formatRefereeBridgeHint(
+      state.facilitationMode,
+      match.runtime.currentRound,
+      state.totalRounds
+    )
+    match.runtime.stepAdvanceState = 'ready'
+    match = await matchService.save(match)
+    notifyDelta(match, options, true)
+    return match
   }
 
   if (isDiscussionEngineMode(mode)) advanceRoundtablePhase(match, mode)
@@ -667,9 +686,12 @@ export const matchEngine = {
 
       if (match.runtime.currentActionKind === 'system' || match.runtime.currentActionKind === 'judge') {
         let text = resolveSystemPhase(match, mode)
-        if (isRoundtableMode(mode) && match.runtime.currentPhaseId === 'opening') {
-          const topic = match.runtime.roundtableState?.discussionTopic || '自由讨论'
-          text = `主持人：欢迎参加圆桌讨论。今日议题——「${topic}」。请各位依次发表观点。`
+        if (isDiscussionEngineMode(mode) && match.runtime.currentPhaseId === 'opening') {
+          const state = match.runtime.roundtableState
+          const topic = state?.discussionTopic || '自由讨论'
+          const rounds = state?.totalRounds || 3
+          const label = isBrainstormMode(mode) ? '头脑风暴' : '圆桌讨论'
+          text = `欢迎参加${label}。议题——「${topic}」，共 ${rounds} 轮发言。你是本场裁判：每轮全员发言后由你总结引导或解说，再进入下一轮；结束时将归纳讨论产物。`
         }
         appendSystemEvent(match, '⚖️', text)
         appendRoomMessage(match, text, 'judge')
@@ -918,5 +940,17 @@ export const matchEngine = {
     const match = await humanPlayerService.submitSeerCheck(matchId, targetId)
     notifyDelta(match, options, true)
     return match
+  },
+
+  async submitRefereeBridge(matchId: string, content: string, options?: AdvanceStepOptions): Promise<Match> {
+    let match = await humanPlayerService.submitRefereeBridge(matchId, content)
+    notifyDelta(match, options, true)
+    const advanceToken = beginAdvance(matchId)
+    try {
+      match = await afterActorStep(match, matchId, options)
+      return match
+    } finally {
+      endAdvance(matchId, advanceToken)
+    }
   },
 }

@@ -25,10 +25,13 @@ import {
   isVoteLive,
   isVoteTallyMessage,
   participantExpressionUrl,
+  isPlayerSelfSeat,
+  participantCampClass,
   pickFocusMessage,
   resolveSpeechExpressionId,
   speechDisplayText,
   thoughtText,
+  visibleRoleNameForParticipant,
   voteSummaryForMessage,
 } from '@renderer/services/arena/match-room-presenters'
 import type { Character, Match, MatchMessage, MatchParticipant, MatchVoteRecord } from '@shared/arena/types'
@@ -47,6 +50,7 @@ const props = defineProps<{
   speechDisplayConfig: SpeechDisplayConfig | null
   characterCache: Map<string, Character>
   guessedRoles: Record<string, string>
+  selfPlayerId: string | null
   voteEligibleCount: number
   voteProgress: number
   streamTick: number
@@ -180,20 +184,20 @@ function avatarStyle(p: MatchParticipant) {
 }
 
 function visibleRoleName(p: MatchParticipant): string {
-  return props.viewMode === 'god' || p.revealed || p.alive === 'eliminated'
-    ? p.roleName || '未知'
-    : props.guessedRoles[p.characterId]
-      ? '疑似' + props.guessedRoles[p.characterId]
-      : '未公开'
+  return visibleRoleNameForParticipant(p, props.viewMode, props.guessedRoles, props.selfPlayerId)
 }
 
 function campClass(p: MatchParticipant): string {
-  if (props.viewMode === 'player' && !p.revealed && p.alive !== 'eliminated') {
-    return props.guessedRoles[p.characterId] ? 'camp-guess' : 'camp-hidden'
-  }
-  if (p.roleId === 'villager') return 'camp-villager'
-  return p.roleCamp === 'wolf' ? 'camp-wolf' : p.roleCamp === 'good' ? 'camp-good' : 'camp-neutral'
+  return participantCampClass(p, props.viewMode, props.guessedRoles, props.selfPlayerId)
 }
+
+function isSelfSeat(p: MatchParticipant): boolean {
+  return isPlayerSelfSeat(p, props.selfPlayerId, props.viewMode)
+}
+
+const focusTtsSpeaking = computed(
+  () => Boolean(focusParticipant.value && props.ttsSpeakingId === focusParticipant.value.characterId)
+)
 
 function playerGuessLabel(p: MatchParticipant): string | null {
   if (props.viewMode !== 'player') return null
@@ -247,6 +251,7 @@ function formatVoteCount(count: number): string {
               'is-speaking': activeSpeakerId === p.characterId,
               'is-focus': isSeatFocused(p),
               'is-tts-speaking': ttsSpeakingId === p.characterId,
+              'is-self': isSelfSeat(p),
               'is-out': p.alive !== 'alive',
               'is-sheriff': sheriffId === p.characterId,
               'has-guess': Boolean(playerGuessLabel(p)),
@@ -279,6 +284,7 @@ function formatVoteCount(count: number): string {
             <small>{{ visibleRoleName(p) }}</small>
           </span>
           <span v-if="playerGuessLabel(p)" class="imm-seat__guess">标记 · {{ playerGuessLabel(p) }}</span>
+          <span v-if="isSelfSeat(p)" class="imm-seat__self">我</span>
           <em v-if="activeSpeakerId === p.characterId && stageStatusLabel" class="imm-seat__mark">{{ stageStatusLabel }}</em>
           <em v-else-if="activeSpeakerId === p.characterId || isSeatFocused(p)" class="imm-seat__mark">发言中</em>
           <i v-if="sheriffId === p.characterId" class="imm-seat__badge">警</i>
@@ -355,10 +361,11 @@ function formatVoteCount(count: number): string {
               </div>
             </div>
 
-            <div class="imm-speech-panel" :class="{ 'is-live': focusSpeechLive, 'is-thinking': focusSpeechThinking && !focusSpeechText }">
+            <div class="imm-speech-panel" :class="{ 'is-live': focusSpeechLive, 'is-thinking': focusSpeechThinking && !focusSpeechText, 'is-tts-speaking': focusTtsSpeaking }">
               <div class="imm-speech-panel__head">
                 <MessageCircle :size="14" />
                 <strong>公开发言</strong>
+                <span v-if="focusTtsSpeaking" class="imm-speech-panel__tts" aria-hidden="true"><i></i><i></i><i></i></span>
               </div>
               <div class="imm-speech-panel__body">
                 <div v-if="focusSpeechThinking && !focusSpeechText" class="imm-speech-panel__waiting">
@@ -414,6 +421,7 @@ function formatVoteCount(count: number): string {
               'is-speaking': activeSpeakerId === p.characterId,
               'is-focus': isSeatFocused(p),
               'is-tts-speaking': ttsSpeakingId === p.characterId,
+              'is-self': isSelfSeat(p),
               'is-out': p.alive !== 'alive',
               'is-sheriff': sheriffId === p.characterId,
               'has-guess': Boolean(playerGuessLabel(p)),
@@ -446,6 +454,7 @@ function formatVoteCount(count: number): string {
             <small>{{ visibleRoleName(p) }}</small>
           </span>
           <span v-if="playerGuessLabel(p)" class="imm-seat__guess">标记 · {{ playerGuessLabel(p) }}</span>
+          <span v-if="isSelfSeat(p)" class="imm-seat__self">我</span>
           <em v-if="activeSpeakerId === p.characterId && stageStatusLabel" class="imm-seat__mark">{{ stageStatusLabel }}</em>
           <em v-else-if="activeSpeakerId === p.characterId || isSeatFocused(p)" class="imm-seat__mark">发言中</em>
           <i v-if="sheriffId === p.characterId" class="imm-seat__badge">警</i>
@@ -710,6 +719,28 @@ function formatVoteCount(count: number): string {
   animation: immAvatarGlow 1.15s ease-in-out infinite;
 }
 
+.imm-seat.is-self {
+  border-color: rgba(255, 147, 212, 0.32);
+  background: linear-gradient(135deg, rgba(255, 248, 252, 0.88), rgba(244, 238, 255, 0.72));
+}
+
+.imm-seat__self {
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 900;
+  color: #9b3fd0;
+  background: linear-gradient(135deg, rgba(255, 147, 212, 0.32), rgba(124, 92, 255, 0.18));
+  box-shadow: 0 4px 10px rgba(180, 92, 200, 0.18);
+}
+
 .imm-seat.is-out {
   opacity: 0.38;
   filter: grayscale(0.55);
@@ -959,6 +990,34 @@ function formatVoteCount(count: number): string {
   box-shadow: 0 12px 28px rgba(102, 81, 190, 0.1);
 }
 
+.imm-speech-panel.is-tts-speaking {
+  border-color: rgba(98, 184, 255, 0.42);
+  box-shadow: 0 12px 28px rgba(98, 184, 255, 0.14), inset 0 0 0 1px rgba(98, 184, 255, 0.12);
+  animation: immSpeechTtsPulse 1.15s ease-in-out infinite;
+}
+
+.imm-speech-panel__tts {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 2px 4px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.imm-speech-panel__tts i {
+  display: block;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #62b8ff, #6d54d8);
+  animation: immWave 760ms ease-in-out infinite;
+}
+
+.imm-speech-panel__tts i:nth-child(1) { height: 4px; }
+.imm-speech-panel__tts i:nth-child(2) { height: 7px; animation-delay: 120ms; }
+.imm-speech-panel__tts i:nth-child(3) { height: 5px; animation-delay: 240ms; }
+
 .imm-speech-panel__head {
   display: flex;
   align-items: center;
@@ -1100,6 +1159,7 @@ function formatVoteCount(count: number): string {
   }
 }
 
+@keyframes immSpeechTtsPulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.04); } }
 @keyframes immSpin { to { transform: rotate(360deg); } }
 @keyframes immAvatarGlow { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.08); } }
 @keyframes immWave { 0%, 100% { transform: scaleY(.55); opacity: .55; } 50% { transform: scaleY(1); opacity: 1; } }

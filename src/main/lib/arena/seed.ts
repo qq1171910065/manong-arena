@@ -328,7 +328,7 @@ export function createUserProfileCharacter(store: ArenaStore, input: UserProfile
     portraitUrl: 'asset://portrait/default',
     gender,
     ageLabel: '—',
-    bio: input.bio?.trim() || `这是 ${name} 的 AI 分身，会按你的风格参与狼人杀与圆桌讨论；你也可以随时亲自接管发言。`,
+    bio: input.bio?.trim() || `这是 ${name} 的 AI 分身，会按你的风格参与狼人杀等规则博弈；你也可以随时亲自接管发言。讨论型玩法需由你担任裁判，分身不可参战。`,
     tags: ['用户分身', '可接管', speechStyle],
     speechStyle,
     commonPhrases: ['让我想想…', '这局我有自己的判断。'],

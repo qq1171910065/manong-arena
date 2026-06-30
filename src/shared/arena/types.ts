@@ -12,6 +12,15 @@ export type {
   CharacterPersonalitySkill,
   LineupGrowthRecord,
 } from './character-growth'
+export type {
+  CharacterAgentProfile,
+  CharacterAgentSkill,
+  CharacterMemoryCategory,
+  CharacterMemoryEntry,
+  CharacterMemoryImportance,
+  CharacterMemorySource,
+  CharacterWorkspaceFile,
+} from './character-agent'
 
 export type CharacterStatus = 'enabled' | 'disabled'
 export type MatchStatus = 'draft' | 'active' | 'paused' | 'completed' | 'aborted' | 'archived'
@@ -42,6 +51,10 @@ export type HumanInputKind =
   | 'seer_check'
   | 'witch_antidote'
   | 'witch_poison'
+  /** 讨论型：轮间总结并引导下一轮 */
+  | 'referee_bridge'
+  /** 讨论型：轮间圆桌解说 */
+  | 'referee_commentary'
 export type ParticipantAliveStatus = 'alive' | 'eliminated' | 'spectating'
 export type MessageKind = 'speech' | 'system' | 'event' | 'vote' | 'judge' | 'warning' | 'resource'
 export type MessageStreamStatus = 'pending' | 'streaming' | 'done' | 'failed'
@@ -203,6 +216,14 @@ export interface Character {
   stats: CharacterStats
   /** 等级与经验（属性由等级与人设计算得出） */
   growth?: import('./character-growth').CharacterGrowthState
+  /** 创建时随机分配的 4 个角色天赋 id（对应四阶解锁） */
+  talentIds?: string[]
+  /** 长期记忆条目 */
+  agentMemories?: import('./character-agent').CharacterMemoryEntry[]
+  /** 可注入私聊的自定义技能 */
+  agentSkills?: import('./character-agent').CharacterAgentSkill[]
+  /** 智能体扩展设定（私聊注入开关等） */
+  agentProfile?: import('./character-agent').CharacterAgentProfile
   createdAt: string
   updatedAt: string
 }
@@ -472,12 +493,20 @@ export interface WolfKillVoteRecord {
 export interface RoundtableRuntimeState {
   discussionTopic: string
   totalRounds: number
-  hostEnabled: boolean
-  narratorEnabled: boolean
+  /** @deprecated 讨论型由玩家担任裁判，不再启用 AI 主持人 */
+  hostEnabled?: boolean
+  /** @deprecated 讨论型不支持 AI 解说 */
+  narratorEnabled?: boolean
+  /** 玩家裁判的轮间引导方式 */
+  facilitationMode: import('./discussion-mode').DiscussionFacilitationMode
   designTarget?: string
   brainstormCategory?: import('./social-paradigm').BrainstormCategoryId
-  /** 头脑风暴结束时归纳的产物摘要 */
+  /** 玩家每轮裁判引导/解说 */
+  refereeBridges?: import('./discussion-mode').DiscussionRefereeBridge[]
+  /** 讨论结束时归纳的产物摘要（一行预览） */
   artifactSummary?: string
+  /** 结构化讨论产物 */
+  artifact?: import('./discussion-mode').DiscussionArtifact
 }
 
 export interface UndercoverRuntimeState {
@@ -684,6 +713,8 @@ export interface ArenaStoreData {
   characterGrowthSnapshots?: import('./character-growth').CharacterGrowthSnapshot[]
   /** 阵容组队战绩记录 */
   lineupGrowthLog?: import('./character-growth').LineupGrowthRecord[]
+  /** 角色文件空间索引（正文存于本机 storage） */
+  characterWorkspaceFiles?: Record<string, import('./character-agent').CharacterWorkspaceFile[]>
 }
 
 export interface ArenaResult<T = unknown> {
@@ -705,6 +736,8 @@ export interface CreateMatchInput {
   discussionTopic?: string
   /** 圆桌：讨论轮数 */
   roundtableRounds?: number
+  /** 讨论型：玩家裁判轮间引导方式 */
+  discussionFacilitationMode?: import('./discussion-mode').DiscussionFacilitationMode
   /** 头脑风暴：设计焦点 */
   designTarget?: string
   /** 狼人杀：启用的扩展身份 id（如 knight、wolf_king） */
@@ -742,4 +775,5 @@ export interface DashboardSummary {
   recentCostCents: number
   behaviorChanges: BehaviorChangeRecord[]
   growthRecords: CharacterGrowthRecord[]
+  growthSnapshots: import('./character-growth').CharacterGrowthSnapshot[]
 }

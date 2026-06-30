@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import {
   BookOpen,
   CheckCircle2,
-  ChevronRight,
-  GraduationCap,
+  ChevronDown,
   Loader2,
   ShieldOff,
 } from 'lucide-vue-next'
-import CharacterScenarioRecordDialog from './CharacterScenarioRecordDialog.vue'
+import CharacterScenarioRecordPanel from './CharacterScenarioRecordPanel.vue'
 import {
   characterLearningService,
   characterScenarioRecordService,
@@ -32,11 +31,7 @@ const busyScenarioId = ref('')
 const actionError = ref('')
 const summaries = ref<CharacterScenarioRecordSummary[]>([])
 const summariesLoading = ref(true)
-const recordOpen = ref(false)
-const recordScenarioId = ref('')
-const recordScenarioName = ref('')
-
-const learnedCount = computed(() => summaries.value.filter((s) => s.learned).length)
+const expandedScenarioId = ref('')
 
 onMounted(() => void refreshSummaries())
 
@@ -49,10 +44,9 @@ async function refreshSummaries() {
   }
 }
 
-function openRecord(summary: CharacterScenarioRecordSummary) {
-  recordScenarioId.value = summary.scenarioId
-  recordScenarioName.value = summary.scenarioName
-  recordOpen.value = true
+function toggleRecord(summary: CharacterScenarioRecordSummary) {
+  expandedScenarioId.value =
+    expandedScenarioId.value === summary.scenarioId ? '' : summary.scenarioId
 }
 
 async function runLearn(scenarioId: string) {
@@ -111,103 +105,86 @@ function learnLabel(summary: CharacterScenarioRecordSummary): string {
 
 <template>
   <section class="record-panel">
-    <header class="record-panel__head">
-      <div>
-        <h2><GraduationCap :size="18" /> 场景记录</h2>
-        <p>
-          各场景范式下的基础演练记录。点击卡片查看发挥详情、图表与经验教训。
-          已掌握 {{ learnedCount }} / {{ summaries.length }} 种场景。
-        </p>
-      </div>
-    </header>
-
     <p v-if="actionError" class="record-panel__error">{{ actionError }}</p>
-    <p v-if="summariesLoading" class="record-panel__loading">正在整理场景记录…</p>
+    <p v-if="summariesLoading" class="record-panel__loading">加载中…</p>
 
-    <article
-      v-for="summary in summaries"
-      :key="summary.scenarioId"
-      class="record-card"
-      @click="openRecord(summary)"
-    >
-      <div class="record-card__main">
-        <div>
-          <strong>{{ summary.scenarioName }}</strong>
-          <span class="record-card__paradigm">{{ summary.paradigmShortLabel }}范式</span>
+    <template v-else>
+      <article
+        v-for="summary in summaries"
+        :key="summary.scenarioId"
+        class="record-card"
+        :class="{ 'record-card--expanded': expandedScenarioId === summary.scenarioId }"
+      >
+        <div class="record-card__main" @click="toggleRecord(summary)">
+          <div>
+            <strong>{{ summary.scenarioName }}</strong>
+            <span class="record-card__paradigm">{{ summary.paradigmShortLabel }}范式</span>
+          </div>
+          <ChevronDown
+            :size="18"
+            class="record-card__arrow"
+            :class="{ 'record-card__arrow--open': expandedScenarioId === summary.scenarioId }"
+          />
         </div>
-        <ChevronRight :size="18" class="record-card__arrow" />
-      </div>
 
-      <div class="record-card__stats">
-        <span>演练 {{ summary.matchCount }} 次</span>
-        <span v-if="summary.winCount">胜 {{ summary.winCount }}</span>
-        <span v-if="summary.mvpCount">MVP {{ summary.mvpCount }}</span>
-        <span>{{ summary.statusLabel }}</span>
-        <span v-if="summary.lastMatchAt">最近 {{ formatTimeLabel(summary.lastMatchAt) }}</span>
-      </div>
+        <div class="record-card__stats">
+          <span>演练 {{ summary.matchCount }} 次</span>
+          <span v-if="summary.winCount">胜 {{ summary.winCount }}</span>
+          <span v-if="summary.mvpCount">MVP {{ summary.mvpCount }}</span>
+          <span>{{ summary.statusLabel }}</span>
+          <span v-if="summary.lastMatchAt">最近 {{ formatTimeLabel(summary.lastMatchAt) }}</span>
+        </div>
 
-      <div class="record-card__actions" @click.stop>
-        <button type="button" :disabled="busyScenarioId === summary.scenarioId" @click="runLearn(summary.scenarioId)">
-          <Loader2 v-if="busyScenarioId === summary.scenarioId" :size="14" class="spin" />
-          <BookOpen v-else :size="14" />
-          {{ learnLabel(summary) }}
-        </button>
-        <button
-          v-if="scenarioRequiresExam(summary.scenarioId)"
-          type="button"
-          :disabled="busyScenarioId === summary.scenarioId || !summary.learned || summary.examPassed || summary.examBypassed"
-          @click="runExam(summary.scenarioId)"
-        >
-          <CheckCircle2 :size="14" />
-          校验
-        </button>
-        <button
-          v-if="scenarioRequiresExam(summary.scenarioId)"
-          type="button"
-          class="ghost"
-          :disabled="busyScenarioId === summary.scenarioId || !summary.learned || summary.examPassed || summary.examBypassed"
-          @click="runBypass(summary.scenarioId)"
-        >
-          <ShieldOff :size="14" />
-          免考
-        </button>
-      </div>
-    </article>
+        <div class="record-card__actions" @click.stop>
+          <button type="button" :disabled="busyScenarioId === summary.scenarioId" @click="runLearn(summary.scenarioId)">
+            <Loader2 v-if="busyScenarioId === summary.scenarioId" :size="14" class="spin" />
+            <BookOpen v-else :size="14" />
+            {{ learnLabel(summary) }}
+          </button>
+          <button
+            v-if="scenarioRequiresExam(summary.scenarioId)"
+            type="button"
+            :disabled="busyScenarioId === summary.scenarioId || !summary.learned || summary.examPassed || summary.examBypassed"
+            @click="runExam(summary.scenarioId)"
+          >
+            <CheckCircle2 :size="14" />
+            校验
+          </button>
+          <button
+            v-if="scenarioRequiresExam(summary.scenarioId)"
+            type="button"
+            class="ghost"
+            :disabled="busyScenarioId === summary.scenarioId || !summary.learned || summary.examPassed || summary.examBypassed"
+            @click="runBypass(summary.scenarioId)"
+          >
+            <ShieldOff :size="14" />
+            免考
+          </button>
+        </div>
 
-    <CharacterScenarioRecordDialog
-      v-model="recordOpen"
-      :character="character"
-      :scenario-id="recordScenarioId"
-      :scenario-name="recordScenarioName"
-    />
+        <CharacterScenarioRecordPanel
+          v-if="expandedScenarioId === summary.scenarioId"
+          :character="character"
+          :scenario-id="summary.scenarioId"
+          :scenario-name="summary.scenarioName"
+        />
+      </article>
+
+      <p v-if="!summaries.length" class="record-panel__empty">暂无场景演练记录。</p>
+    </template>
   </section>
 </template>
 
 <style scoped>
-.record-panel__head h2 {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 6px;
-  font-size: 17px;
-  color: #17205a;
-}
-
-.record-panel__head p {
-  margin: 0;
-  color: #66709d;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
 .record-panel__error {
-  margin: 12px 0 0;
+  margin: 0 0 12px;
   color: #c2410c;
   font-size: 13px;
 }
 
-.record-panel__loading {
-  margin: 12px 0 0;
+.record-panel__loading,
+.record-panel__empty {
+  margin: 0;
   color: #7a85b0;
   font-size: 13px;
 }
@@ -218,11 +195,13 @@ function learnLabel(summary: CharacterScenarioRecordSummary): string {
   border: 1px solid rgba(130, 142, 207, 0.14);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.52);
-  cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.record-card:hover {
+.record-card:first-child {
+  margin-top: 0;
+}
+
+.record-card--expanded {
   border-color: rgba(91, 87, 243, 0.28);
   box-shadow: 0 8px 20px rgba(91, 87, 243, 0.08);
 }
@@ -232,6 +211,7 @@ function learnLabel(summary: CharacterScenarioRecordSummary): string {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  cursor: pointer;
 }
 
 .record-card__main strong {
@@ -254,6 +234,12 @@ function learnLabel(summary: CharacterScenarioRecordSummary): string {
 .record-card__arrow {
   flex: none;
   color: #9aa3c7;
+  transition: transform 0.2s ease;
+}
+
+.record-card__arrow--open {
+  transform: rotate(180deg);
+  color: #5b57f3;
 }
 
 .record-card__stats {

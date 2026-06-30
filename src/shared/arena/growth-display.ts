@@ -1,6 +1,14 @@
 /** 角色成长/沉淀展示 — 面向养成 UI，过滤对局流水与 token 细节 */
 
 import type { CharacterGrowthSnapshot } from './character-growth'
+import type { CharacterGrowthRecord, BehaviorChangeRecord } from './types'
+
+export interface CharacterGrowthLogItem {
+  id: string
+  createdAt: string
+  source: string
+  summary: string
+}
 
 const TOKEN_NOISE = /\s*·\s*\d+\s*output tokens.*$/i
 const EXP_NOISE = /\s*·\s*\+\d+\s*EXP.*$/gi
@@ -47,4 +55,54 @@ export function formatLessonFromSnapshot(snapshot: CharacterGrowthSnapshot): str
     return `${summary}（升至 Lv.${snapshot.level}）`
   }
   return summary
+}
+
+/** 成长记录时间线 — 只要有摘要就展示，涵盖对局/私聊/复盘/学习等全部交互 */
+export function isGrowthLogSnapshot(snapshot: CharacterGrowthSnapshot): boolean {
+  return Boolean(sanitizeGrowthSummary(snapshot.summary))
+}
+
+export function growthRecordSourceLabel(source: CharacterGrowthRecord['source']): string {
+  return source === 'chat' ? '私聊沉淀' : '复盘领悟'
+}
+
+export function buildCharacterGrowthLogItems(
+  snapshots: CharacterGrowthSnapshot[],
+  records: CharacterGrowthRecord[] = [],
+  behaviorChanges: BehaviorChangeRecord[] = [],
+): CharacterGrowthLogItem[] {
+  const items: CharacterGrowthLogItem[] = []
+
+  for (const snapshot of snapshots.filter(isGrowthLogSnapshot)) {
+    items.push({
+      id: `snap-${snapshot.id}`,
+      createdAt: snapshot.createdAt,
+      source: growthSourceLabel(snapshot.source),
+      summary: formatLessonFromSnapshot(snapshot),
+    })
+  }
+
+  for (const record of records) {
+    const summary = sanitizeGrowthSummary(record.summary)
+    if (!summary) continue
+    items.push({
+      id: `rec-${record.id}`,
+      createdAt: record.createdAt,
+      source: growthRecordSourceLabel(record.source),
+      summary,
+    })
+  }
+
+  for (const change of behaviorChanges) {
+    const summary = sanitizeGrowthSummary(change.summary)
+    if (!summary) continue
+    items.push({
+      id: `beh-${change.id}`,
+      createdAt: change.createdAt,
+      source: '行为调整',
+      summary,
+    })
+  }
+
+  return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }

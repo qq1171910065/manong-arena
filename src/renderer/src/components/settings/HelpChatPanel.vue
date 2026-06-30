@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { Loader2, Send, SquarePen } from 'lucide-vue-next'
+import { Loader2, SquarePen } from 'lucide-vue-next'
 import ArenaChatBubble from '@renderer/components/arena/ArenaChatBubble.vue'
 import { formatUserMessage } from '@renderer/services/arena'
 import { createHelpWelcomeMessage, helpChatService } from '@renderer/services/help-chat-service'
 import ProfileSectionLayout from './ProfileSectionLayout.vue'
-import { NButton, NInput } from '../../ui'
+import { NButton } from '../../ui'
 import type { CharacterChatMessage } from '@shared/arena/types'
 
 const input = ref('')
@@ -69,6 +69,13 @@ async function sendQuestion() {
   }
 }
 
+function onInputKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+  event.preventDefault()
+  if (!canSend.value) return
+  void sendQuestion()
+}
+
 onMounted(() => {
   void loadHistory()
 })
@@ -99,19 +106,18 @@ onMounted(() => {
 
       <p v-if="error" class="help-chat-error">{{ error }}</p>
 
-      <div class="help-chat-input">
-        <NInput
-          v-model:value="input"
-          type="textarea"
-          :rows="2"
-          placeholder="输入你的问题..."
+      <div class="help-chat-input" :class="{ 'is-sending': sending }">
+        <textarea
+          v-model="input"
+          rows="2"
+          placeholder="输入你的问题… Enter 发送，Shift + Enter 换行"
           :disabled="sending || loading"
-          @keydown.enter.exact.prevent="sendQuestion()"
+          @keydown="onInputKeydown"
         />
-        <NButton type="primary" :disabled="!canSend" :loading="sending" @click="sendQuestion()">
-          <template #icon><Send :size="14" /></template>
-          发送
-        </NButton>
+        <p v-if="sending" class="help-chat-input-status">
+          <Loader2 :size="14" class="spin" />
+          正在回复…
+        </p>
       </div>
     </div>
   </ProfileSectionLayout>
@@ -176,13 +182,43 @@ onMounted(() => {
 
 .help-chat-input {
   flex-shrink: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: end;
   padding: 14px var(--profile-body-padding-inline) var(--profile-body-padding-block);
   border-top: 1px solid var(--profile-head-border);
   background: color-mix(in srgb, var(--surface) 62%, transparent);
+}
+
+.help-chat-input textarea {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  max-height: 220px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid rgba(130, 142, 207, 0.18);
+  border-radius: 14px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  outline: none;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.help-chat-input textarea:focus {
+  border-color: rgba(91, 87, 243, 0.45);
+}
+
+.help-chat-input.is-sending textarea {
+  opacity: 0.72;
+}
+
+.help-chat-input-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .spin {

@@ -10,10 +10,16 @@ import { useImmersiveSpeechCadence } from '@renderer/composables/useImmersiveSpe
 import { characterAvatarByName } from '@renderer/data/arena-visual-assets'
 import { arenaHomeAssets } from '@renderer/data/arena-home-assets'
 import { route } from '../router'
+import { isDiscussionGameModeId } from '@shared/arena/discussion-mode'
 import { billingService, canTakeOverMatch, characterService, formatUserMessage, gameModeService, getUserProfileCharacterId, humanPlayerService, isHumanActionPending, isHumanControlledMatch, lockTakeoverOnGodView, matchEngine, matchService, matchWindowService, playArenaTone, settingsService, ttsService, unlockArenaAudio } from '@renderer/services/arena'
 import type { MatchStreamPatch } from '@renderer/services/arena/match-engine'
 import type { ArenaSettings, Character, Match, MatchMessage, MatchParticipant, MatchVoteRecord } from '@shared/arena/types'
 import { resolveSpeechDisplayConfig } from '@shared/arena/speech-display'
+import {
+  isPlayerSelfSeat,
+  participantCampClass,
+  visibleRoleNameForParticipant,
+} from '@renderer/services/arena/match-room-presenters'
 
 const match = ref<Match | null>(null)
 const loading = ref(true)
@@ -23,6 +29,7 @@ const settings = ref(settingsService.defaults())
 const copied = ref(false)
 const viewMode = ref<'god' | 'player'>('player')
 const profileCharacterId = ref<string | null>(null)
+const selfPlayerId = computed(() => match.value?.runtime.userProfileCharacterId ?? profileCharacterId.value ?? null)
 const guessedRoles = ref<Record<string, string>>({})
 const showEvents = ref(false)
 const expandedThoughtIds = ref<Set<string>>(new Set())
@@ -187,7 +194,13 @@ const canTakeOver = computed(() => (match.value ? canTakeOverMatch(match.value, 
 const isHumanControlling = computed(() => (match.value ? isHumanControlledMatch(match.value, profileCharacterId.value) : false))
 const humanTakeoverLocked = computed(() => Boolean(match.value?.runtime.humanTakeoverLocked))
 const showHumanTakeoverButton = computed(
-  () => Boolean(profileCharacterId.value && match.value && (canTakeOver.value || isHumanControlling.value))
+  () =>
+    Boolean(
+      profileCharacterId.value &&
+        match.value &&
+        !isDiscussionGameModeId(match.value.gameModeId) &&
+        (canTakeOver.value || isHumanControlling.value)
+    )
 )
 const autoAdvanceActive = computed(() => Boolean(match.value?.status === 'active' && settings.value.matchDefaults.autoAdvance && canAdvance.value && !advancing.value && !error.value && !humanInputPending.value && !immersivePresentationHold.value && !(actionKind.value === 'judge' && !settings.value.matchDefaults.autoNextRound)))
 const displayMode = computed(() => settings.value.compactLayout ? '高玩视图' : settings.value.modelCallHints ? '新手提示' : '标准视图')
@@ -212,9 +225,10 @@ function messageAvatarStyle(msg: MatchMessage) {
 }
 function aliveLabel(p: MatchParticipant): string { return p.alive === 'alive' ? '在场' : p.alive === 'spectating' ? '旁观' : '出局' }
 function realCampLabel(p: MatchParticipant): string { if (p.roleId === 'villager') return '平民'; return p.roleCamp === 'wolf' ? '狼人' : p.roleCamp === 'good' ? '好人' : '未知' }
-function campLabel(p: MatchParticipant): string { return viewMode.value === 'god' || p.revealed || p.alive === 'eliminated' ? realCampLabel(p) : guessedRoles.value[p.characterId] ? '猜测：' + guessedRoles.value[p.characterId] : '身份未知' }
-function campClass(p: MatchParticipant): string { if (viewMode.value === 'player' && !p.revealed && p.alive !== 'eliminated') return guessedRoles.value[p.characterId] ? 'camp-guess' : 'camp-hidden'; if (p.roleId === 'villager') return 'camp-villager'; return p.roleCamp === 'wolf' ? 'camp-wolf' : p.roleCamp === 'good' ? 'camp-good' : 'camp-neutral' }
-function visibleRoleName(p: MatchParticipant): string { return viewMode.value === 'god' || p.revealed || p.alive === 'eliminated' ? p.roleName || '未知' : guessedRoles.value[p.characterId] ? '疑似' + guessedRoles.value[p.characterId] : '未公开' }
+function campLabel(p: MatchParticipant): string { return viewMode.value === 'god' || p.revealed || p.alive === 'eliminated' || isPlayerSelfSeat(p, selfPlayerId.value, viewMode.value) ? realCampLabel(p) : guessedRoles.value[p.characterId] ? '猜测：' + guessedRoles.value[p.characterId] : '身份未知' }
+function campClass(p: MatchParticipant): string { return participantCampClass(p, viewMode.value, guessedRoles.value, selfPlayerId.value) }
+function visibleRoleName(p: MatchParticipant): string { return visibleRoleNameForParticipant(p, viewMode.value, guessedRoles.value, selfPlayerId.value) }
+function isSelfSeat(p: MatchParticipant): boolean { return isPlayerSelfSeat(p, selfPlayerId.value, viewMode.value) }
 function roleSkill(roleId: string | null | undefined): string { return mode.value?.roles.find((role) => role.id === roleId)?.skillName || '无技能' }
 function cycleGuess(p: MatchParticipant) { if (viewMode.value !== 'player') return; const options = guessOptions.value; if (!options.length) return; const current = guessedRoles.value[p.characterId]; const index = current ? options.indexOf(current) : -1; guessedRoles.value = { ...guessedRoles.value, [p.characterId]: options[(index + 1) % options.length] } }
 function playerGuessLabel(p: MatchParticipant): string | null {
@@ -843,6 +857,7 @@ onUnmounted(() => {
         :speech-display-config="speechDisplayConfig"
         :character-cache="characterCache"
         :guessed-roles="guessedRoles"
+        :self-player-id="selfPlayerId"
         :vote-eligible-count="voteEligibleCount"
         :vote-progress="voteProgress"
         :stream-tick="streamTick"
@@ -857,12 +872,13 @@ onUnmounted(() => {
           <div><strong>{{ match.runtime.currentPhaseName }}</strong><span>第 {{ match.runtime.currentRound }} 轮 · {{ displayMode }}</span><small>即将进行：{{ upcomingPhase }}</small></div>
         </div>
         <div class="aa-player-orbit">
-          <button v-for="p in participants" :key="p.characterId" type="button" class="aa-seat-card" :class="[{ 'is-speaking': activeSpeakerId === p.characterId, 'is-tts-speaking': ttsSpeakingId === p.characterId, 'is-out': p.alive !== 'alive', 'is-sheriff': sheriffId === p.characterId, 'has-acted': hasActed(p), 'has-guess': Boolean(playerGuessLabel(p)) }, campClass(p)]" :title="viewMode === 'player' ? '右键循环标记身份' : undefined" @contextmenu="onSeatContextMenu($event, p)">
+          <button v-for="p in participants" :key="p.characterId" type="button" class="aa-seat-card" :class="[{ 'is-speaking': activeSpeakerId === p.characterId, 'is-tts-speaking': ttsSpeakingId === p.characterId, 'is-self': isSelfSeat(p), 'is-out': p.alive !== 'alive', 'is-sheriff': sheriffId === p.characterId, 'has-acted': hasActed(p), 'has-guess': Boolean(playerGuessLabel(p)) }, campClass(p)]" :title="viewMode === 'player' ? '右键循环标记身份' : undefined" @contextmenu="onSeatContextMenu($event, p)">
             <span class="aa-player-avatar" :class="{ 'is-tts-speaking': ttsSpeakingId === p.characterId }" :style="avatarStyle(p)">
               <i v-if="ttsSpeakingId === p.characterId" class="aa-tts-waves" aria-hidden="true"><i></i><i></i><i></i></i>
             </span>
             <span class="aa-seat-copy"><strong>{{ p.seatOrder }} · {{ p.characterName }}</strong><small>{{ visibleRoleName(p) }} / {{ campLabel(p) }}</small></span>
             <span v-if="playerGuessLabel(p)" class="aa-guess-badge">标记 · {{ playerGuessLabel(p) }}</span>
+            <span v-if="isSelfSeat(p)" class="aa-self-badge">我</span>
             <span v-if="hasActed(p)" class="aa-spoken-mark">已发言</span><i v-if="sheriffId === p.characterId">警</i>
             <span class="aa-player-peek"><b>{{ viewMode === 'god' ? (p.roleName || '未知身份') : visibleRoleName(p) }}</b><p>{{ viewMode === 'god' ? roleSkill(p.roleId) : '玩家视角下右键席位可循环标记身份猜测。' }}</p><em>{{ aliveLabel(p) }}</em></span>
           </button>
@@ -901,7 +917,7 @@ onUnmounted(() => {
                   </div>
                 </div>
                 <div class="aa-speech-wrap">
-                  <div class="aa-speech-bubble" :class="{ 'has-thought': viewMode === 'god' && hasThought(msg) && !isSpeechThinking(msg), 'is-thinking': isSpeechThinking(msg), 'is-live': isSpeechLive(msg), 'is-human-player': msg.isHumanPlayer }">
+                  <div class="aa-speech-bubble" :class="{ 'has-thought': viewMode === 'god' && hasThought(msg) && !isSpeechThinking(msg), 'is-thinking': isSpeechThinking(msg), 'is-live': isSpeechLive(msg), 'is-tts-speaking': ttsSpeakingId === msg.participantId, 'is-human-player': msg.isHumanPlayer }">
                     <div v-if="msg.isHumanPlayer" class="aa-human-speech-tag">真人发言</div>
                     <div v-if="isSpeechThinking(msg)" class="aa-thinking-inline">
                       <Loader2 :size="14" class="spin" /><i></i><i></i><i></i><span>{{ showThoughtPanel(msg) && liveThoughtText(msg) ? '整理公开发言中…' : speechBubbleLoadingText(msg) }}</span>
@@ -1077,6 +1093,8 @@ onUnmounted(() => {
 .aa-seat-card.has-guess { padding-bottom: 22px; }
 .aa-guess-badge { position: absolute; left: 8px; bottom: 5px; z-index: 2; padding: 3px 9px; border-radius: 999px; background: linear-gradient(135deg,#8d6bff,#5b58f7); color: #fff; font-size: 10px; font-weight: 800; letter-spacing: .03em; box-shadow: 0 6px 16px rgba(93,88,247,.38); pointer-events: none; }
 .aa-seat-card.is-tts-speaking { border-color: rgba(125,92,255,.42); box-shadow: inset 3px 0 0 #8a68ff, 0 14px 30px rgba(102,81,190,.18); }
+.aa-seat-card.is-self { border-color: rgba(255,147,212,.32); background: linear-gradient(135deg, rgba(255,248,252,.88), rgba(244,238,255,.72)); }
+.aa-self-badge { position: absolute; left: 38px; bottom: 6px; z-index: 2; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(135deg, rgba(255,147,212,.32), rgba(124,92,255,.18)); color: #9b3fd0; font-size: 10px; font-weight: 900; box-shadow: 0 4px 10px rgba(180,92,200,.18); }
 .aa-player-avatar, .aa-talk-avatar { background-size: cover; background-position: center; flex: none; } .aa-player-avatar { position: relative; width: 38px; height: 38px; border-radius: 14px; }
 .aa-player-avatar.is-tts-speaking { box-shadow: 0 0 0 2px rgba(125,92,255,.55), 0 0 16px rgba(125,92,255,.32); animation: ttsAvatarGlow 1.15s ease-in-out infinite; }
 .aa-tts-waves { position: absolute; right: -3px; bottom: -2px; display: flex; align-items: flex-end; gap: 2px; width: 14px; height: 12px; padding: 2px 3px; border-radius: 8px; background: rgba(255,255,255,.92); box-shadow: 0 4px 10px rgba(68,55,130,.16); }
@@ -1097,6 +1115,7 @@ onUnmounted(() => {
 .aa-stream-text.match-speech-content { white-space: pre-wrap; }
 .aa-speech-bubble.is-live .aa-live-caret { display: inline-block; width: 7px; height: 1em; margin-left: 2px; vertical-align: -2px; border-right: 2px solid rgba(125,92,255,.5); animation: caretBlink 760ms steps(1) infinite; }
 .aa-speech-bubble.is-thinking { color: #766d99; background: rgba(255,255,255,.66); border: 1px dashed rgba(125,92,255,.22); }
+.aa-speech-bubble.is-tts-speaking { border-color: rgba(98,184,255,.42); box-shadow: 0 16px 38px rgba(98,184,255,.14), inset 0 0 0 1px rgba(98,184,255,.12); animation: ttsAvatarGlow 1.15s ease-in-out infinite; }
 .aa-thought-block { width: 100%; max-width: min(760px, 100%); display: grid; gap: 8px; }
 .aa-thought-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .aa-thought-toggle, .aa-emotion { width: auto; min-width: 94px; box-sizing: border-box; justify-content: center; } .aa-thought-toggle { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 11px; border: 0; border-radius: 999px; background: rgba(125,92,255,.09); color: #6d54d8; font-size: 11px; font-weight: 760; cursor: pointer; } .aa-thought-toggle:hover { background: rgba(125,92,255,.16); transform: translateY(-1px); }

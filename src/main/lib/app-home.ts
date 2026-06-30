@@ -9,6 +9,7 @@ export const APP_HOME_SUBDIRS = [
   'arena-assets/characters',
   'arena-asset-pack',
   'storage',
+  'storage/characters',
 ] as const
 
 const APP_HOME_README = `# Agent Arena 应用数据目录
@@ -23,6 +24,7 @@ const APP_HOME_README = `# Agent Arena 应用数据目录
   - \`characters/{角色ID}/\` — 角色自有素材
 - \`arena-asset-pack/\` — 下载/缓存的 initial 素材 zip
 - \`storage/\` — 通用键值存储
+  - \`characters/{角色ID}/workspace/\` — 角色文件空间
 
 开发环境素材工作区为项目内 \`.dev-assets/\`，不与此目录混用。
 `

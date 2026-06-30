@@ -28,6 +28,14 @@ export type {
 } from './portal-api'
 export { authApi, userInfoRef, getCurrentUserContext, setUserInfoCache } from './auth'
 export type { UserInfo, LoginResult, OfficeWechatPollResult, OAuthBindPollResult } from './auth'
+export {
+  getUserLocalProfile,
+  setUserLocalProfile,
+  resolveUserDisplayName,
+  resolveUserAvatarUrl,
+  localProfileRevision,
+} from './user-local-profile'
+export type { UserLocalProfile } from './user-local-profile'
 export { completeAuthSession, resolveAuthPhase, performAuthLogout, handleAuthFailure } from './auth-session'
 export {
   ensureGatewayKey,

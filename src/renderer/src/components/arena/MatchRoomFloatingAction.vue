@@ -49,7 +49,16 @@ const polishOriginal = ref('')
 const humanId = computed(
   () => props.match.runtime.humanControlledId ?? props.humanParticipant?.characterId ?? props.profileCharacterId
 )
-const isTextInput = computed(() => props.inputKind === 'speech' || props.inputKind === 'wolf_chat')
+const isTextInput = computed(
+  () =>
+    props.inputKind === 'speech' ||
+    props.inputKind === 'wolf_chat' ||
+    props.inputKind === 'referee_bridge' ||
+    props.inputKind === 'referee_commentary'
+)
+const isRefereeInput = computed(
+  () => props.inputKind === 'referee_bridge' || props.inputKind === 'referee_commentary'
+)
 const isWitchAntidote = computed(() => props.inputKind === 'witch_antidote')
 const isWitchPoison = computed(() => props.inputKind === 'witch_poison')
 const isGuardProtect = computed(() => props.inputKind === 'guard_protect')
@@ -127,6 +136,10 @@ const title = computed(() => {
       return '守卫 · 守护'
     case 'seer_check':
       return '预言家 · 查验'
+    case 'referee_bridge':
+      return `第 ${props.match.runtime.currentRound} 轮 · 总结引导`
+    case 'referee_commentary':
+      return `第 ${props.match.runtime.currentRound} 轮 · 圆桌解说`
     default:
       return '真人操作'
   }
@@ -338,6 +351,9 @@ async function submitDirect(text?: string) {
     if (props.inputKind === 'speech') {
       next = await matchEngine.submitHumanSpeech(props.match.id, content)
       draft.value = ''
+    } else if (props.inputKind === 'referee_bridge' || props.inputKind === 'referee_commentary') {
+      next = await matchEngine.submitRefereeBridge(props.match.id, content)
+      draft.value = ''
     } else if (props.inputKind === 'vote') {
       next = await matchEngine.submitHumanVote(
         props.match.id,
@@ -426,7 +442,13 @@ function targetLabel(p: MatchParticipant): string {
       <component :is="inputKind === 'vote' || inputKind === 'wolf_kill' ? Vote : inputKind === 'wolf_chat' ? MoonStar : Send" :size="15" />
       <strong>{{ title }}</strong>
       <span class="aa-floating-action__hint">
-        {{ isTextInput ? '输入 @ 可提及玩家，完成后由分身润色' : '不限时，完成后点击确认' }}
+        {{
+          isRefereeInput
+            ? '以裁判身份发布轮间引导，提交后进入下一轮'
+            : isTextInput
+              ? '输入 @ 可提及玩家，完成后由分身润色'
+              : '不限时，完成后点击确认'
+        }}
       </span>
     </div>
 
@@ -437,7 +459,7 @@ function targetLabel(p: MatchParticipant): string {
     </div>
 
     <template v-if="isTextInput && polishStep === 'edit'">
-      <div v-if="quickPhrases.length" class="aa-floating-action__chips">
+      <div v-if="quickPhrases.length && !isRefereeInput" class="aa-floating-action__chips">
         <button
           v-for="phrase in quickPhrases"
           :key="phrase"

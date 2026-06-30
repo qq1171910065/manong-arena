@@ -588,11 +588,18 @@ export async function testGatewayConnectivity(
 
 export async function gatewayChatCompletion(
   model: string,
-  messages: Array<{ role: string; content: string }>
+  messages: Array<{ role: string; content: string }>,
+  params?: import('@shared/arena/character-model-params').GatewayGenerationParams
 ): Promise<GatewayChatResult> {
+  const body: Record<string, unknown> = { model, messages, stream: false }
+  if (params?.temperature != null) body.temperature = params.temperature
+  if (params?.top_p != null) body.top_p = params.top_p
+  if (params?.presence_penalty != null) body.presence_penalty = params.presence_penalty
+  if (params?.frequency_penalty != null) body.frequency_penalty = params.frequency_penalty
+  if (params?.max_tokens != null) body.max_tokens = params.max_tokens
   const res = await gatewayFetch('chat/completions', {
     method: 'POST',
-    body: { model, messages, stream: false },
+    body,
   })
   if (!res.ok) throw new Error(res.error || '对话失败')
   const data = res.data as {
@@ -656,7 +663,8 @@ export function gatewayChatStreamCollect(
 export async function gatewayChatStream(
   model: string,
   messages: Array<{ role: string; content: string }>,
-  handlers: StreamChatHandlers
+  handlers: StreamChatHandlers,
+  params?: import('@shared/arena/character-model-params').GatewayGenerationParams
 ): Promise<() => void> {
   let cancelled = false
   let cleanupFns: Array<() => void> = []
@@ -668,7 +676,18 @@ export async function gatewayChatStream(
     const endpoints = await resolveGatewayEndpoints(forceRefreshKey)
     const key = await ensureGatewayKey(getAppKeyName(), forceRefreshKey)
     const url = `${endpoints.chatBaseUrl}/chat/completions`
-    const body = JSON.stringify({ model, messages, stream: true, stream_options: { include_usage: true } })
+    const bodyPayload: Record<string, unknown> = {
+      model,
+      messages,
+      stream: true,
+      stream_options: { include_usage: true },
+    }
+    if (params?.temperature != null) bodyPayload.temperature = params.temperature
+    if (params?.top_p != null) bodyPayload.top_p = params.top_p
+    if (params?.presence_penalty != null) bodyPayload.presence_penalty = params.presence_penalty
+    if (params?.frequency_penalty != null) bodyPayload.frequency_penalty = params.frequency_penalty
+    if (params?.max_tokens != null) bodyPayload.max_tokens = params.max_tokens
+    const body = JSON.stringify(bodyPayload)
 
     const offChunk = window.api.onSSEChunk((line: string) => {
       if (!line.startsWith('data:')) return

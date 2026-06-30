@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronRight, Play, Sparkles } from 'lucide-vue-next'
 import ArenaPageState from '@renderer/components/arena/ArenaPageState.vue'
+import CharacterActivityTicker from '@renderer/components/arena/CharacterActivityTicker.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { navigate } from '../router'
 import {
@@ -67,7 +68,7 @@ let carouselTimer: number | undefined
 const activeSlogan = computed(() => sloganLines[sloganIndex.value])
 const hasResumeMatch = computed(() => Boolean(resumableMatchId.value))
 const MAX_RECENT_MATCHES = 10
-const MAX_CHARACTER_ACTIVITIES = 20
+const MAX_CHARACTER_ACTIVITIES = 50
 
 const visibleMatches = computed(() => recentMatches.value.slice(0, MAX_RECENT_MATCHES))
 const visibleActivities = computed(() => characterActivities.value.slice(0, MAX_CHARACTER_ACTIVITIES))
@@ -135,6 +136,8 @@ async function loadDashboard() {
       characters: dashboard.allCharacters,
       behaviorChanges: dashboard.behaviorChanges,
       growthRecords: dashboard.growthRecords,
+      growthSnapshots: dashboard.growthSnapshots,
+      recentMatches: dashboard.recentMatches,
       limit: MAX_CHARACTER_ACTIVITIES,
     })
     resumableMatchId.value = dashboard.resumableMatch?.id || ''
@@ -148,6 +151,8 @@ async function loadDashboard() {
       characters: [],
       behaviorChanges: [],
       growthRecords: [],
+      growthSnapshots: [],
+      recentMatches: [],
       limit: MAX_CHARACTER_ACTIVITIES,
     })
   } finally {
@@ -175,6 +180,15 @@ function openCharacter(character: HomeCharacterCard) {
 
 function openCharacterActivity(activity: HomeCharacterActivity) {
   if (!activity.clickable) return
+  if (activity.target === 'match' && activity.matchId) {
+    const match = recentMatches.value.find((item) => item.id === activity.matchId)
+    if (match && (match.status === '进行中' || match.status === '已暂停')) {
+      void openMatchRoom(activity.matchId)
+      return
+    }
+    navigate(`/match-detail/${activity.matchId}`)
+    return
+  }
   navigate(`/character-detail/${activity.characterId}`)
 }
 
@@ -408,25 +422,14 @@ onUnmounted(() => {
 
           <div v-if="!visibleActivities.length" class="arena-page-state__panel arena-page-state__empty panel-slot-empty">
             <strong>还没有角色动态</strong>
-            <span>角色参与对局或调整行为后，成长记录会显示在这里。</span>
+            <span>角色参与对局、学习玩法、私聊养成或复盘成长后，动态会显示在这里。</span>
           </div>
-          <ul v-else class="simple-list activity-list">
-            <li v-for="activity in visibleActivities" :key="activity.id">
-              <button
-                type="button"
-                class="simple-line simple-line--activity"
-                :class="{ 'simple-line--static': !activity.clickable }"
-                @click="openCharacterActivity(activity)"
-              >
-                <img class="simple-line__avatar" :src="activity.avatar" :alt="activity.characterName" />
-                <span class="simple-line__main">
-                  <strong>{{ activity.characterName }}</strong>
-                  <span class="simple-line__muted">{{ activity.title }}</span>
-                </span>
-                <time>{{ activity.timeLabel }}</time>
-              </button>
-            </li>
-          </ul>
+          <CharacterActivityTicker
+            v-else
+            class="activity-panel__ticker"
+            :items="visibleActivities"
+            @select="openCharacterActivity"
+          />
         </div>
       </section>
     </main>
@@ -1046,6 +1049,10 @@ button {
 .panel-slot-empty span {
   max-width: 280px;
   line-height: 1.55;
+}
+
+.activity-panel__ticker {
+  min-height: 0;
 }
 
 .simple-list {

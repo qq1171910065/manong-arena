@@ -1,7 +1,7 @@
 import {
   BUILTIN_ACHIEVEMENTS,
   BUILTIN_PERSONALITY_CATALOG,
-  BUILTIN_SKILL_CATALOG,
+  BUILTIN_TALENT_CATALOG,
   COLLECTION_CATEGORIES,
   isAchievementUnlocked,
   type CollectionAggregateStats,
@@ -59,8 +59,8 @@ export function listAchievementCatalog(stats: CollectionAggregateStats) {
   }))
 }
 
-export function listSkillCatalog() {
-  return BUILTIN_SKILL_CATALOG
+export function listTalentCatalog() {
+  return BUILTIN_TALENT_CATALOG
 }
 
 export function listPersonalityCatalog() {

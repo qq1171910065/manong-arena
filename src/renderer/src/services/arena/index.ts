@@ -44,11 +44,12 @@ export {
   listAchievementCatalog,
   listCollectionCategories,
   listPersonalityCatalog,
-  listSkillCatalog,
+  listTalentCatalog,
   loadAssetPackCatalog,
   loadCollectionAggregateStats,
 } from './collection-catalog-service'
 export { characterChatService } from './character-chat-service'
+export { characterAgentService } from './character-agent-service'
 export { postGameReviewService } from './post-game-review-service'
 export { gameModeQAService } from './game-mode-qa-service'
 export { characterScenarioRecordService } from './character-scenario-record-service'

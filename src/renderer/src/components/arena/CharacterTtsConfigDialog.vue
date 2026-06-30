@@ -259,7 +259,6 @@ watch(show, (open) => {
     title="播报音色"
     subtitle="根据角色档案智能分析 · 可微调 · 综合用于试听与对局播报"
     save-label="保存"
-    layout="wide"
     :saving="saving"
     @save="save"
   >

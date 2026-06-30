@@ -19,6 +19,7 @@ import { lineupService } from './lineup-service'
 import { settingsService } from './settings-service'
 import { matchCostEstimator } from './match-cost-estimator'
 import { getFallbackModelId } from './settings-runtime'
+import { isDiscussionGameModeId } from '@shared/arena/discussion-mode'
 import { getUserProfileCharacterId } from './user-profile-service'
 import { buildWerewolfRolePlanWithExpansions, normalizeWerewolfRuleModules, type WerewolfExpansionRoleId } from '@shared/arena/werewolf-dlc'
 import { normalizeWerewolfWinCondition } from '@shared/arena/werewolf-win-condition'
@@ -178,7 +179,8 @@ export const matchService = {
   },
 
   async create(input: CreateMatchInput): Promise<Match> {
-    validateCreateMatchInput(input)
+    const profileId = await getUserProfileCharacterId().catch(() => null)
+    validateCreateMatchInput(input, { userProfileCharacterId: profileId })
     const mode = gameModeService.get(input.gameModeId)
     if (!mode) throw new ArenaError('VALIDATION', '玩法不存在', 'match')
     if (!isModePlayable(mode)) throw new ArenaError('VALIDATION', '当前玩法尚未开放', 'match')
@@ -205,7 +207,8 @@ export const matchService = {
 
     const now = new Date().toISOString()
     const firstPhase = mode.phases[0]
-    let participants: MatchParticipant[] = characters.map((character, index) => ({
+    const seatedCharacters = shuffle(characters)
+    let participants: MatchParticipant[] = seatedCharacters.map((character, index) => ({
       characterId: character.id,
       characterName: character.name,
       avatarUrl: character.avatarUrl,
@@ -239,8 +242,6 @@ export const matchService = {
         systemRoleModelIds: systemRoleModels,
         sheriffEnabled: mode.id === 'werewolf' ? sheriffEnabled : undefined,
         roundtableRounds,
-        roundtableHostEnabled: scenario?.systemRoles.some((role) => role.kind === 'host' && role.enabled) ?? true,
-        roundtableNarratorEnabled: scenario?.systemRoles.some((role) => role.kind === 'narrator' && role.enabled) ?? false,
       })
     ).totalCents
     const isRoundtableLike =
@@ -257,16 +258,11 @@ export const matchService = {
       sheriffEnabled: mode.id === 'werewolf' ? sheriffEnabled : undefined,
       werewolfState: mode.id === 'werewolf' ? createWerewolfState() : undefined,
       roundtableState: isRoundtableLike
-          ? createRoundtableState(
-              roundtableTopic,
-              roundtableRounds,
-              scenario?.systemRoles.some((r) => r.kind === 'host' && r.enabled) ?? true,
-              scenario?.systemRoles.some((r) => r.kind === 'narrator' && r.enabled) ?? false,
-              {
-                designTarget: input.designTarget,
-                brainstormCategory: scenario?.brainstormCategory,
-              }
-            )
+          ? createRoundtableState(roundtableTopic, roundtableRounds, {
+              facilitationMode: input.discussionFacilitationMode,
+              designTarget: input.designTarget,
+              brainstormCategory: scenario?.brainstormCategory,
+            })
           : undefined,
       undercoverState: isUndercover ? createUndercoverState(participants.length) : undefined,
     }
@@ -323,8 +319,7 @@ export const matchService = {
         preparePhaseStep(match, mode)
       }
     }
-    const profileId = await getUserProfileCharacterId().catch(() => null)
-    if (profileId && participants.some((p) => p.characterId === profileId)) {
+    if (profileId && participants.some((p) => p.characterId === profileId) && !isDiscussionGameModeId(mode.id)) {
       match.runtime.userProfileCharacterId = profileId
     }
     match.runtime.stepAdvanceState = 'ready'

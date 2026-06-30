@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import { CheckCircle2, Loader2, QrCode, Wallet } from 'lucide-vue-next'
+import { CheckCircle2, Coins, Loader2, QrCode, Sparkles, Wallet } from 'lucide-vue-next'
 import { NAlert, NButton, NModal, NSpin } from '../../ui'
 import { useWechatRecharge } from '@renderer/composables/useWechatRecharge'
 import { yuanToPoints, tierAppPoints } from '@renderer/composables/fee-points'
@@ -51,6 +51,15 @@ const orderPoints = computed(() => {
 const orderNo = computed(() => String(order.value?.order_no || order.value?.outTradeNo || '—'))
 
 const payStatusText = computed(() => (polling.value ? '等待支付确认…' : '请使用微信扫码'))
+
+const selectedPoints = computed(() => {
+  if (!selectedTier.value) return 0
+  return tierAppPoints(selectedTier.value, config.value?.pointsPerYuan)
+})
+
+function isFeaturedTier(index: number) {
+  return index === 1 && tiers.value.length > 2
+}
 
 watch(show, async (open, wasOpen) => {
   if (open) {
@@ -115,23 +124,60 @@ function close() {
         </div>
 
         <template v-else>
-          <div v-if="step === 'pick' && amountYuan" class="recharge-modal-summary">
-            <div class="recharge-modal-summary__amount">¥{{ amountYuan }}</div>
+          <div v-if="step === 'pick' && selectedTier" class="recharge-modal-summary">
+            <div class="recharge-modal-summary__row">
+              <div>
+                <p class="recharge-modal-summary__caption">已选档位</p>
+                <div class="recharge-modal-summary__amount">¥{{ selectedTier.yuan }}</div>
+                <p v-if="selectedTier.label" class="recharge-modal-summary__label">
+                  {{ selectedTier.label }}
+                </p>
+              </div>
+              <div class="recharge-modal-summary__points">
+                <Coins :size="18" />
+                <div>
+                  <strong>{{ selectedPoints.toLocaleString() }}</strong>
+                  <span>积分到账</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <section v-if="step === 'pick'" class="recharge-modal-section">
             <p class="recharge-modal-section__label">选择充值档位</p>
             <div class="recharge-modal-tier-grid">
               <button
-                v-for="tier in tiers"
+                v-for="(tier, index) in tiers"
                 :key="tier.yuan"
                 type="button"
                 class="recharge-modal-tier"
-                :class="{ 'is-active': amountYuan === tier.yuan }"
+                :class="{
+                  'is-active': amountYuan === tier.yuan,
+                  'is-featured': isFeaturedTier(index),
+                }"
                 :disabled="submitting"
                 @click="amountYuan = tier.yuan"
               >
-                <strong>{{ tier.label || `${tier.yuan} 元` }}</strong>
+                <span v-if="isFeaturedTier(index)" class="recharge-modal-tier__badge">
+                  <Sparkles :size="11" />
+                  推荐
+                </span>
+                <span
+                  v-if="amountYuan === tier.yuan"
+                  class="recharge-modal-tier__check"
+                  aria-hidden="true"
+                >
+                  <CheckCircle2 :size="15" />
+                </span>
+                <span class="recharge-modal-tier__amount">
+                  <strong>{{ tier.yuan }}</strong>
+                  <em>元</em>
+                </span>
+                <span class="recharge-modal-tier__label">{{ tier.label || `${tier.yuan} 元档` }}</span>
+                <span class="recharge-modal-tier__points">
+                  <Coins :size="13" />
+                  {{ tierAppPoints(tier, config?.pointsPerYuan).toLocaleString() }} 积分
+                </span>
               </button>
             </div>
           </section>
@@ -237,28 +283,69 @@ function close() {
 .recharge-modal-summary {
   padding: 16px 18px;
   margin-bottom: 16px;
-  border-radius: var(--radius-md);
-  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
   background:
-    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 55%),
-    var(--surface-soft);
+    radial-gradient(ellipse 120% 90% at 100% 0%, color-mix(in srgb, var(--brand) 14%, transparent), transparent),
+    linear-gradient(155deg, color-mix(in srgb, var(--surface) 94%, #fff), color-mix(in srgb, var(--brand-soft) 32%, var(--surface)));
+}
+
+.recharge-modal-summary__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.recharge-modal-summary__caption {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--soft);
 }
 
 .recharge-modal-summary__amount {
   font-size: clamp(1.75rem, 4vw, 2.125rem);
-  font-weight: 700;
+  font-weight: 720;
   letter-spacing: -0.03em;
   color: var(--brand);
   line-height: 1.1;
 }
 
-.recharge-modal-summary__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-top: 8px;
+.recharge-modal-summary__label {
+  margin: 6px 0 0;
   font-size: var(--text-sm);
   color: var(--muted);
+}
+
+.recharge-modal-summary__points {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--brand) 16%, var(--line));
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface));
+  color: var(--brand);
+}
+
+.recharge-modal-summary__points strong {
+  display: block;
+  font-size: 1.125rem;
+  font-weight: 720;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.recharge-modal-summary__points span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.82;
 }
 
 .recharge-modal-section__label {
@@ -272,49 +359,123 @@ function close() {
 
 .recharge-modal-tier-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(142px, 1fr));
+  gap: 12px;
 }
 
 .recharge-modal-tier {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--text-secondary);
+  gap: 8px;
+  min-height: 128px;
+  padding: 16px 16px 14px;
+  border: 1px solid color-mix(in srgb, var(--brand) 14%, var(--line));
+  border-radius: 16px;
+  background:
+    radial-gradient(ellipse 120% 80% at 100% 0%, color-mix(in srgb, var(--brand) 10%, transparent), transparent),
+    linear-gradient(160deg, color-mix(in srgb, var(--surface) 96%, #fff), color-mix(in srgb, var(--brand-soft) 28%, var(--surface)));
+  text-align: left;
   cursor: pointer;
   transition:
-    border-color var(--transition-fast),
-    background var(--transition-fast),
-    transform var(--transition-fast);
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .recharge-modal-tier:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+.recharge-modal-tier:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.recharge-modal-tier:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.recharge-modal-tier.is-featured {
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--brand) 10%, transparent);
 }
 
 .recharge-modal-tier.is-active {
-  border-color: color-mix(in srgb, var(--brand) 55%, var(--line));
-  background: color-mix(in srgb, var(--brand-soft) 70%, var(--surface));
+  border-color: color-mix(in srgb, var(--brand) 58%, var(--line));
+  background:
+    radial-gradient(ellipse 120% 80% at 100% 0%, color-mix(in srgb, var(--brand) 18%, transparent), transparent),
+    linear-gradient(160deg, color-mix(in srgb, var(--brand-soft) 72%, var(--surface)), color-mix(in srgb, var(--brand-soft) 42%, var(--surface)));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--brand) 24%, transparent),
+    0 12px 28px color-mix(in srgb, var(--brand) 14%, transparent);
+}
+
+.recharge-modal-tier__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  color: var(--brand);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.recharge-modal-tier__check {
+  position: absolute;
+  top: 12px;
+  right: 12px;
   color: var(--brand);
 }
 
-.recharge-modal-tier strong {
-  font-size: var(--text-base);
+.recharge-modal-tier__amount {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--text);
 }
 
-.recharge-modal-tier span {
-  font-size: var(--text-xs);
+.recharge-modal-tier__amount strong {
+  font-size: 28px;
+  font-weight: 720;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.recharge-modal-tier__amount em {
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 600;
   color: var(--muted);
 }
 
-.recharge-modal-tier.is-active span {
-  color: color-mix(in srgb, var(--brand) 70%, var(--muted));
+.recharge-modal-tier__label {
+  color: var(--soft);
+  font-size: 12px;
+  font-weight: 520;
+}
+
+.recharge-modal-tier__points {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--brand) 10%, var(--line));
+  width: 100%;
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.recharge-modal-tier.is-active .recharge-modal-tier__points {
+  border-top-color: color-mix(in srgb, var(--brand) 22%, var(--line));
 }
 
 .recharge-modal-pay__layout {
@@ -470,6 +631,15 @@ function close() {
 }
 
 @media (max-width: 520px) {
+  .recharge-modal-summary__row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .recharge-modal-summary__points {
+    width: 100%;
+  }
+
   .recharge-modal-tier-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { ipcMain } from 'electron'
 import { ASSET_PACK_MARKER_PATH, resolveAssetFilePath } from '../asset-pack/paths'
+import { rollCharacterTalents } from '@shared/arena/character-growth'
 import type { CharacterExpressionId, CharacterImageSlot } from '@shared/arena/character-visuals'
 import type { CharacterExportPackage } from '@shared/arena/export-packages'
 import { isCharacterExportPackage } from '@shared/arena/export-packages'
@@ -17,6 +18,17 @@ import {
   materializeCharacterFromPack,
   writeCharacterAssetFile,
 } from './character-assets'
+import {
+  deleteCharacterWorkspace,
+  duplicateCharacterWorkspace,
+  getCharacterWorkspaceDir,
+  importCharacterWorkspaceFile,
+  listCharacterWorkspaceFiles,
+  readCharacterWorkspaceFile,
+  readWorkspaceExcerptsForPrompt,
+  writeCharacterWorkspaceFile,
+  deleteCharacterWorkspaceFile,
+} from './character-workspace'
 import { ArenaStore, fail, ok } from './store'
 import { seedDefaultCharacters, seedStarterByModelId, seedStarterGameMode, importStarterInitBundle, finalizeStarterInit, createUserProfileCharacter, type UserProfileCharacterInput } from './seed'
 import type {
@@ -163,6 +175,8 @@ export function registerArenaHandlers(appId: string): void {
     wrapAsync(async () => {
       if (!requireStore().deleteCharacter(id)) throw new Error('角色不存在')
       await deleteCharacterAssets(appId, id)
+      await deleteCharacterWorkspace(appId, id)
+      requireStore().clearCharacterWorkspaceIndex(id)
       return true
     })
   )
@@ -180,7 +194,17 @@ export function registerArenaHandlers(appId: string): void {
         updatedAt: new Date().toISOString(),
         stats: { matchCount: 0, winCount: 0, avgCostCents: 0, lastMatchAt: null },
       }
+      copy.talentIds = rollCharacterTalents(copy)
       await duplicateCharacterAssets(appId, source.id, copy.id)
+      const workspaceFiles = await duplicateCharacterWorkspace(
+        appId,
+        source.id,
+        copy.id,
+        requireStore().listCharacterWorkspaceFiles(source.id)
+      )
+      if (workspaceFiles.length) {
+        requireStore().saveCharacterWorkspaceFiles(copy.id, workspaceFiles)
+      }
       return requireStore().saveCharacter(copy)
     })
   )
@@ -478,6 +502,79 @@ export function registerArenaHandlers(appId: string): void {
     wrap(() => {
       requireStore().clearHelpChat()
       return true
+    })
+  )
+
+  ipcMain.removeHandler('arena:characterWorkspace:list')
+  ipcMain.handle('arena:characterWorkspace:list', (_event, characterId: string) =>
+    wrapAsync(async () => {
+      const stored = requireStore().listCharacterWorkspaceFiles(characterId)
+      const files = await listCharacterWorkspaceFiles(appId, characterId, stored)
+      if (JSON.stringify(files) !== JSON.stringify(stored)) {
+        requireStore().saveCharacterWorkspaceFiles(characterId, files)
+      }
+      return files
+    })
+  )
+
+  ipcMain.removeHandler('arena:characterWorkspace:read')
+  ipcMain.handle('arena:characterWorkspace:read', (_event, characterId: string, relativePath: string) =>
+    wrapAsync(async () => readCharacterWorkspaceFile(appId, characterId, relativePath))
+  )
+
+  ipcMain.removeHandler('arena:characterWorkspace:write')
+  ipcMain.handle(
+    'arena:characterWorkspace:write',
+    (
+      _event,
+      characterId: string,
+      input: {
+        relativePath?: string
+        name: string
+        content: string
+        description?: string
+        id?: string
+      }
+    ) =>
+      wrapAsync(async () => {
+        const stored = requireStore().listCharacterWorkspaceFiles(characterId)
+        const result = await writeCharacterWorkspaceFile(appId, characterId, input, stored)
+        requireStore().saveCharacterWorkspaceFiles(characterId, result.files)
+        return result
+      })
+  )
+
+  ipcMain.removeHandler('arena:characterWorkspace:delete')
+  ipcMain.handle('arena:characterWorkspace:delete', (_event, characterId: string, relativePath: string) =>
+    wrapAsync(async () => {
+      const stored = requireStore().listCharacterWorkspaceFiles(characterId)
+      const files = await deleteCharacterWorkspaceFile(appId, characterId, relativePath, stored)
+      requireStore().saveCharacterWorkspaceFiles(characterId, files)
+      return files
+    })
+  )
+
+  ipcMain.removeHandler('arena:characterWorkspace:import')
+  ipcMain.handle('arena:characterWorkspace:import', (_event, characterId: string, sourcePath: string) =>
+    wrapAsync(async () => {
+      const stored = requireStore().listCharacterWorkspaceFiles(characterId)
+      const result = await importCharacterWorkspaceFile(appId, characterId, sourcePath, stored)
+      requireStore().saveCharacterWorkspaceFiles(characterId, result.files)
+      return result
+    })
+  )
+
+  ipcMain.removeHandler('arena:characterWorkspace:getDir')
+  ipcMain.handle('arena:characterWorkspace:getDir', (_event, characterId: string) =>
+    wrap(() => getCharacterWorkspaceDir(appId, characterId))
+  )
+
+  ipcMain.removeHandler('arena:characterWorkspace:readExcerpts')
+  ipcMain.handle('arena:characterWorkspace:readExcerpts', (_event, characterId: string, maxChars?: number) =>
+    wrapAsync(async () => {
+      const stored = requireStore().listCharacterWorkspaceFiles(characterId)
+      const files = await listCharacterWorkspaceFiles(appId, characterId, stored)
+      return readWorkspaceExcerptsForPrompt(appId, characterId, files, maxChars)
     })
   )
 }

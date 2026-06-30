@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { LogOut } from 'lucide-vue-next'
 import type { PortalOAuthBinding } from '@renderer/services'
 import ProfileSectionLayout from './ProfileSectionLayout.vue'
 import SettingsBlock from './SettingsBlock.vue'
@@ -18,11 +17,9 @@ defineProps<{
   bindSending: boolean
   bindSubmitting: boolean
   bindCountdown: number
-  signingOut: boolean
 }>()
 
 const emit = defineEmits<{
-  forceLogout: []
   sendBindCode: []
   submitBindEmail: []
   unbindOAuth: [channel: string, label: string]
@@ -32,13 +29,6 @@ const emit = defineEmits<{
 
 <template>
   <ProfileSectionLayout title="账号安全" desc="邮箱验证、第三方绑定与登录。">
-    <template #actions>
-      <NButton tertiary type="error" size="small" :loading="signingOut" @click="emit('forceLogout')">
-        <template #icon><LogOut :size="16" /></template>
-        退出登录
-      </NButton>
-    </template>
-
     <SettingsBlock title="账户信息" desc="平台身份、网关与密钥状态。">
       <SettingsInfoRow v-for="item in accountDetails" :key="item.id" :label="item.label" :hint="item.hint">
         <span>{{ item.value }}</span>

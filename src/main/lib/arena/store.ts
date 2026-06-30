@@ -33,6 +33,12 @@ import {
   growthStateFromTotalExp,
   retroactiveTotalExp,
 } from '@shared/arena/character-growth'
+import {
+  normalizeAgentMemories,
+  normalizeAgentProfile,
+  normalizeAgentSkills,
+  type CharacterWorkspaceFile,
+} from '@shared/arena/character-agent'
 
 function migrateCharacter(character: Character): Character {
   const next = { ...character }
@@ -51,6 +57,9 @@ function migrateCharacter(character: Character): Character {
     const totalExp = retroactiveTotalExp(next)
     next.growth = totalExp > 0 ? growthStateFromTotalExp(totalExp) : createDefaultGrowthState()
   }
+  next.agentMemories = normalizeAgentMemories(next.agentMemories)
+  next.agentSkills = normalizeAgentSkills(next.agentSkills)
+  next.agentProfile = normalizeAgentProfile(next.agentProfile)
   return next
 }
 
@@ -88,6 +97,7 @@ function migrateStore(parsed: ArenaStoreData): ArenaStoreData {
     activeLineupId: parsed.activeLineupId ?? null,
     characterGrowthSnapshots: parsed.characterGrowthSnapshots ?? [],
     lineupGrowthLog: parsed.lineupGrowthLog ?? [],
+    characterWorkspaceFiles: parsed.characterWorkspaceFiles ?? {},
     settings,
   }
 }
@@ -121,6 +131,7 @@ function createEmptyStore(): ArenaStoreData {
     activeLineupId: null,
     characterGrowthSnapshots: [],
     lineupGrowthLog: [],
+    characterWorkspaceFiles: {},
   }
 }
 
@@ -627,6 +638,25 @@ export class ArenaStore {
 
   setUserProfileCharacterId(characterId: string | null): void {
     this.data.userProfileCharacterId = characterId?.trim() || null
+    this.enqueuePersist()
+  }
+
+  listCharacterWorkspaceFiles(characterId: string): CharacterWorkspaceFile[] {
+    return structuredClone(this.data.characterWorkspaceFiles?.[characterId] ?? [])
+  }
+
+  saveCharacterWorkspaceFiles(characterId: string, files: CharacterWorkspaceFile[]): CharacterWorkspaceFile[] {
+    const index = { ...(this.data.characterWorkspaceFiles ?? {}) }
+    index[characterId] = structuredClone(files)
+    this.data.characterWorkspaceFiles = index
+    this.enqueuePersist()
+    return structuredClone(files)
+  }
+
+  clearCharacterWorkspaceIndex(characterId: string): void {
+    const index = { ...(this.data.characterWorkspaceFiles ?? {}) }
+    delete index[characterId]
+    this.data.characterWorkspaceFiles = index
     this.enqueuePersist()
   }
 

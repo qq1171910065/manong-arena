@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
+import { Download } from 'lucide-vue-next'
 import changelogRaw from '@renderer/data/changelog.md?raw'
 import MarkdownContent from '../common/MarkdownContent.vue'
 import { confirm } from '@renderer/composables/useAppDialog'
 import ProfileSectionLayout from './ProfileSectionLayout.vue'
+import SettingsBlock from './SettingsBlock.vue'
 import { NButton, NSpin, useMessage } from '../../ui'
 import { clientReleaseApi } from '@renderer/services'
 import { useClientUpdate } from '@renderer/composables/useClientUpdate'
@@ -15,7 +17,7 @@ const historyLoading = ref(false)
 const historyItems = ref<Array<{ version: string; releaseNotes: string | null; publishedAt: string }>>([])
 
 const pageDesc = computed(() =>
-  currentVersion.value ? `当前版本 ${currentVersion.value} · 内置与线上发布记录` : '当前版本能力与线上发布记录'
+  currentVersion.value ? `当前版本 ${currentVersion.value}` : '当前版本能力与线上发布记录'
 )
 
 async function loadHistory() {
@@ -57,17 +59,16 @@ onMounted(() => {
   <ProfileSectionLayout title="版本说明" :desc="pageDesc">
     <template #actions>
       <NButton size="small" type="primary" :loading="checkingUpdate" @click="onCheckUpdate">
+        <template #icon><Download :size="14" /></template>
         检查更新
       </NButton>
     </template>
 
-    <section class="portal-plain-block">
-      <h4 class="portal-plain-block__title">内置更新日志</h4>
+    <div class="version-changelog">
       <MarkdownContent :source="changelogRaw" />
-    </section>
+    </div>
 
-    <section class="portal-plain-block">
-      <h4 class="portal-plain-block__title">线上发布记录</h4>
+    <SettingsBlock v-if="historyItems.length || historyLoading" title="线上发布记录" desc="平台侧已发布的客户端版本。">
       <NSpin :show="historyLoading">
         <div v-if="historyItems.length" class="version-history">
           <article v-for="item in historyItems" :key="item.version" class="version-history__item">
@@ -85,11 +86,15 @@ onMounted(() => {
         </div>
         <p v-else class="version-history__empty">暂无已发布版本</p>
       </NSpin>
-    </section>
+    </SettingsBlock>
   </ProfileSectionLayout>
 </template>
 
 <style scoped>
+.version-changelog {
+  padding: 4px 2px;
+}
+
 .version-history {
   display: flex;
   flex-direction: column;

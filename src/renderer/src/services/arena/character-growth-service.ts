@@ -14,12 +14,17 @@ import type { TokenUsageLike } from '@shared/arena/character-growth'
 import { arenaInvoke, ensureArenaReady } from './client'
 import { characterService } from './character-service'
 import type { Character, CharacterGrowthSnapshot, Match } from '@shared/arena/types'
+import { normalizeCharacterAttributes } from '@shared/arena/character-model-params'
 
 export async function listGrowthSnapshots(characterId: string): Promise<CharacterGrowthSnapshot[]> {
   await ensureArenaReady()
-  return arenaInvoke('storage', 'listCharacterGrowthSnapshots', () =>
+  const snapshots = await arenaInvoke('storage', 'listCharacterGrowthSnapshots', () =>
     window.api.listCharacterGrowthSnapshots(characterId)
   )
+  return snapshots.map((snapshot) => ({
+    ...snapshot,
+    attributes: normalizeCharacterAttributes(snapshot.attributes),
+  }))
 }
 
 async function appendGrowthSnapshot(snapshot: CharacterGrowthSnapshot): Promise<void> {

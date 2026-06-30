@@ -198,6 +198,53 @@ export function voteAbstainLabel(vote: MatchVoteRecord): string {
   return '弃权'
 }
 
+export function isPlayerSelfSeat(
+  participant: MatchParticipant,
+  selfPlayerId: string | null | undefined,
+  viewMode: 'god' | 'player'
+): boolean {
+  return viewMode === 'player' && Boolean(selfPlayerId && participant.characterId === selfPlayerId)
+}
+
+export function visibleRoleNameForParticipant(
+  participant: MatchParticipant,
+  viewMode: 'god' | 'player',
+  guessedRoles: Record<string, string>,
+  selfPlayerId?: string | null
+): string {
+  if (viewMode === 'god' || participant.revealed || participant.alive === 'eliminated') {
+    return participant.roleName || '未知'
+  }
+  if (isPlayerSelfSeat(participant, selfPlayerId, viewMode)) {
+    return participant.roleName || '未知'
+  }
+  return guessedRoles[participant.characterId]
+    ? '疑似' + guessedRoles[participant.characterId]
+    : '未公开'
+}
+
+export function participantCampClass(
+  participant: MatchParticipant,
+  viewMode: 'god' | 'player',
+  guessedRoles: Record<string, string>,
+  selfPlayerId?: string | null
+): string {
+  if (
+    viewMode === 'player' &&
+    !participant.revealed &&
+    participant.alive !== 'eliminated' &&
+    !isPlayerSelfSeat(participant, selfPlayerId, viewMode)
+  ) {
+    return guessedRoles[participant.characterId] ? 'camp-guess' : 'camp-hidden'
+  }
+  if (participant.roleId === 'villager') return 'camp-villager'
+  return participant.roleCamp === 'wolf'
+    ? 'camp-wolf'
+    : participant.roleCamp === 'good'
+      ? 'camp-good'
+      : 'camp-neutral'
+}
+
 export function voteSummaryForMessage(msg: MatchMessage, votes: MatchVoteRecord[], sheriffId: string | null) {
   const scoped = votes.filter((vote) => vote.round === msg.round && vote.phaseId === msg.phaseId)
   const map = new Map<string, { name: string; count: number; voters: string[] }>()

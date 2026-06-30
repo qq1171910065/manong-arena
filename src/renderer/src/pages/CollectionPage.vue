@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Award, Image, Search, Sparkles, Tag } from 'lucide-vue-next'
+import { Award, Image, SlidersHorizontal, Sparkles, Tag } from 'lucide-vue-next'
 import ArenaPageShell from '@renderer/components/arena/ArenaPageShell.vue'
 import ArenaPageState from '@renderer/components/arena/ArenaPageState.vue'
+import CollectionAchievementCard from '@renderer/components/arena/collection/CollectionAchievementCard.vue'
+import CollectionAssetPackCard from '@renderer/components/arena/collection/CollectionAssetPackCard.vue'
+import CollectionPersonalityCard from '@renderer/components/arena/collection/CollectionPersonalityCard.vue'
+import CollectionTalentCard from '@renderer/components/arena/collection/CollectionTalentCard.vue'
+import ArenaSelect from '@renderer/components/common/ArenaSelect.vue'
 import {
   listAchievementCatalog,
   listCollectionCategories,
   listPersonalityCatalog,
-  listSkillCatalog,
+  listTalentCatalog,
   loadAssetPackCatalog,
   loadCollectionAggregateStats,
 } from '@renderer/services/arena/collection-catalog-service'
@@ -16,8 +21,9 @@ import type { CharacterAssetPackOption } from '@renderer/data/character-asset-ca
 
 const loading = ref(true)
 const error = ref('')
-const query = ref('')
 const activeCategory = ref<CollectionCategoryId>('achievements')
+const sortBy = ref<'default' | 'name-asc' | 'name-desc'>('default')
+const personalityKind = ref<'all' | 'tag' | 'speech-style'>('all')
 const stats = ref({
   characterCount: 0,
   maxLevel: 0,
@@ -32,58 +38,49 @@ const categories = listCollectionCategories()
 const categoryIcons: Record<CollectionCategoryId, typeof Award> = {
   achievements: Award,
   'asset-packs': Image,
-  skills: Sparkles,
+  talents: Sparkles,
   personalities: Tag,
 }
 
 const achievements = computed(() => listAchievementCatalog(stats.value))
-const skills = computed(() => listSkillCatalog())
+const talents = computed(() => listTalentCatalog())
 const personalities = computed(() => listPersonalityCatalog())
 
-const unlockedCount = computed(() => achievements.value.filter((item) => item.unlocked).length)
+const sortOptions = [
+  { label: '默认排序', value: 'default' },
+  { label: '名称 A-Z', value: 'name-asc' },
+  { label: '名称 Z-A', value: 'name-desc' },
+] as const
 
-const filteredAchievements = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return achievements.value
-  return achievements.value.filter(
-    (item) =>
-      item.name.toLowerCase().includes(q) ||
-      item.description.toLowerCase().includes(q) ||
-      item.group.toLowerCase().includes(q)
-  )
-})
+const personalityKindOptions = [
+  { label: '全部类型', value: 'all' },
+  { label: '性格标签', value: 'tag' },
+  { label: '说话风格', value: 'speech-style' },
+] as const
+
+function sortByName<T extends { name: string }>(items: T[]): T[] {
+  const list = [...items]
+  if (sortBy.value === 'name-asc') return list.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+  if (sortBy.value === 'name-desc') return list.sort((a, b) => b.name.localeCompare(a.name, 'zh-CN'))
+  return list
+}
+
+const filteredAchievements = computed(() => sortByName(achievements.value))
 
 const filteredAssetPacks = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return assetPacks.value
-  return assetPacks.value.filter(
-    (item) =>
-      item.label.toLowerCase().includes(q) ||
-      item.characterId.toLowerCase().includes(q) ||
-      (item.palette || '').toLowerCase().includes(q)
-  )
+  let list = [...assetPacks.value]
+  if (sortBy.value === 'name-asc') return list.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
+  if (sortBy.value === 'name-desc') return list.sort((a, b) => b.label.localeCompare(a.label, 'zh-CN'))
+  return list
 })
 
-const filteredSkills = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return skills.value
-  return skills.value.filter(
-    (item) =>
-      item.name.toLowerCase().includes(q) ||
-      item.description.toLowerCase().includes(q) ||
-      item.attributeLabel.toLowerCase().includes(q)
-  )
-})
+const filteredTalents = computed(() => sortByName(talents.value))
 
 const filteredPersonalities = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return personalities.value
-  return personalities.value.filter(
-    (item) =>
-      item.name.toLowerCase().includes(q) ||
-      item.description.toLowerCase().includes(q) ||
-      (item.kind === 'tag' ? '标签' : '说话风格').includes(q)
-  )
+  let list = personalities.value
+  if (personalityKind.value === 'tag') list = list.filter((item) => item.kind === 'tag')
+  if (personalityKind.value === 'speech-style') list = list.filter((item) => item.kind === 'speech-style')
+  return sortByName(list)
 })
 
 async function loadPage() {
@@ -109,14 +106,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <ArenaPageShell class="collection-page" viewport-lock>
-    <div class="collection-layout">
-      <aside class="collection-sidebar" aria-label="收藏分类">
-        <label class="sidebar-search">
-          <Search :size="16" />
-          <input v-model="query" type="text" placeholder="搜索成就、素材、技能..." />
-        </label>
-
+  <ArenaPageShell class="collection-page" flow-scroll>
+    <div class="collection-layout list-flow-layout">
+      <aside class="collection-sidebar list-flow-layout__sidebar" aria-label="收藏分类">
         <nav class="sidebar-nav">
           <button
             v-for="item in categories"
@@ -130,20 +122,23 @@ onMounted(() => {
             <span>{{ item.label }}</span>
           </button>
         </nav>
-
-        <p v-if="activeCategory === 'achievements'" class="sidebar-note">
-          已解锁 {{ unlockedCount }}/{{ achievements.length }}
-        </p>
       </aside>
 
-      <section class="collection-main">
-        <header class="collection-header">
-          <div>
-            <h2>{{ categories.find((item) => item.id === activeCategory)?.label }}</h2>
-            <p>{{ categories.find((item) => item.id === activeCategory)?.description }}</p>
+      <section class="collection-main list-flow-layout__main">
+        <header class="collection-toolbar list-flow-layout__toolbar">
+          <div class="toolbar-filters">
+            <SlidersHorizontal :size="16" />
+            <ArenaSelect
+              v-if="activeCategory === 'personalities'"
+              v-model="personalityKind"
+              :options="[...personalityKindOptions]"
+              aria-label="性格类型"
+            />
+            <ArenaSelect v-model="sortBy" :options="[...sortOptions]" aria-label="排序方式" />
           </div>
         </header>
 
+        <div class="list-flow-layout__scroll">
         <ArenaPageState
           :loading="loading"
           :error="error || undefined"
@@ -151,50 +146,60 @@ onMounted(() => {
           loading-label="正在整理收藏目录..."
           @retry="loadPage"
         >
-          <div v-if="activeCategory === 'achievements'" class="collection-grid">
-            <article
+          <div v-if="activeCategory === 'achievements'" class="collection-grid collection-grid--achievements">
+            <CollectionAchievementCard
               v-for="item in filteredAchievements"
               :key="item.id"
-              class="collection-card"
-              :class="{ unlocked: item.unlocked }"
-            >
-              <span class="collection-card__badge">{{ item.unlocked ? '已解锁' : '未解锁' }}</span>
-              <strong>{{ item.name }}</strong>
-              <p>{{ item.description }}</p>
-              <em>{{ item.group }}</em>
-            </article>
+              :id="item.id"
+              :name="item.name"
+              :description="item.description"
+              :group="item.group"
+              :unlocked="item.unlocked"
+              :icon-url="item.iconUrl"
+            />
           </div>
 
-          <div v-else-if="activeCategory === 'asset-packs'" class="collection-grid collection-grid--media">
-            <article v-for="item in filteredAssetPacks" :key="item.characterId" class="collection-card collection-card--media">
-              <div class="collection-card__preview">
-                <img :src="item.previewBannerUrl || item.previewPortraitUrl" :alt="item.label" />
-              </div>
-              <strong>{{ item.label }}</strong>
-              <p>{{ item.palette || item.characterId }}</p>
-              <em>内置素材包</em>
-            </article>
+          <div v-else-if="activeCategory === 'asset-packs'" class="collection-grid collection-grid--packs">
+            <CollectionAssetPackCard
+              v-for="item in filteredAssetPacks"
+              :key="item.characterId"
+              :character-id="item.characterId"
+              :label="item.label"
+              :palette="item.palette"
+              :preview-banner-url="item.previewBannerUrl"
+              :preview-portrait-url="item.previewPortraitUrl"
+            />
           </div>
 
-          <div v-else-if="activeCategory === 'skills'" class="collection-grid">
-            <article v-for="item in filteredSkills" :key="item.id" class="collection-card">
-              <span class="collection-card__badge collection-card__badge--soft">专属技能</span>
-              <strong>{{ item.name }}</strong>
-              <p>{{ item.description }}</p>
-              <em>{{ item.attributeLabel }}</em>
-            </article>
+          <div v-else-if="activeCategory === 'talents'" class="collection-grid collection-grid--talents">
+            <CollectionTalentCard
+              v-for="item in filteredTalents"
+              :key="item.id"
+              :id="item.id"
+              :name="item.name"
+              :description="item.description"
+              :trigger-timing="item.triggerTiming"
+              :trigger-effect="item.triggerEffect"
+              :match-effect="item.matchEffect"
+              :attribute-id="item.attributeId"
+              :attribute-label="item.attributeLabel"
+              :icon-url="item.iconUrl"
+            />
           </div>
 
-          <div v-else class="collection-grid">
-            <article v-for="item in filteredPersonalities" :key="item.id" class="collection-card">
-              <span class="collection-card__badge collection-card__badge--soft">
-                {{ item.kind === 'tag' ? '性格标签' : '说话风格' }}
-              </span>
-              <strong>{{ item.name }}</strong>
-              <p>{{ item.description }}</p>
-            </article>
+          <div v-else class="collection-grid collection-grid--personalities">
+            <CollectionPersonalityCard
+              v-for="item in filteredPersonalities"
+              :key="item.id"
+              :id="item.id"
+              :kind="item.kind"
+              :name="item.name"
+              :description="item.description"
+              :icon-url="item.iconUrl"
+            />
           </div>
         </ArenaPageState>
+        </div>
       </section>
     </div>
   </ArenaPageShell>
@@ -205,8 +210,9 @@ onMounted(() => {
   max-width: none;
   display: flex;
   flex-direction: column;
+  flex: 1 1 0;
   min-height: 0;
-  padding: 20px 24px 16px;
+  padding: 12px 24px 16px;
 }
 
 .collection-layout {
@@ -225,29 +231,6 @@ onMounted(() => {
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.58);
   border: 1px solid rgba(130, 142, 207, 0.14);
-}
-
-.sidebar-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(130, 142, 207, 0.14);
-  color: #66709d;
-}
-
-.sidebar-search input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #18205a;
-  font: inherit;
-  font-size: 13px;
 }
 
 .sidebar-nav {
@@ -278,15 +261,6 @@ onMounted(() => {
   font-weight: 600;
 }
 
-.sidebar-note {
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(112, 105, 255, 0.08);
-  color: #66709d;
-  font-size: 12px;
-}
-
 .collection-main {
   display: flex;
   flex-direction: column;
@@ -295,108 +269,46 @@ onMounted(() => {
   min-height: 0;
 }
 
-.collection-page :deep(.arena-page-state) {
-  flex: 1 1 0;
-  min-height: 0;
+.collection-toolbar {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
 }
 
-.collection-page :deep(.arena-page-state__content) {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow: auto;
-}
-
-.collection-header h2 {
-  margin: 0;
-  color: #17205a;
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.collection-header p {
-  margin: 4px 0 0;
+.toolbar-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(130, 142, 207, 0.14);
   color: #66709d;
-  font-size: 13px;
+  flex-shrink: 0;
 }
 
 .collection-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 14px;
   padding: 2px 4px 12px;
 }
 
-.collection-grid--media {
+.collection-grid--achievements {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 }
 
-.collection-card {
-  display: grid;
-  gap: 8px;
-  padding: 14px;
-  border-radius: 16px;
-  background: #fff;
-  border: 1px solid rgba(130, 142, 207, 0.16);
-  box-shadow: 0 8px 20px rgba(91, 101, 174, 0.08);
+.collection-grid--packs {
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
 }
 
-.collection-card.unlocked {
-  border-color: rgba(91, 87, 243, 0.28);
-  background: linear-gradient(180deg, rgba(112, 105, 255, 0.06), #fff 42%);
+.collection-grid--talents {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
 
-.collection-card strong {
-  color: #17205a;
-  font-size: 15px;
-  line-height: 1.3;
-}
-
-.collection-card p {
-  margin: 0;
-  color: #66709d;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.collection-card em {
-  color: #9aa3c7;
-  font-style: normal;
-  font-size: 11px;
-}
-
-.collection-card__badge {
-  justify-self: start;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(130, 142, 207, 0.12);
-  color: #7380aa;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.collection-card.unlocked .collection-card__badge {
-  background: rgba(91, 87, 243, 0.12);
-  color: #5b57f3;
-}
-
-.collection-card__badge--soft {
-  background: rgba(112, 105, 255, 0.1);
-  color: #6b66e8;
-}
-
-.collection-card__preview {
-  aspect-ratio: 16 / 10;
-  overflow: hidden;
-  border-radius: 12px;
-  background: #eef1f8;
-}
-
-.collection-card__preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.collection-grid--personalities {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
 @media (max-width: 980px) {

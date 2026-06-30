@@ -7,6 +7,7 @@ import CharacterPickCard from '@renderer/components/arena/CharacterPickCard.vue'
 import CreateMatchModeInfoDialog from '@renderer/components/arena/CreateMatchModeInfoDialog.vue'
 import CreateMatchModePickerDialog from '@renderer/components/arena/CreateMatchModePickerDialog.vue'
 import CreateMatchDlcPickerDialog from '@renderer/components/arena/CreateMatchDlcPickerDialog.vue'
+import ArenaSelect from '@renderer/components/common/ArenaSelect.vue'
 import { modeImageById } from '@renderer/data/arena-visual-assets'
 import {
   buildWerewolfRolePlanWithExpansions,
@@ -39,10 +40,12 @@ import {
   playArenaTone,
   settingsService,
   getFallbackModelId,
+  getUserProfileCharacterId,
 } from '@renderer/services/arena'
 import { formatYuan } from '@renderer/utils/id'
 import { resolveSpeechDisplayConfig } from '@shared/arena/speech-display'
 import { ROUNDTABLE_TOPIC_PRESETS } from '@shared/arena/social-paradigm'
+import { DISCUSSION_FACILITATION_OPTIONS, type DiscussionFacilitationMode } from '@shared/arena/discussion-mode'
 import { isBrainstormGameModeId } from '@shared/arena/builtin-game-mode-registry'
 import type { Character, GameMode, IdentityAssignMode } from '@shared/arena/types'
 import type { MatchCostEstimate } from '@renderer/services/arena/match-cost-estimator'
@@ -76,6 +79,8 @@ const winCondition = ref<WerewolfWinCondition>(DEFAULT_WEREWOLF_WIN_CONDITION)
 const discussionTopic = ref<string>(ROUNDTABLE_TOPIC_PRESETS[0])
 const designTarget = ref('')
 const roundtableRounds = ref(3)
+const discussionFacilitationMode = ref<DiscussionFacilitationMode>('round_bridge')
+const profileCharacterId = ref<string | null>(null)
 const isBrainstormMode = computed(() => isBrainstormGameModeId(mode.value.id))
 const showModeInfo = ref(false)
 const showModePicker = ref(false)
@@ -179,7 +184,9 @@ const gameBriefText = computed(() => {
   if (isRoundtableFamily.value) {
     const label = isBrainstormMode.value ? '头脑风暴' : '圆桌讨论'
     const focus = designTarget.value.trim() ? `，焦点「${designTarget.value.trim()}」` : ''
-    return `${targetPlayerCount.value} 人${label}，议题「${discussionTopic.value}」${focus}，共 ${roundtableRounds.value} 轮发言。`
+    const facilitation =
+      DISCUSSION_FACILITATION_OPTIONS.find((item) => item.id === discussionFacilitationMode.value)?.label || '轮间总结引导'
+    return `${targetPlayerCount.value} 人${label}，议题「${discussionTopic.value}」${focus}，共 ${roundtableRounds.value} 轮；你担任裁判（${facilitation}），结束时产出讨论产物。`
   }
   const lines: string[] = []
   lines.push(
@@ -206,6 +213,9 @@ const warnings = computed(() => {
   if (identityMode.value === 'manual' && isWerewolf.value && selectedCount.value === targetPlayerCount.value) {
     const wolfCount = selectedCharacters.value.filter((item) => manualRoles.value[item.id] === 'werewolf').length
     if (wolfCount < 1) list.push('指定分配至少需要 1 名狼人。')
+  }
+  if (isRoundtableFamily.value) {
+    list.push('讨论型玩法由你担任裁判，不支持 AI 解说与用户 AI 分身参战。')
   }
   return list
 })
@@ -255,7 +265,6 @@ async function syncCostEstimate() {
   costEstimateLoading.value = true
   try {
     await gameScenarioService.refresh().catch(() => null)
-    const scenario = gameScenarioService.getByGameModeId(mode.value.id)
     costEstimate.value = await matchCostEstimator.estimateAsync(
       mode.value.id,
       Math.max(targetPlayerCount.value, 1),
@@ -263,9 +272,7 @@ async function syncCostEstimate() {
         participantModelIds: resolveParticipantModelIds(),
         systemRoleModelIds: resolveSystemRoleModelIds(),
         sheriffEnabled: isWerewolf.value ? sheriffEnabled.value : undefined,
-        roundtableRounds: isRoundtable.value ? roundtableRounds.value : undefined,
-        roundtableHostEnabled: scenario?.systemRoles.some((role) => role.kind === 'host' && role.enabled) ?? true,
-        roundtableNarratorEnabled: scenario?.systemRoles.some((role) => role.kind === 'narrator' && role.enabled) ?? false,
+        roundtableRounds: isRoundtableFamily.value ? roundtableRounds.value : undefined,
       }
     )
   } finally {
@@ -298,6 +305,11 @@ function switchMode(nextMode: GameMode) {
   sheriffEnabled.value = true
   winCondition.value = DEFAULT_WEREWOLF_WIN_CONDITION
   trimSelectionToTarget()
+  if ((nextMode.id === 'roundtable' || nextMode.engineKind === 'roundtable' || nextMode.engineKind === 'brainstorm' || isBrainstormGameModeId(nextMode.id)) && profileCharacterId.value) {
+    characters.value = characters.value.map((item) =>
+      item.id === profileCharacterId.value ? { ...item, selected: false } : item
+    )
+  }
   playArenaTone('step')
 }
 function isWerewolfMode(nextMode: GameMode) {
@@ -353,6 +365,7 @@ async function load() {
     sheriffEnabled.value = preset?.sheriffEnabled !== false
     winCondition.value = preset?.werewolfWinCondition === 'side_slaughter' ? 'side_slaughter' : DEFAULT_WEREWOLF_WIN_CONDITION
     settings.value = await settingsService.get()
+    profileCharacterId.value = await getUserProfileCharacterId().catch(() => null)
     identityMode.value = normalizeIdentityMode(preset?.identityAssignMode || settings.value.defaultIdentityAssignMode)
     if (preset?.manualRoles) manualRoles.value = { ...preset.manualRoles }
     const list = await characterService.list({ status: 'enabled' })
@@ -364,6 +377,11 @@ async function load() {
       ...char,
       selected: presetIds.length ? presetIds.includes(char.id) : index < autoSelectCount,
     }))
+    if (isRoundtableFamily.value && profileCharacterId.value) {
+      characters.value = characters.value.map((item) =>
+        item.id === profileCharacterId.value ? { ...item, selected: false } : item
+      )
+    }
     trimSelectionToTarget()
     if (identityMode.value === 'manual') syncManualRoles()
     await matchCostEstimator.refresh().catch(() => null)
@@ -375,6 +393,10 @@ async function load() {
   }
 }
 function toggleCharacter(char: SelectableCharacter, index: number) {
+  if (isRoundtableFamily.value && profileCharacterId.value && char.id === profileCharacterId.value) {
+    error.value = '讨论型玩法不支持用户 AI 分身参战'
+    return
+  }
   if (char.selected) {
     char.selected = false
     if (activeSpeech.value?.charId === char.id) clearSpeechBubble()
@@ -447,6 +469,7 @@ async function createMatch(skipLearningCheck: boolean) {
     werewolfWinCondition: isWerewolf.value ? winCondition.value : undefined,
     discussionTopic: isRoundtableFamily.value ? discussionTopic.value : undefined,
     roundtableRounds: isRoundtableFamily.value ? roundtableRounds.value : undefined,
+    discussionFacilitationMode: isRoundtableFamily.value ? discussionFacilitationMode.value : undefined,
     designTarget: isBrainstormMode.value && designTarget.value.trim() ? designTarget.value.trim() : undefined,
     skipLearningCheck,
   })
@@ -526,11 +549,14 @@ onMounted(() => void load())
             <div v-if="isRoundtableFamily" class="setup-block roundtable-setup">
               <label>{{ isBrainstormMode ? '头脑风暴议题' : '讨论议题' }}</label>
               <p class="setup-hint">
-                {{ isBrainstormMode ? '讨论后将归纳产物（规则草案 / 角色清单），无经验教训沉淀。' : '纯讨论，无胜负、无产物。' }}
+                你担任裁判（无 AI 解说），每轮发言后总结引导或解说；不支持用户分身参战。结束时归纳讨论产物。
               </p>
-              <select v-model="discussionTopic" class="topic-select">
-                <option v-for="topic in ROUNDTABLE_TOPIC_PRESETS" :key="topic" :value="topic">{{ topic }}</option>
-              </select>
+              <ArenaSelect
+                v-model="discussionTopic"
+                variant="default"
+                :options="ROUNDTABLE_TOPIC_PRESETS.map((topic) => ({ label: topic, value: topic }))"
+                aria-label="讨论议题"
+              />
               <input v-model="discussionTopic" type="text" placeholder="或输入自定义议题" />
               <template v-if="isBrainstormMode">
                 <label class="setup-sub-label">设计焦点</label>
@@ -538,6 +564,21 @@ onMounted(() => void load())
               </template>
               <label class="setup-sub-label">发言轮数</label>
               <input v-model.number="roundtableRounds" type="number" min="1" max="8" />
+              <label class="setup-sub-label">裁判引导方式</label>
+              <div class="toggle-row">
+                <button
+                  v-for="option in DISCUSSION_FACILITATION_OPTIONS"
+                  :key="option.id"
+                  type="button"
+                  :class="{ active: discussionFacilitationMode === option.id }"
+                  @click="discussionFacilitationMode = option.id"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+              <small>{{
+                DISCUSSION_FACILITATION_OPTIONS.find((item) => item.id === discussionFacilitationMode)?.description
+              }}</small>
             </div>
 
             <div class="setup-block">
@@ -621,7 +662,7 @@ onMounted(() => void load())
                 :key="char.id"
                 :character="char"
                 :selected="char.selected"
-                :disabled="!char.selected && selectedCount >= targetPlayerCount"
+                :disabled="(!char.selected && selectedCount >= targetPlayerCount) || (isRoundtableFamily && profileCharacterId === char.id)"
                 :speaking="activeSpeech?.charId === char.id"
                 :speech-text="activeSpeech?.charId === char.id ? activeSpeech.text : ''"
                 :speech-side="activeSpeech?.charId === char.id ? activeSpeech.side : 'right'"

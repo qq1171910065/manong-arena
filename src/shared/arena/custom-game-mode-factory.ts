@@ -45,7 +45,7 @@ export function createUserGameModeBundle(input: CreateUserGameModeInput): UserGa
   const now = new Date().toISOString()
   const name = input.name.trim() || '自定义玩法'
   const subtitle = input.subtitle?.trim() || '多 AI 议题讨论'
-  const description = input.description?.trim() || '围绕自定义议题进行多轮圆桌发言，可选主持人与解说。'
+  const description = input.description?.trim() || '围绕自定义议题进行多轮圆桌发言；玩家担任裁判，结束时产出讨论纪要。'
 
   const mode: GameMode = {
     id: modeId,
@@ -62,17 +62,18 @@ export function createUserGameModeBundle(input: CreateUserGameModeInput): UserGa
     imageKey: 'custom',
     scenarioId,
     engineKind: 'roundtable',
-    setupSummary: '多轮圆桌发言，按席位轮流讨论自定义议题。',
+    setupSummary: '多轮圆桌发言，玩家担任裁判引导轮次；结束时产出讨论纪要。',
     ruleHighlights: [
       '围绕用户设定的议题自由讨论。',
-      '可选 AI 主持人引导流程、解说概括氛围。',
+      '玩家担任裁判，每轮后总结引导或解说。',
+      '不支持用户 AI 分身参战。',
       '保持角色人设与发言风格，回应他人观点。',
     ],
     roles: [{ id: 'participant', name: '参与者', camp: 'neutral', hidden: false, description: '圆桌讨论参与者。' }],
     phases: [
-      { id: 'opening', name: '开场', kind: 'action', order: 1, description: '主持人介绍议题与规则（可选）。' },
-      { id: 'round-discuss', name: '圆桌发言', kind: 'discussion', order: 2, description: '按席位轮流发言，多轮进行。' },
-      { id: 'closing', name: '总结', kind: 'result', order: 3, description: '讨论结束，可选总结陈词。' },
+      { id: 'opening', name: '开场', kind: 'action', order: 1, description: '裁判介绍议题与流程。' },
+      { id: 'round-discuss', name: '圆桌发言', kind: 'discussion', order: 2, description: '按席位轮流发言；每轮结束后由裁判引导。' },
+      { id: 'closing', name: '产物归纳', kind: 'result', order: 3, description: '归纳讨论纪要产物。' },
     ],
   }
 
@@ -85,21 +86,14 @@ export function createUserGameModeBundle(input: CreateUserGameModeInput): UserGa
     detailPageKind: 'roundtable',
     gameModeId: modeId,
     contentDocument:
-      '## 玩法说明\n\n本玩法为自定义圆桌讨论。参与者围绕议题轮流发言，保持人设与风格，回应他人观点。\n\n## 讨论目标\n\n- 清晰表达立场\n- 回应他人论点\n- 在限定轮次内形成可回顾的讨论脉络',
+      '## 玩法说明\n\n本玩法为自定义圆桌讨论。参与者围绕议题轮流发言，保持人设与风格，回应他人观点。\n\n## 裁判（玩家）\n\n- 不支持 AI 主持人/解说与用户分身参战。\n- 每轮全员发言后由玩家总结引导或解说。\n- 结束时系统归纳讨论产物。\n\n## 讨论目标\n\n- 清晰表达立场\n- 回应他人论点\n- 在限定轮次内形成可回顾的讨论脉络',
     systemRoles: [
       {
-        id: 'host',
-        kind: 'host',
-        name: '主持人',
+        id: 'judge',
+        kind: 'judge',
+        name: '裁判',
         enabled: true,
-        promptSlotIds: ['host'],
-      },
-      {
-        id: 'narrator',
-        kind: 'narrator',
-        name: '解说',
-        enabled: false,
-        promptSlotIds: ['narrator'],
+        promptSlotIds: ['judge'],
       },
     ],
     defaultPromptPackId: packId,

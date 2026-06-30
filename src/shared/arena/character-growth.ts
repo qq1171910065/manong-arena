@@ -1,20 +1,20 @@
-/** 角色等级、属性与专属技能 — 纯计算，与等级/人设相关 */
+/** 角色等级、属性与角色天赋 — 纯计算，与等级/人设相关 */
 
 import type { Character, StrategyTendency } from './types'
 
 export type CharacterAttributeId =
-  | 'expression'
+  | 'precision'
   | 'empathy'
-  | 'imagination'
-  | 'collaboration'
-  | 'activity'
+  | 'creativity'
+  | 'context'
+  | 'depth'
 
 export interface CharacterAttributes {
-  expression: number
+  precision: number
   empathy: number
-  imagination: number
-  collaboration: number
-  activity: number
+  creativity: number
+  context: number
+  depth: number
 }
 
 export interface CharacterGrowthState {
@@ -28,6 +28,10 @@ export interface CharacterPersonalitySkill {
   name: string
   description: string
   attributeId: CharacterAttributeId
+  triggerTiming: string
+  triggerEffect: string
+  matchEffect: string
+  matchPhases: import('./character-agent').MatchSkillPhase[]
   level: number
   maxLevel: number
   unlockLevel: number
@@ -72,26 +76,193 @@ export interface LineupGrowthRecord {
 }
 
 export const CHARACTER_ATTRIBUTE_LABELS: Record<CharacterAttributeId, string> = {
-  expression: '表达力',
-  empathy: '共情力',
-  imagination: '想象力',
-  collaboration: '协作力',
-  activity: '活跃度',
+  precision: '提示精准',
+  empathy: '共情细腻',
+  creativity: '创意温度',
+  context: '上下文广度',
+  depth: '思考深度',
 }
 
 export const LINEUP_MAX_SIZE = 6
 
+/** 角色天赋四阶解锁等级 */
+export const TALENT_TIER_UNLOCK_LEVELS = [1, 6, 11, 16] as const
+
+export const TALENT_TIER_LABELS = ['初阶', '进阶', '高阶', '绝学'] as const
+
 export const BUILTIN_PERSONALITY_SKILL_DEFS: Array<
   Omit<CharacterPersonalitySkill, 'level' | 'maxLevel' | 'unlockLevel'>
 > = [
-  { id: 'inspiration_flash', name: '灵感闪现', description: '关键时刻冒出独特观点，发言更有记忆点。', attributeId: 'imagination' },
-  { id: 'witty_remarks', name: '妙语连珠', description: '措辞生动，能把复杂局面讲清楚。', attributeId: 'expression' },
-  { id: 'empathy_resonance', name: '情感共鸣', description: '更容易感知他人情绪，建立信任。', attributeId: 'empathy' },
-  { id: 'team_synergy', name: '协作共振', description: '在多人讨论中自然接话、补位与归纳。', attributeId: 'collaboration' },
-  { id: 'steady_pace', name: '稳定节奏', description: '长局里保持专注，减少无效发言。', attributeId: 'activity' },
-  { id: 'logical_chain', name: '逻辑链条', description: '推理步骤清晰，质疑更有依据。', attributeId: 'expression' },
-  { id: 'bold_gambit', name: '大胆博弈', description: '敢于在关键票型上做出冒险判断。', attributeId: 'activity' },
-  { id: 'calm_anchor', name: '冷静定锚', description: '局势混乱时先稳住阵脚再分析。', attributeId: 'empathy' },
+  {
+    id: 'inspiration_flash',
+    name: '灵感闪现',
+    description: '僵局中给出记忆点',
+    attributeId: 'creativity',
+    triggerTiming: '发言轮到自己且场上信息矛盾或僵局时',
+    triggerEffect: '给出一条非常规但可验证的推论',
+    matchEffect: '发言额外点出一个被忽略的票型或发言矛盾',
+    matchPhases: ['speech', 'discussion'],
+  },
+  {
+    id: 'witty_remarks',
+    name: '妙语连珠',
+    description: '复杂局面讲清楚',
+    attributeId: 'precision',
+    triggerTiming: '需要向全场解释复杂逻辑时',
+    triggerEffect: '用比喻或短句压缩信息',
+    matchEffect: '发言用一句话总结当前站边理由',
+    matchPhases: ['speech', 'discussion'],
+  },
+  {
+    id: 'empathy_resonance',
+    name: '情感共鸣',
+    description: '建立信任感',
+    attributeId: 'empathy',
+    triggerTiming: '他人情绪激烈或对你发出质疑时',
+    triggerEffect: '先回应感受再表达立场',
+    matchEffect: '被@时先承认对方合理点再转折',
+    matchPhases: ['speech', 'critical'],
+  },
+  {
+    id: 'team_synergy',
+    name: '协作共振',
+    description: '多人讨论中补位',
+    attributeId: 'context',
+    triggerTiming: '讨论环节需要归纳或接话时',
+    triggerEffect: '帮他人补全论点并归纳共识',
+    matchEffect: '讨论轮总结前三人观点并表明站边',
+    matchPhases: ['discussion'],
+  },
+  {
+    id: 'steady_pace',
+    name: '稳定节奏',
+    description: '长局保持专注',
+    attributeId: 'depth',
+    triggerTiming: '长局后期或信息过载时',
+    triggerEffect: '过滤无效信息，聚焦关键矛盾',
+    matchEffect: '投票前只围绕一个核心嫌疑展开',
+    matchPhases: ['vote', 'speech'],
+  },
+  {
+    id: 'logical_chain',
+    name: '逻辑链条',
+    description: '质疑更有依据',
+    attributeId: 'precision',
+    triggerTiming: '发现发言前后矛盾时',
+    triggerEffect: '按时间线列出矛盾点',
+    matchEffect: '发言引用具体轮次与席位指出矛盾',
+    matchPhases: ['speech', 'vote'],
+  },
+  {
+    id: 'bold_gambit',
+    name: '大胆博弈',
+    description: '关键票型敢冒险',
+    attributeId: 'depth',
+    triggerTiming: '决胜票或关键轮次',
+    triggerEffect: '在不确定时仍给出明确站边',
+    matchEffect: '投票阶段敢于归票并承担后果',
+    matchPhases: ['vote', 'critical'],
+  },
+  {
+    id: 'calm_anchor',
+    name: '冷静定锚',
+    description: '混乱时稳住阵脚',
+    attributeId: 'empathy',
+    triggerTiming: '全场互踩、节奏混乱时',
+    triggerEffect: '先降温再分析',
+    matchEffect: '发言先梳理存活结构再谈嫌疑',
+    matchPhases: ['speech', 'critical'],
+  },
+  {
+    id: 'keen_insight',
+    name: '洞察先机',
+    description: '从细节读出意图',
+    attributeId: 'empathy',
+    triggerTiming: '他人发言含糊或回避关键问题时',
+    triggerEffect: '点出潜台词与情绪动机',
+    matchEffect: '发言追问对方为何回避上一轮核心矛盾',
+    matchPhases: ['speech', 'discussion'],
+  },
+  {
+    id: 'narrative_twist',
+    name: '叙事转折',
+    description: '换角度打开局面',
+    attributeId: 'creativity',
+    triggerTiming: '全场陷入单一叙事或站边固化时',
+    triggerEffect: '提出另一种合理解释路径',
+    matchEffect: '发言给出与主流不同的第二嫌疑链',
+    matchPhases: ['speech', 'discussion'],
+  },
+  {
+    id: 'pressure_probe',
+    name: '施压试探',
+    description: '关键轮次逼出信息',
+    attributeId: 'depth',
+    triggerTiming: '需要逼出隐藏信息或验明立场时',
+    triggerEffect: '用连续追问压缩对方回旋空间',
+    matchEffect: '讨论轮对目标席位提出可验证的追问',
+    matchPhases: ['discussion', 'critical'],
+  },
+  {
+    id: 'consensus_bridge',
+    name: '共识搭桥',
+    description: '弥合分歧找交集',
+    attributeId: 'context',
+    triggerTiming: '阵营分裂、互不信任时',
+    triggerEffect: '找出双方都能接受的最小共识',
+    matchEffect: '讨论轮归纳可共同验证的事实再推进',
+    matchPhases: ['discussion'],
+  },
+  {
+    id: 'precise_strike',
+    name: '精准点破',
+    description: '一句话击中要害',
+    attributeId: 'precision',
+    triggerTiming: '对方逻辑链存在明显漏洞时',
+    triggerEffect: '用最少字数指出核心谬误',
+    matchEffect: '发言只围绕一个最强矛盾点展开',
+    matchPhases: ['speech', 'vote'],
+  },
+  {
+    id: 'silver_tongue',
+    name: '舌辩如风',
+    description: '复杂局面也能讲透',
+    attributeId: 'precision',
+    triggerTiming: '需要说服摇摆票或中立位时',
+    triggerEffect: '分层递进、先易后难地展开论证',
+    matchEffect: '发言结尾给出明确可执行的站边建议',
+    matchPhases: ['speech', 'vote'],
+  },
+  {
+    id: 'pattern_read',
+    name: '读局直觉',
+    description: '从票型看局势',
+    attributeId: 'context',
+    triggerTiming: '投票前后票型与发言不一致时',
+    triggerEffect: '对照历史票型推断阵营结构',
+    matchEffect: '投票前点出最反常的一票并说明理由',
+    matchPhases: ['vote', 'speech'],
+  },
+  {
+    id: 'heartfelt_persuade',
+    name: '真情说服',
+    description: '用真诚换信任',
+    attributeId: 'empathy',
+    triggerTiming: '自己被怀疑或需要争取信任时',
+    triggerEffect: '坦诚动机并给出可验证承诺',
+    matchEffect: '被@时先说明自己的投票逻辑再回应质疑',
+    matchPhases: ['critical', 'speech'],
+  },
+  {
+    id: 'imaginative_leap',
+    name: '跳脱想象',
+    description: '打破思维定式',
+    attributeId: 'creativity',
+    triggerTiming: '常规推理陷入僵局时',
+    triggerEffect: '引入被忽略的角色关系或时间线',
+    matchEffect: '发言提出一个此前无人提及的假设并验证',
+    matchPhases: ['speech', 'discussion'],
+  },
 ]
 
 export const BUILTIN_PERSONALITY_TAG_DEFS = [
@@ -105,21 +276,50 @@ export const BUILTIN_PERSONALITY_TAG_DEFS = [
   '冷静沉着',
   '创意表达',
   '深度思考',
+  '善于伪装',
+  '喜欢质疑',
+  '擅长总结',
+  '逆向思维',
+  '温和引导',
+  '细节控',
+  '快节奏',
+  '守序稳健',
 ] as const
 
-export const BUILTIN_SPEECH_STYLE_DEFS = ['活泼', '温柔', '理性', '冷静', '傲娇'] as const
+export const BUILTIN_SPEECH_STYLE_DEFS = [
+  '活泼',
+  '温柔',
+  '理性',
+  '冷静',
+  '傲娇',
+  '简洁',
+  '幽默',
+  '高冷',
+  '阴阳怪气',
+  '谨慎',
+  '热情',
+  '慵懒',
+] as const
 
 const TAG_ATTRIBUTE_BOOST: Record<string, Partial<CharacterAttributes>> = {
-  逻辑推理: { expression: 6, imagination: 4 },
-  策略思维: { collaboration: 5, activity: 4 },
-  团队协作: { collaboration: 8, empathy: 4 },
-  情绪共鸣: { empathy: 10, expression: 3 },
-  剧情推理: { imagination: 8, expression: 4 },
-  敏锐观察: { empathy: 5, activity: 5 },
-  语言表达: { expression: 10, collaboration: 3 },
-  冷静沉着: { empathy: 6, activity: 5 },
-  创意表达: { expression: 8, imagination: 8 },
-  深度思考: { imagination: 7, expression: 5 },
+  逻辑推理: { precision: 6, creativity: 4 },
+  策略思维: { context: 5, depth: 4 },
+  团队协作: { context: 8, empathy: 4 },
+  情绪共鸣: { empathy: 10, precision: 3 },
+  剧情推理: { creativity: 8, precision: 4 },
+  敏锐观察: { empathy: 5, depth: 5 },
+  语言表达: { precision: 10, context: 3 },
+  冷静沉着: { empathy: 6, depth: 5 },
+  创意表达: { precision: 8, creativity: 8 },
+  深度思考: { creativity: 7, precision: 5 },
+  善于伪装: { creativity: 6, context: 6 },
+  喜欢质疑: { precision: 8, depth: 5 },
+  擅长总结: { context: 7, precision: 6 },
+  逆向思维: { creativity: 9, depth: 4 },
+  温和引导: { empathy: 8, context: 5 },
+  细节控: { precision: 7, empathy: 5 },
+  快节奏: { precision: 6, context: 6 },
+  守序稳健: { depth: 8, empathy: 4 },
 }
 
 function seedHash(input: string): number {
@@ -161,23 +361,30 @@ export function resolveCharacterGrowth(character: Character): CharacterGrowthSta
 function strategyBonus(strategy: StrategyTendency): Partial<CharacterAttributes> {
   return {
     empathy: Math.round((100 - strategy.empathyVsLogic) * 0.12),
-    expression: Math.round(strategy.empathyVsLogic * 0.1),
-    activity: Math.round(strategy.cautiousVsBold * 0.1),
-    collaboration: Math.round((100 - strategy.leadVsFollow) * 0.08),
-    imagination: Math.round((strategy.empathyVsLogic + strategy.cautiousVsBold) * 0.05),
+    precision: Math.round(strategy.empathyVsLogic * 0.1),
+    depth: Math.round(strategy.cautiousVsBold * 0.1),
+    context: Math.round((100 - strategy.leadVsFollow) * 0.08),
+    creativity: Math.round((strategy.empathyVsLogic + strategy.cautiousVsBold) * 0.05),
   }
 }
 
 const SPEECH_STYLE_ATTRIBUTE_BOOST: Record<string, Partial<CharacterAttributes>> = {
-  活泼: { expression: 6, activity: 5 },
-  温柔: { empathy: 7, collaboration: 4 },
-  理性: { expression: 5, imagination: 4 },
-  冷静: { empathy: 5, activity: 4 },
-  傲娇: { expression: 6, activity: 3 },
+  活泼: { precision: 6, depth: 5 },
+  温柔: { empathy: 7, context: 4 },
+  理性: { precision: 5, creativity: 4 },
+  冷静: { empathy: 5, depth: 4 },
+  傲娇: { precision: 6, depth: 3 },
+  简洁: { precision: 8, context: 3 },
+  幽默: { creativity: 7, empathy: 4 },
+  高冷: { depth: 6, precision: 4 },
+  阴阳怪气: { creativity: 6, precision: 5 },
+  谨慎: { depth: 7, empathy: 4 },
+  热情: { empathy: 6, precision: 5 },
+  慵懒: { depth: 5, creativity: 5 },
 }
 
 function speechStyleBonus(speechStyle: string): Partial<CharacterAttributes> {
-  return SPEECH_STYLE_ATTRIBUTE_BOOST[speechStyle] || { expression: 3, empathy: 3 }
+  return SPEECH_STYLE_ATTRIBUTE_BOOST[speechStyle] || { precision: 3, empathy: 3 }
 }
 
 export function computeCharacterAttributes(character: Character): CharacterAttributes {
@@ -185,11 +392,11 @@ export function computeCharacterAttributes(character: Character): CharacterAttri
   const levelScale = (growth.level - 1) * 1.6
   const baseSeed = seedHash(character.id)
   const attrs: CharacterAttributes = {
-    expression: 42 + (baseSeed % 11),
+    precision: 42 + (baseSeed % 11),
     empathy: 40 + ((baseSeed >> 3) % 12),
-    imagination: 41 + ((baseSeed >> 6) % 10),
-    collaboration: 39 + ((baseSeed >> 9) % 11),
-    activity: 40 + ((baseSeed >> 12) % 10),
+    creativity: 41 + ((baseSeed >> 6) % 10),
+    context: 39 + ((baseSeed >> 9) % 11),
+    depth: 40 + ((baseSeed >> 12) % 10),
   }
 
   for (const tag of character.tags) {
@@ -222,18 +429,68 @@ export function computeCharacterAttributes(character: Character): CharacterAttri
 
 function skillLevelForCharacter(level: number, unlockLevel: number): number {
   if (level < unlockLevel) return 0
-  return clamp(1 + Math.floor((level - unlockLevel) / 7), 1, 5)
+  return clamp(1 + Math.floor((level - unlockLevel) / 5), 1, 5)
 }
 
-export function computePersonalitySkills(character: Character): CharacterPersonalitySkill[] {
-  const growth = resolveCharacterGrowth(character)
+function buildPersonalitySkillFromDef(
+  def: (typeof BUILTIN_PERSONALITY_SKILL_DEFS)[number],
+  tierIndex: number,
+  growthLevel: number
+): CharacterPersonalitySkill {
+  const unlockLevel = TALENT_TIER_UNLOCK_LEVELS[tierIndex] ?? 1 + tierIndex * 5
+  return {
+    ...def,
+    unlockLevel,
+    maxLevel: 5,
+    level: skillLevelForCharacter(growthLevel, unlockLevel),
+  }
+}
+
+/** 创建角色时基于初始人设随机分配 4 个不同阶别的天赋 */
+export function rollCharacterTalents(character: Character): string[] {
   const attrs = computeCharacterAttributes(character)
   const ranked = (Object.keys(attrs) as CharacterAttributeId[])
     .map((id) => ({ id, value: attrs[id] }))
     .sort((a, b) => b.value - a.value)
 
-  const chosen: CharacterPersonalitySkill[] = []
+  const seedBase = seedHash(
+    `${character.id}:${character.tags.join(',')}:${character.speechStyle}:${character.strengths.join(',')}`
+  )
   const used = new Set<string>()
+  const chosen: string[] = []
+
+  for (let tier = 0; tier < 4; tier += 1) {
+    const attrId = ranked[tier % ranked.length]?.id ?? ranked[0]?.id ?? 'precision'
+    const preferred = BUILTIN_PERSONALITY_SKILL_DEFS.filter(
+      (skill) => skill.attributeId === attrId && !used.has(skill.id)
+    )
+    const pool = preferred.length
+      ? preferred
+      : BUILTIN_PERSONALITY_SKILL_DEFS.filter((skill) => !used.has(skill.id))
+    if (!pool.length) break
+    const pick = pool[(seedBase + tier * 9973) % pool.length]
+    used.add(pick.id)
+    chosen.push(pick.id)
+  }
+
+  while (chosen.length < 4) {
+    const fallback = BUILTIN_PERSONALITY_SKILL_DEFS.find((skill) => !used.has(skill.id))
+    if (!fallback) break
+    used.add(fallback.id)
+    chosen.push(fallback.id)
+  }
+
+  return chosen
+}
+
+function resolveLegacyTalentIds(character: Character): string[] {
+  const attrs = computeCharacterAttributes(character)
+  const ranked = (Object.keys(attrs) as CharacterAttributeId[])
+    .map((id) => ({ id, value: attrs[id] }))
+    .sort((a, b) => b.value - a.value)
+
+  const used = new Set<string>()
+  const ids: string[] = []
   for (const entry of ranked) {
     const candidates = BUILTIN_PERSONALITY_SKILL_DEFS.filter(
       (skill) => skill.attributeId === entry.id && !used.has(skill.id)
@@ -241,30 +498,53 @@ export function computePersonalitySkills(character: Character): CharacterPersona
     if (!candidates.length) continue
     const pick = candidates[seedHash(`${character.id}:${entry.id}`) % candidates.length]
     used.add(pick.id)
-    const unlockLevel = 1 + chosen.length * 4
-    chosen.push({
-      ...pick,
-      unlockLevel,
-      maxLevel: 5,
-      level: skillLevelForCharacter(growth.level, unlockLevel),
-    })
-    if (chosen.length >= 4) break
+    ids.push(pick.id)
+    if (ids.length >= 4) break
   }
-
-  while (chosen.length < 4) {
+  while (ids.length < 4) {
     const fallback = BUILTIN_PERSONALITY_SKILL_DEFS.find((skill) => !used.has(skill.id))
     if (!fallback) break
     used.add(fallback.id)
-    const unlockLevel = 1 + chosen.length * 4
-    chosen.push({
-      ...fallback,
-      unlockLevel,
-      maxLevel: 5,
-      level: skillLevelForCharacter(growth.level, unlockLevel),
-    })
+    ids.push(fallback.id)
   }
+  return ids
+}
 
-  return chosen
+export function computePersonalitySkills(character: Character): CharacterPersonalitySkill[] {
+  const growth = resolveCharacterGrowth(character)
+  const talentIds =
+    character.talentIds?.length === 4 ? character.talentIds : resolveLegacyTalentIds(character)
+
+  return talentIds.slice(0, 4).map((id, index) => {
+    const def = BUILTIN_PERSONALITY_SKILL_DEFS.find((skill) => skill.id === id)
+    if (!def) {
+      const fallback = BUILTIN_PERSONALITY_SKILL_DEFS[index % BUILTIN_PERSONALITY_SKILL_DEFS.length]
+      return buildPersonalitySkillFromDef(fallback, index, growth.level)
+    }
+    return buildPersonalitySkillFromDef(def, index, growth.level)
+  })
+}
+
+export function personalitySkillsForMatchPhase(
+  character: Character,
+  phase: import('./character-agent').MatchSkillPhase
+): CharacterPersonalitySkill[] {
+  return computePersonalitySkills(character).filter(
+    (s) => s.level > 0 && s.matchPhases.includes(phase)
+  )
+}
+
+export function formatPersonalitySkillForMatch(skill: CharacterPersonalitySkill): string {
+  return `- ${skill.name} Lv.${skill.level}｜时机：${skill.triggerTiming}｜效果：${skill.matchEffect}`
+}
+
+export function buildMatchPersonalitySkillContext(
+  character: Character,
+  phase: import('./character-agent').MatchSkillPhase
+): string {
+  const active = personalitySkillsForMatchPhase(character, phase)
+  if (!active.length) return ''
+  return '【角色天赋】\n' + active.map(formatPersonalitySkillForMatch).join('\n')
 }
 
 export interface TokenUsageLike {
@@ -329,6 +609,45 @@ export function computeAttributeDeltas(
     if (delta !== 0) deltas[key] = delta
   }
   return deltas
+}
+
+export interface CharacterLevelProjection {
+  level: number
+  attributes: CharacterAttributes
+  skills: CharacterPersonalitySkill[]
+  starRating: number
+  unlockedTalentCount: number
+}
+
+export function withCharacterLevel(character: Character, level: number): Character {
+  const growth = resolveCharacterGrowth(character)
+  return {
+    ...character,
+    growth: { ...growth, level: Math.max(1, Math.round(level)) },
+  }
+}
+
+export function projectCharacterAtLevel(character: Character, targetLevel: number): CharacterLevelProjection {
+  const level = Math.max(1, Math.round(targetLevel))
+  const sim = withCharacterLevel(character, level)
+  const projectedSkills = computePersonalitySkills(sim)
+  return {
+    level,
+    attributes: computeCharacterAttributes(sim),
+    skills: projectedSkills,
+    starRating: computeStarRating(level),
+    unlockedTalentCount: projectedSkills.filter((s) => s.level > 0).length,
+  }
+}
+
+/** 雷达图对比用：下一天赋解锁等级，或后续星级门槛 */
+export function nextGrowthCompareLevel(currentLevel: number): number {
+  const nextTalent = TALENT_TIER_UNLOCK_LEVELS.find((level) => level > currentLevel)
+  if (nextTalent) return nextTalent
+  for (const threshold of [24, 36, 50]) {
+    if (threshold > currentLevel) return threshold
+  }
+  return Math.min(currentLevel + 5, 50)
 }
 
 /** 1-7 星，随等级缓慢提升，用于展示角色成熟度 */

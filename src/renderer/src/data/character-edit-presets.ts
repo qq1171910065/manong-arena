@@ -1,4 +1,17 @@
-export const CHARACTER_SPEECH_STYLES = ['温柔', '活泼', '理性', '简洁', '幽默', '高冷', '阴阳怪气', '谨慎']
+export const CHARACTER_SPEECH_STYLES = [
+  '温柔',
+  '活泼',
+  '理性',
+  '冷静',
+  '傲娇',
+  '简洁',
+  '幽默',
+  '高冷',
+  '阴阳怪气',
+  '谨慎',
+  '热情',
+  '慵懒',
+]
 
 export const CHARACTER_TAG_PRESETS = [
   '逻辑推理',
@@ -7,10 +20,18 @@ export const CHARACTER_TAG_PRESETS = [
   '策略思维',
   '团队协作',
   '语言表达',
+  '剧情推理',
+  '创意表达',
+  '深度思考',
+  '情绪共鸣',
   '善于伪装',
   '喜欢质疑',
   '擅长总结',
-  '情绪共鸣',
+  '逆向思维',
+  '温和引导',
+  '细节控',
+  '快节奏',
+  '守序稳健',
 ]
 
 export const CHARACTER_VISUAL_PRESETS = [

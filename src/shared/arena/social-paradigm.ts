@@ -25,8 +25,8 @@ export const SOCIAL_PARADIGMS: SocialParadigmDefinition[] = [
     id: 'free_discussion',
     label: '纯讨论',
     shortLabel: '讨论',
-    description: '无隐藏身份、无胜负，围绕议题展开观点碰撞与倾听。',
-    promptFocus: ['议题澄清', '观点回应', '人设口吻', '倾听与追问'],
+    description: '无隐藏身份、无胜负，围绕议题展开观点碰撞；玩家担任裁判，结束时产出讨论纪要。',
+    promptFocus: ['议题澄清', '观点回应', '人设口吻', '倾听与追问', '讨论产物归纳'],
     engineKinds: ['roundtable', 'prompt-only'],
   },
   {
@@ -186,7 +186,7 @@ export const ROUNDTABLE_SESSION_OPTIONS: Array<{
   {
     id: 'discussion',
     label: '圆桌讨论',
-    description: '围绕议题交换观点，倾听与回应，无胜负。',
+    description: '围绕议题交换观点，倾听与回应；玩家担任裁判，结束时产出讨论纪要。',
   },
   {
     id: 'brainstorm',

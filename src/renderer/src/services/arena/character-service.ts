@@ -3,10 +3,11 @@ import { BUILTIN_GAME_MODES, DEFAULT_ARENA_MODEL_ID } from '@shared/arena/consta
 import { isUserGameModeId } from '@shared/arena/export-packages'
 import { buildPackVisualPatch, normalizeCharacterVisuals } from '@shared/arena/character-visuals'
 import { resolveTtsVoiceId } from '@shared/arena/voice-presets'
-import { createDefaultGrowthState, resolveCharacterGrowth } from '@shared/arena/character-growth'
+import { createDefaultGrowthState, resolveCharacterGrowth, rollCharacterTalents } from '@shared/arena/character-growth'
 import { arenaInvoke, ensureArenaReady } from './client'
 import { estimateMatchCost } from './match-cost-estimator'
 import { ArenaError } from './errors'
+import { isDiscussionGameModeId } from '@shared/arena/discussion-mode'
 import type { Character, CharacterFilter, CreateMatchInput, GameMode, GameModeOverride } from '@shared/arena/types'
 
 let gameModeOverrides: Record<string, GameModeOverride> = {}
@@ -127,6 +128,8 @@ export function createEmptyCharacter(partial?: Partial<Character>): Character {
     accentColor: '#6366f1',
     stats: { matchCount: 0, winCount: 0, avgCostCents: 0, lastMatchAt: null },
     growth: createDefaultGrowthState(),
+    agentMemories: [],
+    agentSkills: [],
     createdAt: now,
     updatedAt: now,
     ...visualDefaults,
@@ -151,6 +154,9 @@ export const characterService = {
     if (!character.name.trim()) throw new ArenaError('VALIDATION', '角色名称不能为空', 'character')
     await ensureArenaReady()
     const plain = toPlainCharacter(normalizeCharacterVisuals(character))
+    if (!plain.talentIds?.length) {
+      plain.talentIds = rollCharacterTalents(plain)
+    }
     const saved = await arenaInvoke('character', 'saveCharacter', () => window.api.saveCharacter(plain))
     return normalizeCharacterVisuals(saved)
   },
@@ -226,7 +232,7 @@ export function buildMatchTitle(mode: GameMode, participantCount: number): strin
   return `${mode.name} · ${participantCount} 人局`
 }
 
-export function validateCreateMatchInput(input: CreateMatchInput): void {
+export function validateCreateMatchInput(input: CreateMatchInput, options?: { userProfileCharacterId?: string | null }): void {
   const mode = gameModeService.get(input.gameModeId)
   if (!mode) throw new ArenaError('VALIDATION', '玩法不存在', 'match')
   if (input.characterIds.length < mode.minPlayers) {
@@ -234,5 +240,11 @@ export function validateCreateMatchInput(input: CreateMatchInput): void {
   }
   if (input.characterIds.length > mode.maxPlayers) {
     throw new ArenaError('VALIDATION', `最多支持 ${mode.maxPlayers} 名角色`, 'match')
+  }
+  if (isDiscussionGameModeId(mode.id)) {
+    const profileId = options?.userProfileCharacterId
+    if (profileId && input.characterIds.includes(profileId)) {
+      throw new ArenaError('VALIDATION', '讨论型玩法不支持用户 AI 分身参战，请选择其他角色', 'match')
+    }
   }
 }

@@ -4,6 +4,7 @@ import { Plus, Search, SlidersHorizontal, Upload, Users } from 'lucide-vue-next'
 import ArenaPageShell from '@renderer/components/arena/ArenaPageShell.vue'
 import ArenaPageState from '@renderer/components/arena/ArenaPageState.vue'
 import ArenaPageSkeleton from '@renderer/components/arena/ArenaPageSkeleton.vue'
+import ArenaSelect from '@renderer/components/common/ArenaSelect.vue'
 import CreateGameModeDialog from '@renderer/components/arena/CreateGameModeDialog.vue'
 import { modeImageById } from '@renderer/data/arena-visual-assets'
 import { navigate } from '../router'
@@ -24,7 +25,7 @@ const tagMap: Record<string, string[]> = {
   werewolf: ['规则化博弈', '信息不对称', '提示词工程'],
   avalon: ['规则化博弈', '阵营决策', '角色能力'],
   undercover: ['语言推理', '轻量社交', '观点表达'],
-  roundtable: ['纯讨论', '议题碰撞', '倾听追问'],
+  roundtable: ['纯讨论', '玩家裁判', '讨论产物'],
   'brainstorm-game-design': ['头脑风暴', '玩法设计', '规则产物'],
   'brainstorm-character-design': ['头脑风暴', '角色塑造', '人设产物'],
 }
@@ -99,8 +100,9 @@ function onModeCreated(modeId: string) {
 </script>
 
 <template>
-  <ArenaPageShell class="modes-page" viewport-lock>
-    <section class="list-toolbar" aria-label="场景筛选">
+  <ArenaPageShell class="modes-page" flow-scroll>
+    <div class="list-flow-page">
+    <section class="list-toolbar list-flow-layout__toolbar" aria-label="场景筛选">
       <label class="search-pill">
         <Search :size="17" />
         <input v-model="query" type="text" placeholder="搜索场景名称、范式标签或说明..." />
@@ -108,16 +110,24 @@ function onModeCreated(modeId: string) {
       <div class="toolbar-right">
         <div class="filter-cluster">
           <SlidersHorizontal :size="17" />
-          <select v-model="availabilityFilter">
-            <option value="all">全部状态</option>
-            <option value="available">已开放</option>
-            <option value="coming">筹备中</option>
-          </select>
-          <select v-model="sortBy">
-            <option value="name">名称排序</option>
-            <option value="recommended">推荐人数</option>
-            <option value="players">最少人数</option>
-          </select>
+          <ArenaSelect
+            v-model="availabilityFilter"
+            :options="[
+              { label: '全部状态', value: 'all' },
+              { label: '已开放', value: 'available' },
+              { label: '筹备中', value: 'coming' },
+            ]"
+            aria-label="场景状态"
+          />
+          <ArenaSelect
+            v-model="sortBy"
+            :options="[
+              { label: '名称排序', value: 'name' },
+              { label: '推荐人数', value: 'recommended' },
+              { label: '最少人数', value: 'players' },
+            ]"
+            aria-label="排序方式"
+          />
         </div>
         <button class="toolbar-action toolbar-action--ghost" type="button" :disabled="importing" @click="importGameMode">
           <Upload :size="17" />
@@ -130,6 +140,7 @@ function onModeCreated(modeId: string) {
       </div>
     </section>
 
+    <div class="list-flow-layout__scroll">
     <p v-if="error" class="modes-error">{{ error }}</p>
 
     <ArenaPageState
@@ -187,6 +198,8 @@ function onModeCreated(modeId: string) {
         </section>
       </div>
     </ArenaPageState>
+    </div>
+    </div>
 
     <CreateGameModeDialog v-model:open="createOpen" @created="onModeCreated" />
   </ArenaPageShell>
@@ -201,35 +214,17 @@ function onModeCreated(modeId: string) {
   max-width: none;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 28px 38px 0;
+  flex: 1 1 0;
   min-height: 0;
+  padding: 20px 38px 16px;
 }
 
-.modes-page :deep(.arena-page-state) {
+.list-flow-page {
   flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.modes-page :deep(.arena-page-state__skeleton),
-.modes-page :deep(.arena-page-state__content) {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.modes-page :deep(.arena-page-state__skeleton)::-webkit-scrollbar,
-.modes-page :deep(.arena-page-state__content)::-webkit-scrollbar {
-  display: none;
-}
-
-.modes-page :deep(.arena-page-state__content) {
-  display: block;
+  gap: 14px;
 }
 
 .list-toolbar {
@@ -310,17 +305,6 @@ function onModeCreated(modeId: string) {
 .filter-cluster {
   gap: 4px;
   padding: 0 10px 0 14px;
-}
-
-.filter-cluster select {
-  height: 32px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #243066;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
 }
 
 .list-state {

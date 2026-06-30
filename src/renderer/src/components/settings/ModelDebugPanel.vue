@@ -112,13 +112,13 @@ async function runBatch() {
     message.error(e instanceof Error ? e.message : '测试失败')
   }
 }
-
 </script>
 
 <template>
   <ProfileSectionLayout
-    title="连通性调试"
-    desc="浏览可用模型并执行 ping 测试，验证网关鉴权与模型可达性。"
+    class="model-debug-panel"
+    title="全部模型"
+    desc="浏览网关可用模型并执行连通性测试。"
   >
     <template #actions>
       <NButton type="primary" size="small" :loading="batchTesting" @click="runBatch">
@@ -127,42 +127,84 @@ async function runBatch() {
       </NButton>
     </template>
 
-    <NAlert
-      v-if="testReport"
-      :type="testReport.ok ? 'success' : 'warning'"
-      :bordered="false"
-    >
-      测试 {{ testReport.testedCount }} 个模型，成功 {{ testReport.successCount }} 个 · 共
-      {{ testReport.modelCount }} 个可用模型
-      <span v-if="testReport.message"> · {{ testReport.message }}</span>
-    </NAlert>
+    <div class="model-debug-panel__body">
+      <NAlert
+        v-if="testReport"
+        :type="testReport.ok ? 'success' : 'warning'"
+        :bordered="false"
+      >
+        测试 {{ testReport.testedCount }} 个模型，成功 {{ testReport.successCount }} 个 · 共
+        {{ testReport.modelCount }} 个可用模型
+        <span v-if="testReport.message"> · {{ testReport.message }}</span>
+      </NAlert>
 
-    <section class="portal-plain-block profile-table-card profile-list-region">
-      <div class="model-debug-toolbar">
-        <h4 class="portal-plain-block__title">可用模型</h4>
-        <NInput v-model:value="modelFilter" placeholder="搜索模型…" clearable style="width: 220px" />
+      <div class="model-debug-panel__toolbar">
+        <NInput v-model:value="modelFilter" placeholder="搜索模型…" clearable />
       </div>
-      <PortalDataTable
-        :columns="columns"
-        :data="filteredModels"
-        :loading="modelsLoading"
-        :max-height="420"
-        :pagination="{ pageSize: 12 }"
-      />
-    </section>
+
+      <div class="model-debug-panel__table">
+        <PortalDataTable
+          flex-height
+          :columns="columns"
+          :data="filteredModels"
+          :loading="modelsLoading"
+          :pagination="{ pageSize: 50 }"
+        />
+      </div>
+    </div>
   </ProfileSectionLayout>
 </template>
 
 <style scoped>
-.model-debug-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+.model-debug-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
 }
 
-.model-debug-toolbar .portal-plain-block__title {
-  margin: 0;
+.model-debug-panel :deep(.profile-section) {
+  height: 100%;
+}
+
+.model-debug-panel :deep(.profile-section__body) {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.model-debug-panel__body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.model-debug-panel__toolbar {
+  flex: 0 0 auto;
+}
+
+.model-debug-panel__toolbar :deep(.n-input) {
+  max-width: 280px;
+}
+
+.model-debug-panel__table {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.model-debug-panel__table :deep(.portal-data-table-wrap) {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.model-debug-panel__table :deep(.n-data-table) {
+  flex: 1 1 0;
+  min-height: 0;
 }
 </style>

@@ -1,13 +1,26 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { BookOpen, Brain, MessageCircle, Sparkles, Star, Trash2, Upload, Volume2, Download } from 'lucide-vue-next'
+import { BookOpen, Brain, Ban, Code2, Download, FolderOpen, History, MessageCircle, MoreVertical, Shield, Sparkles, Star, Trash2, UserRound, Users, Volume2 } from 'lucide-vue-next'
 import ArenaPageShell from '@renderer/components/arena/ArenaPageShell.vue'
 import ArenaPageState from '@renderer/components/arena/ArenaPageState.vue'
 import CharacterVisualEditorDialog from '@renderer/components/arena/CharacterVisualEditorDialog.vue'
 import CharacterChatDialog from '@renderer/components/arena/CharacterChatDialog.vue'
 import CharacterEditDialog, { type CharacterEditSection } from '@renderer/components/arena/CharacterEditDialog.vue'
-import CharacterGameSkillsPanel from '@renderer/components/arena/CharacterGameSkillsPanel.vue'
+import CharacterAgentPanelDialog from '@renderer/components/arena/CharacterAgentPanelDialog.vue'
+import CharacterMemoryPanel from '@renderer/components/arena/CharacterMemoryPanel.vue'
+import CharacterMemoryPreview from '@renderer/components/arena/CharacterMemoryPreview.vue'
+import CharacterAgentSkillsPanel from '@renderer/components/arena/CharacterAgentSkillsPanel.vue'
+import CharacterAgentSkillsPreview from '@renderer/components/arena/CharacterAgentSkillsPreview.vue'
+import CharacterWorkspacePanel from '@renderer/components/arena/CharacterWorkspacePanel.vue'
+import CharacterWorkspacePreview from '@renderer/components/arena/CharacterWorkspacePreview.vue'
+import CharacterSceneRecordsDialog from '@renderer/components/arena/CharacterSceneRecordsDialog.vue'
+import CharacterDevParamsDialog from '@renderer/components/arena/CharacterDevParamsDialog.vue'
+import CharacterLevelStars from '@renderer/components/arena/CharacterLevelStars.vue'
+import CharacterGrowthLogDialog from '@renderer/components/arena/CharacterGrowthLogDialog.vue'
 import CharacterGrowthOverview from '@renderer/components/arena/CharacterGrowthOverview.vue'
+import DetailFeedPreview from '@renderer/components/arena/DetailFeedPreview.vue'
+import CharacterLineupPreview from '@renderer/components/arena/CharacterLineupPreview.vue'
+import CharacterLineupRecordsPreview from '@renderer/components/arena/CharacterLineupRecordsPreview.vue'
 import CharacterModelPickerDialog from '@renderer/components/arena/CharacterModelPickerDialog.vue'
 import CharacterTtsConfigDialog from '@renderer/components/arena/CharacterTtsConfigDialog.vue'
 import CharacterStatsDialog, { type CharacterStatsTab } from '@renderer/components/arena/CharacterStatsDialog.vue'
@@ -26,15 +39,19 @@ import { characterAvatarUrl, characterPortraitUrl } from '@renderer/data/arena-v
 import { navigate, route } from '../router'
 import {
   characterChatService,
+  characterAgentService,
   characterGrowthService,
   characterService,
   formatUserMessage,
+  lineupService,
   portableDataService,
   postGameReviewService,
 } from '@renderer/services/arena'
 import { getCharacterTtsSummary } from '@shared/arena/voice-presets'
-import type { Character, CharacterGrowthRecord, CharacterGrowthSnapshot } from '@shared/arena/types'
-import { computeStarRating, expRequiredForLevel, resolveCharacterGrowth } from '@shared/arena/character-growth'
+import type { Character, CharacterGrowthRecord, CharacterGrowthSnapshot, CharacterLineup, LineupGrowthRecord } from '@shared/arena/types'
+import {
+  buildCharacterGrowthLogItems,
+} from '@shared/arena/growth-display'
 
 const character = ref<Character | null>(null)
 const loading = ref(true)
@@ -44,22 +61,31 @@ const chatOpen = ref(false)
 const editOpen = ref(false)
 const visualEditorOpen = ref(false)
 const editSection = ref<CharacterEditSection>('profile')
-const strategySaving = ref(false)
-let strategySaveTimer: ReturnType<typeof setTimeout> | null = null
 const modelPickerOpen = ref(false)
 const ttsConfigOpen = ref(false)
 const statsOpen = ref(false)
 const statsTab = ref<CharacterStatsTab>('overview')
 const scrollRoot = ref<HTMLElement | null>(null)
+const railMenuOpen = ref(false)
+const memoryDialogOpen = ref(false)
+const skillsDialogOpen = ref(false)
+const workspaceDialogOpen = ref(false)
+const workspacePreviewRef = ref<InstanceType<typeof CharacterWorkspacePreview> | null>(null)
+const sceneRecordsOpen = ref(false)
+const growthLogOpen = ref(false)
+const devParamsOpen = ref(false)
+const isDev = import.meta.env.DEV
 
 const characterId = computed(() => route.value.id || '')
 const learnedSkillCount = computed(() => (character.value?.gameSkills || []).filter((s) => s.learned).length)
-
 const { modelLabel } = useGatewayModelLabel()
 const behaviorChanges = ref<Awaited<ReturnType<typeof postGameReviewService.listBehaviorChanges>>>([])
 const growthRecords = ref<CharacterGrowthRecord[]>([])
 const growthSnapshots = ref<CharacterGrowthSnapshot[]>([])
 const chatMessageCount = ref(0)
+const workspaceFileCount = ref(0)
+const relatedLineups = ref<CharacterLineup[]>([])
+const lineupGrowthRecords = ref<LineupGrowthRecord[]>([])
 
 const genderLabel = computed(() => {
   if (!character.value) return '未设定'
@@ -69,27 +95,18 @@ const genderLabel = computed(() => {
 })
 
 const ttsRailLabel = computed(() => {
-  if (!character.value) return '播报音色'
-  return getCharacterTtsSummary(character.value)
+  if (!character.value) return 'TTS'
+  const summary = getCharacterTtsSummary(character.value)
+  return summary.length > 8 ? `${summary.slice(0, 8)}…` : summary
 })
 
-const characterGrowth = computed(() => (character.value ? resolveCharacterGrowth(character.value) : null))
-const expMax = computed(() => expRequiredForLevel(characterGrowth.value?.level || 1))
-const expPercent = computed(() => {
-  if (!characterGrowth.value) return 0
-  return Math.min(100, Math.round((characterGrowth.value.exp / expMax.value) * 100))
+const modelRailLabel = computed(() => {
+  if (!character.value) return '模型'
+  const label = modelLabel(character.value.modelId)
+  return label.length > 10 ? `${label.slice(0, 10)}…` : label
 })
-const starRating = computed(() => computeStarRating(characterGrowth.value?.level || 1))
 
 const navGroups = computed<ScrollSpyGroup[]>(() => {
-  const advancedItems: ScrollSpyGroup['items'] = [
-    { id: 'evolution', label: '经验沉淀', badge: personaEvolutionItems.value.length || undefined },
-    { id: 'experience', label: '场景记录', badge: learnedSkillCount.value || undefined },
-  ]
-  if (character.value?.roleStrategies.length) {
-    advancedItems.unshift({ id: 'roles', label: '身份策略' })
-  }
-
   return [
     {
       id: 'overview',
@@ -101,36 +118,42 @@ const navGroups = computed<ScrollSpyGroup[]>(() => {
       ],
     },
     {
-      id: 'persona',
-      label: '人设',
-      icon: Sparkles,
-      items: [
-        { id: 'positioning', label: '一句话定位' },
-        { id: 'voice', label: '说话方式' },
-        { id: 'tags', label: '人设标签', badge: character.value?.tags.length || undefined },
-      ],
-    },
-    {
       id: 'behavior',
       label: '行为',
       icon: Brain,
       items: [
         { id: 'principles', label: '行为原则', badge: character.value?.behaviorPrinciples.length || undefined },
         { id: 'taboos', label: '禁忌行为', badge: character.value?.tabooBehaviors.length || undefined },
-        { id: 'strategy', label: '推理倾向' },
+        { id: 'strategy', label: '决策风格' },
         { id: 'traits', label: '擅长短板' },
+      ],
+    },
+    {
+      id: 'lineup',
+      label: '阵容',
+      icon: Users,
+      items: [
+        { id: 'lineups', label: '所属阵容', badge: relatedLineups.value.length || undefined },
+        { id: 'lineup-records', label: '组队记录', badge: lineupGrowthRecords.value.length || undefined },
       ],
     },
     {
       id: 'advanced',
       label: '进阶',
       icon: MessageCircle,
-      items: advancedItems,
+      items: [
+        { id: 'memory', label: '长期记忆', badge: character.value?.agentMemories?.length || undefined },
+        { id: 'skills', label: '技能库', badge: character.value?.agentSkills?.filter((s) => s.enabled).length || undefined },
+        { id: 'workspace', label: '文件空间', badge: workspaceFileCount.value || undefined },
+        { id: 'evolution', label: '经验沉淀', badge: personaEvolutionItems.value.length || undefined },
+      ],
     },
   ]
 })
 
-const navTabs = computed(() => flattenScrollSpyGroups(navGroups.value))
+const growthLogTotal = computed(() =>
+  buildCharacterGrowthLogItems(growthSnapshots.value, growthRecords.value, behaviorChanges.value).length
+)
 
 const personaEvolutionItems = computed(() => {
   const items: Array<{ id: string; createdAt: string; source: string; summary: string }> = []
@@ -153,6 +176,60 @@ const personaEvolutionItems = computed(() => {
   return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 6)
 })
 
+const profileEmpty = computed(() => {
+  const c = character.value
+  if (!c) return true
+  return (
+    !c.subtitle?.trim()
+    && !c.bio?.trim()
+    && !c.ageLabel?.trim()
+    && !c.speechStyle
+    && !c.commonPhrases.length
+    && !c.tags.length
+  )
+})
+
+const evolutionFeedItems = computed(() =>
+  personaEvolutionItems.value.map((item) => ({
+    id: item.id,
+    label: item.source,
+    text: item.summary,
+    time: formatEvolutionDate(item.createdAt),
+  }))
+)
+
+const memoryCountLabel = computed(() => {
+  const count = character.value?.agentMemories?.length || 0
+  return count ? `${count} 条` : undefined
+})
+
+const skillsCountLabel = computed(() => {
+  const count = character.value?.agentSkills?.filter((s) => s.enabled).length || 0
+  return count ? `${count} 个已启用` : undefined
+})
+
+const navTabs = computed(() => flattenScrollSpyGroups(navGroups.value))
+
+function closeRailMenu() {
+  railMenuOpen.value = false
+}
+
+async function handleRailMenuAction(action: 'toggle' | 'export' | 'delete' | 'devParams') {
+  closeRailMenu()
+  if (action === 'toggle') await toggleCharacterStatus()
+  if (action === 'export') await exportCharacter()
+  if (action === 'delete') await removeCharacter()
+  if (action === 'devParams') devParamsOpen.value = true
+}
+
+function onNavSelect(id: string) {
+  scrollToSection(id)
+}
+
+function openSceneRecords() {
+  sceneRecordsOpen.value = true
+}
+
 function formatEvolutionDate(value: string): string {
   return new Date(value).toLocaleString('zh-CN', {
     month: 'short',
@@ -162,11 +239,39 @@ function formatEvolutionDate(value: string): string {
   })
 }
 
-function strategyLabel(value: number, left: string, right: string): string {
-  if (value <= 35) return left
-  if (value >= 65) return right
-  return `${left} / ${right} 均衡`
+function leanLabel(value: number, left: string, right: string): string {
+  if (value <= 35) return `偏${left}`
+  if (value >= 65) return `偏${right}`
+  return '均衡'
 }
+
+const strategyAxes = computed(() => {
+  if (!character.value) return []
+  const strategy = character.value.strategy
+  return [
+    {
+      id: 'empathyVsLogic',
+      left: '共情',
+      right: '逻辑',
+      value: strategy.empathyVsLogic,
+      lean: leanLabel(strategy.empathyVsLogic, '共情', '逻辑'),
+    },
+    {
+      id: 'cautiousVsBold',
+      left: '谨慎',
+      right: '冒险',
+      value: strategy.cautiousVsBold,
+      lean: leanLabel(strategy.cautiousVsBold, '谨慎', '冒险'),
+    },
+    {
+      id: 'leadVsFollow',
+      left: '主导',
+      right: '跟随',
+      value: strategy.leadVsFollow,
+      lean: leanLabel(strategy.leadVsFollow, '主导', '跟随'),
+    },
+  ]
+})
 
 const { activeSection, scrollToSection, refreshSpy } = useScrollSpySections(navTabs, scrollRoot)
 
@@ -174,33 +279,35 @@ function onCharacterUpdated(c: Character) {
   character.value = c
 }
 
+async function refreshWorkspaceCount() {
+  if (!characterId.value) return
+  workspaceFileCount.value = (await characterAgentService.listWorkspaceFiles(characterId.value).catch(() => [])).length
+  await workspacePreviewRef.value?.refresh?.()
+}
+
 async function refreshGrowthData() {
   if (!characterId.value) return
   growthSnapshots.value = await characterGrowthService.listSnapshots(characterId.value)
   growthRecords.value = await characterChatService.listGrowth(characterId.value)
+  behaviorChanges.value = await postGameReviewService.listBehaviorChanges(characterId.value)
+}
+
+async function refreshLineupData() {
+  if (!characterId.value) return
+  try {
+    const lineups = await lineupService.list()
+    relatedLineups.value = lineups.filter((lineup) => lineup.characterIds.includes(characterId.value))
+    const batches = await Promise.all(relatedLineups.value.map((lineup) => lineupService.listGrowth(lineup.id)))
+    lineupGrowthRecords.value = batches.flat().sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  } catch {
+    relatedLineups.value = []
+    lineupGrowthRecords.value = []
+  }
 }
 
 function openEdit(section: CharacterEditSection) {
   editSection.value = section
   editOpen.value = true
-}
-
-function scheduleStrategySave() {
-  if (!character.value) return
-  if (strategySaveTimer) clearTimeout(strategySaveTimer)
-  strategySaveTimer = setTimeout(() => void saveStrategy(), 450)
-}
-
-async function saveStrategy() {
-  if (!character.value || strategySaving.value) return
-  strategySaving.value = true
-  try {
-    character.value = await characterService.save(character.value)
-  } catch (err) {
-    error.value = formatUserMessage(err)
-  } finally {
-    strategySaving.value = false
-  }
 }
 
 function openVisualEditor() {
@@ -218,12 +325,15 @@ async function load() {
   error.value = ''
   try {
     character.value = await characterService.get(characterId.value)
+    character.value = characterAgentService.ensureAgentDefaults(character.value)
     character.value = await characterGrowthService.ensureInitialized(character.value)
     behaviorChanges.value = await postGameReviewService.listBehaviorChanges(characterId.value)
     growthRecords.value = await characterChatService.listGrowth(characterId.value)
     growthSnapshots.value = await characterGrowthService.listSnapshots(characterId.value)
     const messages = await characterChatService.listMessages(characterId.value)
     chatMessageCount.value = messages.length
+    workspaceFileCount.value = (await characterAgentService.listWorkspaceFiles(characterId.value).catch(() => [])).length
+    await refreshLineupData()
   } catch (err) {
     error.value = formatUserMessage(err)
   } finally {
@@ -279,7 +389,7 @@ watch(characterId, () => void load())
 <template>
   <ArenaPageShell class="detail-page" viewport-lock>
     <ArenaPageState :loading="loading" :error="error || undefined" skeleton="detail-3col" loading-label="正在打开角色档案..." @retry="load">
-      <section v-if="character" class="detail-layout">
+      <section v-if="character" class="detail-layout" @click="closeRailMenu">
         <aside class="detail-layout__rail detail-layout__rail--left">
           <div
             class="aa-detail-float-panel sticky-rail detail-layout__panel character-rail-panel"
@@ -297,18 +407,34 @@ watch(characterId, () => void load())
                 @click="openVisualEditor"
               />
               <div class="portrait-hero__top">
-                <span class="status-pill" :class="{ off: character.status !== 'enabled' }">
-                  {{ character.status === 'enabled' ? '已启用' : '已停用' }}
-                </span>
-                <button
-                  type="button"
-                  class="portrait-hero__edit"
-                  title="编辑形象素材"
-                  aria-label="编辑形象素材"
-                  @click="openVisualEditor"
-                >
-                  <Upload :size="14" />
-                </button>
+                <div class="portrait-hero__menu" @click.stop>
+                  <button
+                    type="button"
+                    class="portrait-hero__menu-btn"
+                    aria-label="更多操作"
+                    @click.stop="railMenuOpen = !railMenuOpen"
+                  >
+                    <MoreVertical :size="16" />
+                  </button>
+                  <div v-if="railMenuOpen" class="portrait-hero__menu-panel">
+                    <button type="button" :disabled="saving" @click="handleRailMenuAction('toggle')">
+                      <Star :size="14" />
+                      {{ character.status === 'enabled' ? '停用' : '启用' }}
+                    </button>
+                    <button type="button" @click="handleRailMenuAction('export')">
+                      <Download :size="14" />
+                      导出
+                    </button>
+                    <button v-if="isDev" type="button" @click="handleRailMenuAction('devParams')">
+                      <Code2 :size="14" />
+                      预览开发参数
+                    </button>
+                    <button type="button" class="danger" :disabled="saving" @click="handleRailMenuAction('delete')">
+                      <Trash2 :size="14" />
+                      删除
+                    </button>
+                  </div>
+                </div>
               </div>
               <div class="portrait-hero__footer">
                 <div class="portrait-hero__identity">
@@ -317,83 +443,34 @@ watch(characterId, () => void load())
                   </button>
                   <button type="button" class="portrait-hero__copy" @click="openEdit('basics')">
                     <h2>{{ character.name }}</h2>
-                    <p>{{ character.subtitle || '点击编辑一句话设定' }}</p>
-                    <div class="portrait-hero__stars" :aria-label="`${starRating} 星成熟度`">
-                      <Star v-for="index in 7" :key="index" :size="11" :class="{ on: index <= starRating }" />
-                      <span>Lv.{{ characterGrowth?.level || 1 }}</span>
-                    </div>
+                    <CharacterLevelStars :character="character" variant="portrait" />
                   </button>
                 </div>
-                <div class="portrait-hero__chips">
-                  <span class="portrait-hero__chip portrait-hero__chip--model">{{ modelLabel(character.modelId) }}</span>
-                  <span v-if="character.speechStyle" class="portrait-hero__chip">{{ character.speechStyle }}</span>
-                </div>
               </div>
-            </div>
-
-            <div class="rail-stats">
-              <button type="button" class="rail-stat" @click="openStats('overview')">
-                <strong>Lv.{{ characterGrowth?.level || 1 }}</strong>
-                <span>等级</span>
-              </button>
-              <button type="button" class="rail-stat" @click="scrollToSection('experience')">
-                <strong>{{ learnedSkillCount }}</strong>
-                <span>场景记录</span>
-              </button>
-              <button type="button" class="rail-stat" @click="openStats('growth')">
-                <strong>{{ chatMessageCount }}</strong>
-                <span>私聊</span>
-              </button>
-            </div>
-
-            <div v-if="characterGrowth" class="rail-exp">
-              <div class="rail-exp__bar"><i :style="{ width: `${expPercent}%` }" /></div>
-              <span>{{ characterGrowth.exp }} / {{ expMax }} EXP</span>
             </div>
 
             <DetailRailActions class="character-rail-actions">
               <template #hero>
                 <button type="button" class="aa-rail-btn aa-rail-btn--hero" @click="chatOpen = true">
-                  <strong>对话</strong>
-                  <em>与角色单独交流</em>
                   <MessageCircle :size="18" />
+                  <strong>对话</strong>
+                </button>
+              </template>
+              <template #main>
+                <button type="button" class="aa-rail-btn growth-rail-btn" @click="growthLogOpen = true">
+                  <History :size="16" />
+                  <span class="aa-rail-btn__text">成长记录</span>
+                  <span v-if="growthLogTotal" class="growth-rail-btn__badge">{{ growthLogTotal }}</span>
                 </button>
               </template>
               <template #row>
                 <button type="button" class="aa-rail-btn aa-rail-btn--compact" @click="modelPickerOpen = true">
                   <Sparkles :size="15" />
-                  <span class="aa-rail-btn__text">{{ modelLabel(character.modelId) }}</span>
+                  <span class="aa-rail-btn__text">{{ modelRailLabel }}</span>
                 </button>
                 <button type="button" class="aa-rail-btn aa-rail-btn--compact" @click="ttsConfigOpen = true">
                   <Volume2 :size="15" />
                   <span class="aa-rail-btn__text">{{ ttsRailLabel }}</span>
-                </button>
-              </template>
-              <template #tools>
-                <button type="button" class="aa-rail-tile" @click="exportCharacter">
-                  <Download :size="17" />
-                  导出
-                </button>
-                <button
-                  type="button"
-                  class="aa-rail-tile"
-                  :class="{ active: character.status === 'enabled' }"
-                  :disabled="saving"
-                  @click="toggleCharacterStatus"
-                >
-                  <Star :size="17" />
-                  {{ character.status === 'enabled' ? '已启用' : '已停用' }}
-                </button>
-              </template>
-              <template #danger>
-                <button
-                  type="button"
-                  class="aa-rail-btn aa-rail-btn--danger-ghost"
-                  :disabled="saving"
-                  @click="removeCharacter"
-                >
-                  <Trash2 :size="15" />
-                  删除角色
                 </button>
               </template>
             </DetailRailActions>
@@ -402,20 +479,53 @@ watch(characterId, () => void load())
 
         <div ref="scrollRoot" class="detail-layout__main aa-detail-content-scroll">
           <div class="aa-detail-content-stack">
-            <DetailContentGroup title="概览" description="档案与成长数据，决定角色在各类场景中的基础表现" :icon="BookOpen">
+            <DetailContentGroup title="概览" :icon="BookOpen">
               <section id="section-profile" class="aa-detail-anchor">
                 <DetailEditableBlock
                   title="角色档案"
-                  hint="背景故事与基本身份，会写入场景提示词"
-                  :empty="!character.bio"
+                  :empty="profileEmpty"
+                  empty-description="填写定位、背景、说话方式与人设标签"
+                  :empty-icon="UserRound"
+                  flat
                   @edit="openEdit('profile')"
                 >
-                  <p class="field-preview__text">{{ character.bio || '点击编辑填写背景、语气与角色来历' }}</p>
+                  <p
+                    v-if="character.subtitle?.trim()"
+                    class="field-preview__lead profile-subsection--clickable"
+                    data-no-edit
+                    @click.stop="openEdit('basics')"
+                  >
+                    {{ character.subtitle }}
+                  </p>
+                  <p v-if="character.bio?.trim()" class="field-preview__text">{{ character.bio }}</p>
                   <div class="profile-meta-grid">
                     <span><em>性别</em>{{ genderLabel }}</span>
                     <span><em>年龄感</em>{{ character.ageLabel || '未设定' }}</span>
                     <span><em>绑定模型</em>{{ modelLabel(character.modelId) }}</span>
                     <span><em>说话风格</em>{{ character.speechStyle || '未设定' }}</span>
+                  </div>
+                  <div
+                    v-if="character.speechStyle || character.commonPhrases.length"
+                    class="profile-subsection profile-subsection--clickable"
+                    data-no-edit
+                    @click.stop="openEdit('voice')"
+                  >
+                    <h4 class="profile-subsection__title">说话方式</h4>
+                    <span v-if="character.speechStyle" class="preview-chip">{{ character.speechStyle }}</span>
+                    <ul v-if="character.commonPhrases.length" class="phrase-list phrase-list--compact">
+                      <li v-for="(phrase, index) in character.commonPhrases" :key="phrase + index">“{{ phrase }}”</li>
+                    </ul>
+                  </div>
+                  <div
+                    v-if="character.tags.length"
+                    class="profile-subsection profile-subsection--clickable"
+                    data-no-edit
+                    @click.stop="openEdit('tags')"
+                  >
+                    <h4 class="profile-subsection__title">人设标签</h4>
+                    <div class="trait-cloud">
+                      <span v-for="tag in character.tags" :key="tag">{{ tag }}</span>
+                    </div>
                   </div>
                 </DetailEditableBlock>
               </section>
@@ -425,180 +535,182 @@ watch(characterId, () => void load())
               </section>
             </DetailContentGroup>
 
-            <DetailContentGroup title="人设" description="对外展示与说话习惯，塑造角色的第一印象" :icon="Sparkles">
-              <section id="section-positioning" class="aa-detail-anchor">
-                <DetailEditableBlock
-                  title="一句话定位"
-                  hint="对外展示与提示词摘要"
-                  :empty="!character.subtitle"
-                  @edit="openEdit('basics')"
-                >
-                  <p class="field-preview__lead">{{ character.subtitle || '点击编辑一句话设定' }}</p>
-                </DetailEditableBlock>
-              </section>
+            <DetailContentGroup title="行为" :icon="Brain">
+              <div class="behavior-grid">
+                <section id="section-principles" class="aa-detail-anchor">
+                  <DetailEditableBlock
+                    title="行为原则"
+                    :empty="!character.behaviorPrinciples.length"
+                    empty-description="添加对局中的判断准则"
+                    :empty-icon="Shield"
+                    flat
+                    @edit="openEdit('principles')"
+                  >
+                    <ul class="behavior-list">
+                      <li v-for="item in character.behaviorPrinciples" :key="item" class="behavior-list__item">
+                        <i aria-hidden="true"></i>
+                        <span>{{ item }}</span>
+                      </li>
+                    </ul>
+                  </DetailEditableBlock>
+                </section>
 
-              <section id="section-voice" class="aa-detail-anchor">
-                <DetailEditableBlock
-                  title="说话方式"
-                  hint="语气习惯与常用发言，会直接影响局内措辞"
-                  :empty="!character.speechStyle && !character.commonPhrases.length"
-                  @edit="openEdit('voice')"
-                >
-                  <span class="preview-chip">{{ character.speechStyle || '未设定' }}</span>
-                  <ul v-if="character.commonPhrases.length" class="phrase-list phrase-list--compact">
-                    <li v-for="(phrase, index) in character.commonPhrases" :key="phrase + index">“{{ phrase }}”</li>
-                  </ul>
-                  <p v-else class="empty-hint">添加常用发言，角色会更稳定地保持口癖</p>
-                </DetailEditableBlock>
-              </section>
-
-              <section id="section-tags" class="aa-detail-anchor">
-                <DetailEditableBlock
-                  title="人设标签"
-                  hint="快速概括性格关键词，用于筛选与提示词拼装"
-                  :empty="!character.tags.length"
-                  @edit="openEdit('tags')"
-                >
-                  <div class="trait-cloud">
-                    <span v-for="tag in character.tags" :key="tag">{{ tag }}</span>
-                    <span v-if="!character.tags.length" class="empty-tag">点击选择标签</span>
-                  </div>
-                </DetailEditableBlock>
-              </section>
-            </DetailContentGroup>
-
-            <DetailContentGroup title="行为" description="场景中的判断准则与互动姿态" :icon="Brain">
-              <section id="section-principles" class="aa-detail-anchor">
-                <DetailEditableBlock
-                  title="行为原则"
-                  hint="场景中的判断底线，优先级最高"
-                  :empty="!character.behaviorPrinciples.length"
-                  @edit="openEdit('principles')"
-                >
-                  <article v-for="item in character.behaviorPrinciples" :key="item" class="bullet-row">
-                    <i></i><span>{{ item }}</span>
-                  </article>
-                  <p v-if="!character.behaviorPrinciples.length" class="empty-hint">添加行为原则，角色会在关键时刻据此行动</p>
-                </DetailEditableBlock>
-              </section>
-
-              <section id="section-taboos" class="aa-detail-anchor">
-                <DetailEditableBlock
-                  title="禁忌行为"
-                  hint="角色应当避免的做法，与人设原则同样重要"
-                  :empty="!character.tabooBehaviors.length"
-                  @edit="openEdit('taboos')"
-                >
-                  <article v-for="item in character.tabooBehaviors" :key="item" class="bullet-row danger">
-                    <i></i><span>{{ item }}</span>
-                  </article>
-                  <p v-if="!character.tabooBehaviors.length" class="empty-hint">点击添加禁忌行为</p>
-                </DetailEditableBlock>
-              </section>
+                <section id="section-taboos" class="aa-detail-anchor">
+                  <DetailEditableBlock
+                    title="禁忌行为"
+                    :empty="!character.tabooBehaviors.length"
+                    empty-description="标注角色应当避免的做法"
+                    :empty-icon="Ban"
+                    flat
+                    @edit="openEdit('taboos')"
+                  >
+                    <ul class="behavior-list behavior-list--danger">
+                      <li v-for="item in character.tabooBehaviors" :key="item" class="behavior-list__item">
+                        <i aria-hidden="true"></i>
+                        <span>{{ item }}</span>
+                      </li>
+                    </ul>
+                  </DetailEditableBlock>
+                </section>
+              </div>
 
               <section id="section-strategy" class="aa-detail-anchor">
-                <DetailEditableBlock title="推理倾向" hint="影响发言风格与决策姿态，拖动滑杆后即时保存" :editable="false">
-                  <div class="strategy-inline">
-                    <div class="strategy-summary">
-                      <span>{{ strategyLabel(character.strategy.empathyVsLogic, '偏共情', '偏逻辑') }}</span>
-                      <span>{{ strategyLabel(character.strategy.cautiousVsBold, '偏谨慎', '偏冒险') }}</span>
-                      <span>{{ strategyLabel(character.strategy.leadVsFollow, '偏主导', '偏跟随') }}</span>
-                    </div>
-                    <label class="range-row">
-                      <span>共情</span>
-                      <input
-                        v-model.number="character.strategy.empathyVsLogic"
-                        type="range"
-                        min="0"
-                        max="100"
-                        @input="scheduleStrategySave"
-                      />
-                      <em>逻辑 <strong>{{ character.strategy.empathyVsLogic }}%</strong></em>
-                    </label>
-                    <label class="range-row">
-                      <span>谨慎</span>
-                      <input
-                        v-model.number="character.strategy.cautiousVsBold"
-                        type="range"
-                        min="0"
-                        max="100"
-                        @input="scheduleStrategySave"
-                      />
-                      <em>冒险 <strong>{{ character.strategy.cautiousVsBold }}%</strong></em>
-                    </label>
-                    <label class="range-row">
-                      <span>主导</span>
-                      <input
-                        v-model.number="character.strategy.leadVsFollow"
-                        type="range"
-                        min="0"
-                        max="100"
-                        @input="scheduleStrategySave"
-                      />
-                      <em>跟随 <strong>{{ character.strategy.leadVsFollow }}%</strong></em>
-                    </label>
-                    <p v-if="strategySaving" class="strategy-saving-hint">正在保存…</p>
-                  </div>
+                <DetailEditableBlock
+                  title="决策风格"
+                  hint="对局中的判断、站队与发言节奏"
+                  :editable="false"
+                  flat
+                >
+                  <ul class="decision-style">
+                    <li v-for="axis in strategyAxes" :key="axis.id" class="decision-style__row">
+                      <div class="decision-style__poles">
+                        <span :class="{ on: axis.value <= 35 }">{{ axis.left }}</span>
+                        <em>{{ axis.lean }}</em>
+                        <span :class="{ on: axis.value >= 65 }">{{ axis.right }}</span>
+                      </div>
+                      <div class="decision-style__track" aria-hidden="true">
+                        <i class="decision-style__marker" :style="{ left: `${axis.value}%` }" />
+                      </div>
+                    </li>
+                  </ul>
                 </DetailEditableBlock>
               </section>
 
               <section id="section-traits" class="aa-detail-anchor">
-                <div class="two-col">
+                <div class="behavior-grid">
                   <DetailEditableBlock
                     title="擅长"
-                    hint="角色优势，会强化相关决策自信度"
                     :empty="!character.strengths.length"
+                    empty-description="标注角色的优势领域"
+                    :empty-icon="Sparkles"
+                    flat
                     @edit="openEdit('strengths')"
                   >
-                    <div class="trait-cloud">
+                    <div class="trait-cloud trait-cloud--fill">
                       <span v-for="item in character.strengths" :key="item">{{ item }}</span>
-                      <span v-if="!character.strengths.length" class="empty-tag">未标注</span>
                     </div>
                   </DetailEditableBlock>
                   <DetailEditableBlock
                     title="短板"
-                    hint="角色局限，会体现在犹豫与失误倾向中"
                     :empty="!character.weaknesses.length"
+                    empty-description="标注角色的局限或弱点"
+                    :empty-icon="Ban"
+                    flat
                     @edit="openEdit('weaknesses')"
                   >
-                    <div class="trait-cloud muted">
+                    <div class="trait-cloud trait-cloud--fill muted">
                       <span v-for="item in character.weaknesses" :key="item">{{ item }}</span>
-                      <span v-if="!character.weaknesses.length" class="empty-tag">未标注</span>
                     </div>
                   </DetailEditableBlock>
                 </div>
               </section>
             </DetailContentGroup>
 
-            <DetailContentGroup title="进阶" description="场景演练记录与经验沉淀，随演练与私聊缓慢积累" :icon="MessageCircle">
-              <section v-if="character.roleStrategies.length" id="section-roles" class="aa-detail-anchor">
-                <DetailEditableBlock title="身份策略偏好" hint="拿到特定身份时的打法倾向" :editable="false">
-                  <article v-for="pref in character.roleStrategies" :key="pref.roleId" class="role-pref">
-                    <strong>{{ pref.roleId }}</strong>
-                    <p>{{ pref.description || '无策略说明' }}</p>
-                  </article>
+            <DetailContentGroup title="阵容" :icon="Users">
+              <section id="section-lineups" class="aa-detail-anchor">
+                <DetailEditableBlock
+                  title="所属阵容"
+                  hint="角色被编入的阵容与组队战绩"
+                  :empty="!relatedLineups.length"
+                  empty-description="在角色库中把该角色编入阵容后，会在这里展示"
+                  :empty-icon="Users"
+                  :editable="false"
+                  flat
+                >
+                  <CharacterLineupPreview :character="character" />
                 </DetailEditableBlock>
               </section>
 
-              <section id="section-evolution" class="aa-detail-anchor">
-                <DetailEditableBlock title="经验沉淀" hint="可迁移的教训与领悟，不记录场景流水" :editable="false">
-                  <div v-if="personaEvolutionItems.length" class="evolution-list">
-                    <article v-for="item in personaEvolutionItems" :key="item.id" class="evolution-item">
-                      <header>
-                        <span class="evolution-item__source">{{ item.source }}</span>
-                        <time>{{ formatEvolutionDate(item.createdAt) }}</time>
-                      </header>
-                      <p>{{ item.summary }}</p>
-                    </article>
-                  </div>
-                  <p v-else class="empty-hint evolution-empty">
-                    尚无沉淀。与角色私聊或完成场景复盘后，可迁移的经验会出现在这里。
-                  </p>
+              <section id="section-lineup-records" class="aa-detail-anchor advanced-block">
+                <DetailEditableBlock
+                  title="组队记录"
+                  hint="阵容全员参战的对局会留下记录"
+                  :empty="!lineupGrowthRecords.length"
+                  empty-description="当阵容成员全员参与对局后，记录会出现在这里"
+                  :empty-icon="History"
+                  :editable="false"
+                  flat
+                >
+                  <CharacterLineupRecordsPreview :character="character" />
+                </DetailEditableBlock>
+              </section>
+            </DetailContentGroup>
+
+            <DetailContentGroup title="进阶" :icon="MessageCircle">
+              <section id="section-memory" class="aa-detail-anchor advanced-block">
+                <DetailEditableBlock
+                  title="长期记忆"
+                  :empty="!character.agentMemories?.length"
+                  empty-description="添加角色应长期记住的事实与偏好"
+                  :empty-icon="Brain"
+                  flat
+                  @edit="memoryDialogOpen = true"
+                >
+                  <CharacterMemoryPreview :character="character" />
                 </DetailEditableBlock>
               </section>
 
-              <section id="section-experience" class="aa-detail-anchor aa-detail-anchor--flush">
-                <CharacterGameSkillsPanel :character="character" @updated="onCharacterUpdated" />
+              <section id="section-skills" class="aa-detail-anchor advanced-block">
+                <DetailEditableBlock
+                  title="技能库"
+                  :empty="!character.agentSkills?.some((s) => s.enabled)"
+                  empty-description="定义角色的能力与触发规则"
+                  :empty-icon="Sparkles"
+                  flat
+                  @edit="skillsDialogOpen = true"
+                >
+                  <CharacterAgentSkillsPreview :character="character" />
+                </DetailEditableBlock>
+              </section>
+
+              <section id="section-workspace" class="aa-detail-anchor advanced-block">
+                <DetailEditableBlock
+                  title="文件空间"
+                  :empty="workspaceFileCount === 0"
+                  empty-description="存放笔记、设定稿与参考资料"
+                  :empty-icon="FolderOpen"
+                  flat
+                  @edit="workspaceDialogOpen = true"
+                >
+                  <CharacterWorkspacePreview ref="workspacePreviewRef" :character="character" />
+                </DetailEditableBlock>
+              </section>
+
+              <section id="section-evolution" class="aa-detail-anchor advanced-block">
+                <DetailEditableBlock
+                  title="经验沉淀"
+                  :empty="!personaEvolutionItems.length && !learnedSkillCount"
+                  empty-description="与角色互动或完成场景复盘后，经验会沉淀在这里"
+                  :empty-icon="MessageCircle"
+                  flat
+                  @edit="openSceneRecords"
+                >
+                  <DetailFeedPreview
+                    v-if="evolutionFeedItems.length"
+                    :items="evolutionFeedItems"
+                    :clamp="2"
+                  />
+                </DetailEditableBlock>
               </section>
             </DetailContentGroup>
           </div>
@@ -607,7 +719,7 @@ watch(characterId, () => void load())
           <DetailSectionNav
             :groups="navGroups"
             :active-id="activeSection"
-            @select="scrollToSection"
+            @select="onNavSelect"
           />
         </aside>
       </section>
@@ -623,11 +735,10 @@ watch(characterId, () => void load())
       v-if="character && chatOpen"
       v-model="chatOpen"
       :character="character"
-      @updated="(c) => { onCharacterUpdated(c); void refreshGrowthData() }"
+      @updated="(c) => { onCharacterUpdated(c); void refreshGrowthData(); void refreshWorkspaceCount() }"
     />
     <CharacterEditDialog
       v-if="character && editOpen"
-      :key="editSection"
       v-model="editOpen"
       :character="character"
       :section="editSection"
@@ -653,6 +764,47 @@ watch(characterId, () => void load())
       :behavior-changes="behaviorChanges"
       :chat-message-count="chatMessageCount"
       :initial-tab="statsTab"
+    />
+    <CharacterAgentPanelDialog
+      v-if="character"
+      v-model="memoryDialogOpen"
+      title="长期记忆"
+      :subtitle="memoryCountLabel"
+    >
+      <CharacterMemoryPanel embedded :character="character" @updated="onCharacterUpdated" />
+    </CharacterAgentPanelDialog>
+    <CharacterAgentPanelDialog
+      v-if="character"
+      v-model="skillsDialogOpen"
+      title="技能库"
+      wide
+      :subtitle="skillsCountLabel"
+    >
+      <CharacterAgentSkillsPanel embedded :character="character" @updated="onCharacterUpdated" />
+    </CharacterAgentPanelDialog>
+    <CharacterAgentPanelDialog
+      v-if="character"
+      v-model="workspaceDialogOpen"
+      title="文件空间"
+      wide
+    >
+      <CharacterWorkspacePanel embedded :character="character" @updated="refreshWorkspaceCount" />
+    </CharacterAgentPanelDialog>
+    <CharacterSceneRecordsDialog
+      v-if="character"
+      v-model="sceneRecordsOpen"
+      :character="character"
+      @updated="onCharacterUpdated"
+    />
+    <CharacterGrowthLogDialog
+      v-if="character && growthLogOpen"
+      v-model="growthLogOpen"
+      :character="character"
+    />
+    <CharacterDevParamsDialog
+      v-if="character && devParamsOpen"
+      v-model="devParamsOpen"
+      :character="character"
     />
   </ArenaPageShell>
 </template>
@@ -721,16 +873,15 @@ watch(characterId, () => void load())
   z-index: 3;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
 }
 
-.portrait-hero__top .status-pill {
-  position: static;
-  flex: none;
+.portrait-hero__menu {
+  position: relative;
 }
 
-.portrait-hero__edit {
+.portrait-hero__menu-btn {
   display: grid;
   place-items: center;
   width: 32px;
@@ -743,13 +894,54 @@ watch(characterId, () => void load())
   cursor: pointer;
   backdrop-filter: blur(10px);
   box-shadow: 0 6px 16px rgba(34, 42, 88, 0.12);
-  transition: transform 0.15s ease, background 0.15s ease;
 }
 
-.portrait-hero__edit:hover {
-  transform: translateY(-1px);
+.portrait-hero__menu-btn:hover {
   background: rgba(255, 255, 255, 0.94);
   color: #4338ca;
+}
+
+.portrait-hero__menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  display: grid;
+  gap: 2px;
+  min-width: 120px;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 32px rgba(34, 42, 88, 0.16);
+}
+
+.portrait-hero__menu-panel button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #17205a;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.portrait-hero__menu-panel button:hover:not(:disabled) {
+  background: rgba(112, 105, 255, 0.08);
+}
+
+.portrait-hero__menu-panel button.danger {
+  color: #dc2626;
+}
+
+.portrait-hero__menu-panel button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .portrait-hero__footer {
@@ -800,10 +992,12 @@ watch(characterId, () => void load())
   cursor: pointer;
   text-align: left;
   font: inherit;
+  display: grid;
+  gap: 0;
 }
 
 .portrait-hero__copy h2 {
-  margin: 0 0 4px;
+  margin: 0;
   color: #fff;
   font-size: 18px;
   font-weight: 680;
@@ -813,129 +1007,40 @@ watch(characterId, () => void load())
   white-space: nowrap;
 }
 
-.portrait-hero__copy p {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 12px;
-  line-height: 1.45;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.portrait-hero__stars {
-  display: inline-flex;
+.character-rail-actions :deep(.aa-rail-btn--hero) {
+  flex-direction: row;
   align-items: center;
-  gap: 2px;
-  margin-top: 6px;
-  color: rgba(255, 255, 255, 0.28);
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
 }
 
-.portrait-hero__stars :deep(svg.on) {
-  color: #f5d76e;
-  fill: rgba(245, 215, 110, 0.28);
+.character-rail-actions :deep(.growth-rail-btn) {
+  justify-content: flex-start;
+  gap: 8px;
 }
 
-.portrait-hero__stars span {
-  margin-left: 6px;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.portrait-hero__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.portrait-hero__chip {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  height: 24px;
-  padding: 0 9px;
-  overflow: hidden;
+.growth-rail-btn__badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 1px 7px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-  color: rgba(255, 255, 255, 0.92);
+  background: rgba(112, 105, 255, 0.12);
+  color: #5b57f3;
   font-size: 11px;
-  font-weight: 560;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  backdrop-filter: blur(8px);
-}
-
-.portrait-hero__chip--model {
-  background: color-mix(in srgb, var(--accent) 72%, rgba(255, 255, 255, 0.2));
-  color: #fff;
-}
-
-.rail-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  padding: 10px 10px 0;
-}
-
-.rail-stat {
-  display: grid;
-  gap: 2px;
-  place-items: center;
-  min-height: 52px;
-  padding: 8px 4px;
-  border: 1px solid rgba(130, 142, 207, 0.12);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.45);
-  cursor: pointer;
-  font: inherit;
-  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
-}
-
-.rail-stat:hover {
-  transform: translateY(-1px);
-  border-color: rgba(130, 142, 207, 0.22);
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.rail-stat strong {
-  color: #17205a;
-  font-size: 16px;
-  font-weight: 680;
-  line-height: 1.1;
-}
-
-.rail-stat span {
-  color: #7b84ad;
-  font-size: 10px;
-  line-height: 1.2;
-}
-
-.rail-exp {
-  display: grid;
-  gap: 4px;
-  padding: 0 10px 8px;
-}
-
-.rail-exp__bar {
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(130, 142, 207, 0.14);
-  overflow: hidden;
-}
-
-.rail-exp__bar i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #8b84ff, #5b57f3);
-}
-
-.rail-exp span {
-  color: #9aa3c7;
-  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.5;
   text-align: center;
+}
+
+.agent-region {
+  padding-top: 4px;
+}
+
+.advanced-block + .advanced-block {
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(130, 142, 207, 0.1);
 }
 
 .character-rail-actions :deep(.aa-detail-rail-actions) {
@@ -949,10 +1054,10 @@ watch(characterId, () => void load())
 }
 
 .character-rail-actions :deep(.aa-rail-btn--compact) {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-height: 58px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
   padding: 8px 10px;
 }
 
@@ -986,6 +1091,27 @@ watch(characterId, () => void load())
   font-size: 11px;
 }
 
+.profile-subsection {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(130, 142, 207, 0.1);
+}
+
+.profile-subsection--clickable {
+  cursor: pointer;
+}
+
+.profile-subsection--clickable:hover .profile-subsection__title {
+  color: #5b57f3;
+}
+
+.profile-subsection__title {
+  margin: 0 0 8px;
+  color: #17205a;
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .field-preview__lead {
   margin: 0;
   color: #17205a;
@@ -994,74 +1120,128 @@ watch(characterId, () => void load())
   font-weight: 600;
 }
 
-.strategy-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.strategy-summary span {
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(112, 105, 255, 0.1);
-  color: #5b57f3;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.evolution-list {
+.decision-style {
   display: grid;
-  gap: 10px;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.evolution-item {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(112, 105, 255, 0.04);
-  border: 1px solid rgba(130, 142, 207, 0.1);
-}
-
-.evolution-item header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.decision-style__row {
+  display: grid;
   gap: 8px;
-  margin-bottom: 6px;
 }
 
-.evolution-item__source {
-  padding: 2px 8px;
+.decision-style__poles {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+  color: #9aa3c7;
+  font-size: 12px;
+}
+
+.decision-style__poles span {
+  color: #9aa3c7;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+
+.decision-style__poles span:first-child {
+  text-align: left;
+}
+
+.decision-style__poles span:last-child {
+  text-align: right;
+}
+
+.decision-style__poles span.on {
+  color: #5b57f3;
+}
+
+.decision-style__poles em {
+  padding: 2px 10px;
   border-radius: 999px;
   background: rgba(112, 105, 255, 0.1);
   color: #5b57f3;
+  font-style: normal;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
-.evolution-item time {
-  color: #9aa3c7;
-  font-size: 11px;
+.decision-style__track {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(139, 132, 255, 0.35) 0%,
+    rgba(130, 142, 207, 0.12) 50%,
+    rgba(91, 87, 243, 0.35) 100%
+  );
 }
 
-.evolution-item p {
+.decision-style__marker {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #7b61ff;
+  box-shadow: 0 2px 6px rgba(91, 87, 243, 0.28);
+  transform: translateY(-50%);
+}
+
+.behavior-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.behavior-grid :deep(.detail-editable-block) {
+  height: 100%;
+}
+
+.behavior-list {
+  display: grid;
+  gap: 8px;
   margin: 0;
+  padding: 0;
+  list-style: none;
+  align-content: start;
+}
+
+.behavior-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(130, 142, 207, 0.08);
+}
+
+.behavior-list__item i {
+  width: 6px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: #7b61ff;
+  flex: none;
+}
+
+.behavior-list--danger .behavior-list__item i {
+  background: #ef6a8a;
+}
+
+.behavior-list__item span {
   color: #59649b;
   font-size: 13px;
-  line-height: 1.65;
-}
-
-.evolution-item__detail {
-  margin-top: 6px !important;
-  color: #7a85b0 !important;
-  font-size: 12px !important;
-}
-
-.evolution-empty {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(130, 142, 207, 0.06);
-  border: 1px dashed rgba(130, 142, 207, 0.16);
+  line-height: 1.55;
 }
 
 .field-preview__text {
@@ -1080,87 +1260,15 @@ watch(characterId, () => void load())
   font-size: 12px;
 }
 
-.strategy-inline {
-  display: grid;
-  gap: 4px;
-}
-
-.range-row {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) 72px;
-  gap: 10px;
-  align-items: center;
-  margin: 0 0 12px;
-  color: #66709d;
-  font-size: 13px;
-}
-
-.range-row:last-of-type {
-  margin-bottom: 0;
-}
-
-.range-row em {
-  font-style: normal;
-  text-align: right;
-  color: #66709d;
-  font-size: 12px;
-}
-
-.range-row strong {
-  color: #17205a;
-}
-
-.range-row input[type='range'] {
-  width: 100%;
-  accent-color: #7b61ff;
-}
-
-.strategy-saving-hint {
-  margin: 10px 0 0;
-  color: #9aa3c7;
-  font-size: 11px;
-}
-
-.two-col {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.two-col :deep(.detail-editable-block) {
-  height: 100%;
-}
-
-.bullet-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.bullet-row i {
-  width: 6px;
-  height: 6px;
-  margin-top: 7px;
-  border-radius: 50%;
-  background: #7b61ff;
-  flex: none;
-}
-
-.bullet-row.danger i {
-  background: #ef6a8a;
-}
-
-.bullet-row span {
-  color: #59649b;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
 .trait-cloud {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-content: flex-start;
+}
+
+.trait-cloud--fill {
+  min-height: 72px;
 }
 
 .trait-cloud span {
@@ -1174,17 +1282,6 @@ watch(characterId, () => void load())
 .trait-cloud.muted span {
   background: rgba(130, 142, 207, 0.1);
   color: #66709d;
-}
-
-.empty-tag {
-  color: #9aa3c7;
-  font-size: 12px;
-}
-
-.empty-hint {
-  margin: 0;
-  color: #9aa3c7;
-  font-size: 12px;
 }
 
 .phrase-list {
@@ -1201,6 +1298,12 @@ watch(characterId, () => void load())
 
 .phrase-list--compact {
   margin-top: 10px;
+}
+
+@media (max-width: 980px) {
+  .behavior-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .role-pref {

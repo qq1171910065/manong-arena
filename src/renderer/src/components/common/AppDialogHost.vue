@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { AlertTriangle, Info, X } from 'lucide-vue-next'
+import { AlertTriangle, Info } from 'lucide-vue-next'
 import { resolveAppDialog, useAppDialogState } from '@renderer/composables/useAppDialog'
 
 const state = useAppDialogState()
@@ -35,17 +35,13 @@ function choose(id: string) {
 
 <template>
   <Teleport to="body">
-    <div v-if="state.open" class="app-dialog-overlay" @click.self="dismiss">
+    <div v-if="state.open" class="app-dialog-overlay">
       <section
         class="app-dialog"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="state.title ? 'app-dialog-title' : undefined"
       >
-        <button type="button" class="app-dialog-close" aria-label="关闭" @click="dismiss">
-          <X :size="18" />
-        </button>
-
         <div :class="iconClass" aria-hidden="true">
           <component :is="iconComponent" :size="26" />
         </div>
@@ -131,21 +127,6 @@ function choose(id: string) {
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 28px 64px rgba(53, 45, 110, 0.22);
-}
-
-.app-dialog-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: 10px;
-  color: #65709f;
-  background: rgba(130, 142, 207, 0.1);
-  cursor: pointer;
 }
 
 .app-dialog-icon {

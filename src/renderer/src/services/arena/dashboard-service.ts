@@ -7,15 +7,22 @@ import type { DashboardSummary } from '@shared/arena/types'
 export const dashboardService = {
   async load(): Promise<DashboardSummary> {
     const allCharacters = await characterService.list({ sort: 'updated' })
-    const [recentMatches, resumableMatch, walletBalanceCents, behaviorChanges, growthGroups] =
+    const [recentMatches, resumableMatch, walletBalanceCents, behaviorChanges, growthGroups, snapshotGroups] =
       await Promise.all([
-        matchService.listRecent(10),
+        matchService.listRecent(30),
         matchService.findResumable(),
         billingService.getBalanceCents(),
         arenaInvoke('storage', 'listBehaviorChanges', () => window.api.listBehaviorChanges()),
         Promise.all(
           allCharacters.map((character) =>
             arenaInvoke('storage', 'listCharacterGrowth', () => window.api.listCharacterGrowth(character.id))
+          )
+        ),
+        Promise.all(
+          allCharacters.map((character) =>
+            arenaInvoke('storage', 'listCharacterGrowthSnapshots', () =>
+              window.api.listCharacterGrowthSnapshots(character.id)
+            )
           )
         ),
       ])
@@ -31,6 +38,7 @@ export const dashboardService = {
       recentCostCents,
       behaviorChanges,
       growthRecords: growthGroups.flat(),
+      growthSnapshots: snapshotGroups.flat(),
     }
   },
 }

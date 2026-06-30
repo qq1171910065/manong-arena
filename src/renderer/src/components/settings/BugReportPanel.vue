@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { MessageSquare } from 'lucide-vue-next'
+import { MessageSquare, PenLine } from 'lucide-vue-next'
 import type { PortalTicketRecord } from '@renderer/services'
 import ProfileSectionLayout from './ProfileSectionLayout.vue'
 import {
@@ -30,7 +30,7 @@ const ticketContent = ref('')
 const ticketPriority = ref<'low' | 'normal' | 'high'>('normal')
 const ticketSubmitting = ref(false)
 const page = ref(1)
-const pageSize = ref(10)
+const pageSize = ref(20)
 
 const ticketPriorityOptions = [
   { label: '低', value: 'low' },
@@ -50,6 +50,8 @@ const paginatedTickets = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return sortedTickets.value.slice(start, start + pageSize.value)
 })
+
+const totalPages = computed(() => Math.max(1, Math.ceil(sortedTickets.value.length / pageSize.value)))
 
 function formatShortTime(raw: string) {
   if (!raw) return '—'
@@ -106,14 +108,15 @@ function onPageSizeChange(next: number) {
 </script>
 
 <template>
-  <ProfileSectionLayout title="报 Bug" desc="记录可复现问题、异常状态或体验瑕疵，保留完整历史。">
+  <ProfileSectionLayout class="bug-report-panel" title="报 Bug" desc="记录可复现问题、异常状态或体验瑕疵。">
     <template #actions>
-      <NButton type="primary" size="small" @click="openTicketModal">填写反馈</NButton>
+      <NButton type="primary" size="small" @click="openTicketModal">
+        <template #icon><PenLine :size="14" /></template>
+        填写反馈
+      </NButton>
     </template>
 
-    <section class="portal-plain-block profile-list-region">
-      <h4 class="portal-plain-block__title">反馈历史</h4>
-
+    <div class="bug-report-panel__list profile-list-region">
       <ul v-if="paginatedTickets.length" class="profile-record-list">
         <li v-for="item in paginatedTickets" :key="item.id" class="profile-record-item">
           <div class="profile-record-item__main">
@@ -135,27 +138,21 @@ function onPageSizeChange(next: number) {
 
       <div v-if="sortedTickets.length > pageSize" class="bug-report-pagination">
         <NButton size="small" :disabled="page <= 1" @click="onPageChange(page - 1)">上一页</NButton>
-        <span class="text-muted">{{ page }} / {{ Math.ceil(sortedTickets.length / pageSize) }}</span>
-        <NButton
-          size="small"
-          :disabled="page >= Math.ceil(sortedTickets.length / pageSize)"
-          @click="onPageChange(page + 1)"
-        >
-          下一页
-        </NButton>
+        <span class="text-muted">{{ page }} / {{ totalPages }}</span>
+        <NButton size="small" :disabled="page >= totalPages" @click="onPageChange(page + 1)">下一页</NButton>
         <NSelect
           :value="pageSize"
           :options="[
-            { label: '10 条/页', value: 10 },
             { label: '20 条/页', value: 20 },
             { label: '50 条/页', value: 50 },
+            { label: '100 条/页', value: 100 },
           ]"
           size="small"
           style="width: 110px"
           @update:value="onPageSizeChange"
         />
       </div>
-    </section>
+    </div>
 
     <NModal
       v-model:show="ticketModalOpen"
@@ -199,10 +196,36 @@ function onPageSizeChange(next: number) {
 </template>
 
 <style scoped>
+.bug-report-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.bug-report-panel :deep(.profile-section) {
+  height: 100%;
+}
+
+.bug-report-panel :deep(.profile-section__body) {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bug-report-panel__list {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .bug-report-pagination {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 14px;
+  margin-top: auto;
+  padding-top: 14px;
+  flex: 0 0 auto;
 }
 </style>

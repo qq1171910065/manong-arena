@@ -1,0 +1,205 @@
+/* Unified arena dialog shell — form / preview / confirm */
+
+.arena-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--arena-dialog-z, 1200);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 18, 42, 0.42);
+  backdrop-filter: blur(6px);
+}
+
+.arena-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: min(86vh, 780px);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 32px 80px rgba(50, 56, 120, 0.22);
+  overflow: hidden;
+}
+
+.arena-dialog--form {
+  width: min(560px, 100%);
+  max-height: min(82vh, 760px);
+}
+
+.arena-dialog--preview-md {
+  width: min(560px, 100%);
+}
+
+.arena-dialog--preview-lg {
+  width: min(760px, 100%);
+  max-height: min(88vh, 860px);
+}
+
+.arena-dialog--preview-xl {
+  width: min(920px, 100%);
+  max-height: min(88vh, 900px);
+}
+
+.arena-dialog--preview-full {
+  width: min(1080px, calc(100vw - 40px));
+  max-height: min(88vh, 900px);
+}
+
+.arena-dialog--no-footer {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.arena-dialog--fixed-height {
+  height: var(--arena-dialog-height, min(72vh, 680px));
+}
+
+.arena-dialog__head {
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(130, 142, 207, 0.12);
+}
+
+.arena-dialog__head--with-close {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.arena-dialog__head--with-close .arena-dialog__title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.arena-dialog__head-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin: 1px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  color: #65709f;
+  background: rgba(130, 142, 207, 0.1);
+  cursor: pointer;
+}
+
+.arena-dialog__head-close:hover {
+  color: #4c4776;
+  background: rgba(130, 142, 207, 0.16);
+}
+
+.arena-dialog__title {
+  margin: 0;
+  color: #171145;
+  font-size: 20px;
+  font-weight: 680;
+  line-height: 1.35;
+}
+
+.arena-dialog__body {
+  overflow: auto;
+  padding: 16px 18px;
+  scrollbar-width: thin;
+  min-height: 0;
+}
+
+.arena-dialog__body--flush {
+  padding: 0;
+}
+
+.arena-dialog__subtitle {
+  margin: 0 0 14px;
+  color: #7b61ff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.arena-dialog__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-top: 1px solid rgba(130, 142, 207, 0.12);
+}
+
+.arena-dialog__actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.arena-dialog__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(130, 142, 207, 0.15);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #26305e;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.arena-dialog__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.arena-dialog__btn--primary {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(180deg, #7774ff, #5b57f3);
+}
+
+.arena-dialog__btn--danger {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(180deg, #ef4444, #dc2626);
+}
+
+.arena-dialog-fade-enter-active,
+.arena-dialog-fade-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.arena-dialog-fade-enter-active .arena-dialog,
+.arena-dialog-fade-leave-active .arena-dialog {
+  transition: transform 0.2s ease, opacity 0.18s ease;
+}
+
+.arena-dialog-fade-enter-from,
+.arena-dialog-fade-leave-to {
+  opacity: 0;
+}
+
+.arena-dialog--fixed-height .arena-dialog__body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.arena-dialog--fixed-height .arena-dialog__body > :only-child,
+.arena-dialog--fixed-height .arena-dialog__body > :last-child:not(.arena-dialog__subtitle) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.arena-dialog__foot--stack {
+  display: block;
+}
+
+.arena-dialog-fade-enter-from .arena-dialog,
+.arena-dialog-fade-leave-to .arena-dialog {
+  transform: translateY(10px) scale(0.97);
+  opacity: 0;
+}

@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, h, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import {
   Activity,
@@ -41,6 +41,12 @@ import {
   portalApi,
   setStoredGatewayKey,
   userInfoRef,
+  getUserLocalProfile,
+  localProfileRevision,
+  resolveUserAvatarUrl,
+  resolveUserDisplayName,
+  setUserLocalProfile,
+  setUserInfoCache,
   type PortalLicenseRecord,
   type PortalOAuthBinding,
   type PortalRechargeClientConfig,
@@ -65,6 +71,7 @@ import {
   type SettingsTab,
 } from './portal-routes'
 import { PORTAL_SHELL_KEY } from './portal-shell'
+import { arenaHomeAssets } from '@renderer/data/arena-home-assets'
 
 const message = useMessage()
 
@@ -130,7 +137,14 @@ const appSoftwareKey = computed(() => {
 })
 const appKeyPlain = computed(() => getStoredGatewayKey())
 
-const displayName = computed(() => profile.value?.name || profile.value?.username || '')
+const displayName = computed(() => {
+  void localProfileRevision.value
+  return resolveUserDisplayName(profile.value, getUserLocalProfile(profile.value?.id))
+})
+const avatarUrl = computed(() => {
+  void localProfileRevision.value
+  return resolveUserAvatarUrl(profile.value, getUserLocalProfile(profile.value?.id), arenaHomeAssets.charGemini)
+})
 const avatarInitial = computed(() => (displayName.value.trim()[0] || 'U').toUpperCase())
 const activeKeysCount = computed(() => keys.value.filter((k) => k.status === 'active').length)
 const balancePoints = computed(() => yuanToPoints(Number(wallet.value?.balanceYuan) || 0))
@@ -149,12 +163,7 @@ const accountTabs = [
   { id: 'overview' as PortalTab, label: '账户概览', icon: User },
   { id: 'user-stats' as PortalTab, label: '数据统计', icon: TrendingUp },
   { id: 'security' as PortalTab, label: '账号安全', icon: Shield },
-]
-
-const billingTabs = [
   { id: 'wallet' as PortalTab, label: '钱包充值', icon: Wallet },
-  { id: 'usage' as PortalTab, label: '用量明细', icon: BarChart3 },
-  { id: 'keys' as PortalTab, label: '模型密钥', icon: Key },
 ]
 
 const supportTabs = [
@@ -166,9 +175,11 @@ const supportTabs = [
 
 const modelServiceTabs = [
   { id: 'model-overview' as PortalTab, label: '模型概览', icon: Activity },
-  { id: 'model-debug' as PortalTab, label: '连通性调试', icon: Bot },
+  { id: 'model-debug' as PortalTab, label: '全部模型', icon: Bot },
   { id: 'model-stream' as PortalTab, label: '流式调试', icon: Zap },
   { id: 'model-leaderboard' as PortalTab, label: 'Agent 评测榜', icon: Trophy },
+  { id: 'usage' as PortalTab, label: '用量明细', icon: BarChart3 },
+  { id: 'keys' as PortalTab, label: 'API Key 管理', icon: Key },
 ]
 
 const settingTabs = [
@@ -180,7 +191,6 @@ const settingTabs = [
 
 const profileNavGroups = [
   { label: '账户', items: accountTabs },
-  { label: '消费与密钥', items: billingTabs },
   { label: '模型服务', items: modelServiceTabs },
   { label: '帮助与支持', items: supportTabs },
   { label: '应用设置', items: settingTabs },
@@ -636,6 +646,13 @@ async function reload() {
 
 async function forceLogout() {
   if (signingOut.value) return
+  const confirmed = await confirm({
+    title: '退出登录',
+    message: '确定要退出当前账号吗？',
+    tone: 'warning',
+    confirmText: '退出登录',
+  })
+  if (!confirmed) return
   signingOut.value = true
   try {
     await authApi.logout()
@@ -644,6 +661,25 @@ async function forceLogout() {
   } finally {
     signingOut.value = false
   }
+}
+
+function updateLocalProfile(payload: { displayName?: string; avatarDataUrl?: string }) {
+  const userId = profile.value?.id
+  if (!userId) return
+  setUserLocalProfile(userId, payload)
+  if (payload.displayName !== undefined && profile.value) {
+    profile.value = {
+      ...profile.value,
+      name: payload.displayName.trim() || profile.value.name,
+    }
+  }
+  if (payload.avatarDataUrl !== undefined && profile.value) {
+    profile.value = { ...profile.value, avatar: payload.avatarDataUrl || null }
+  }
+  if (profile.value) {
+    setUserInfoCache({ ...profile.value })
+  }
+  message.success('资料已更新')
 }
 
 function startBindCountdown(sec = 60) {
@@ -855,7 +891,9 @@ watch(
 provide(PORTAL_SHELL_KEY, {
   profile,
   displayName,
+  avatarUrl,
   avatarInitial,
+  keys,
   gatewayReady,
   activeKeysCount,
   recentUsage,
@@ -908,6 +946,7 @@ provide(PORTAL_SHELL_KEY, {
   unbindOAuth,
   openOAuthBind,
   forceLogout,
+  updateLocalProfile,
   resetArenaSettings,
   setArenaSetting,
   setMatchDefault,
@@ -1223,7 +1262,7 @@ onBeforeUnmount(() => {
   padding: var(--profile-body-padding-block) var(--profile-body-padding-inline);
   display: flex;
   flex-direction: column;
-  gap: var(--profile-body-gap);
+  gap: 20px;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1289,6 +1328,10 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
 }
 
 .profile-panel :deep(.portal-plain-block__title) {

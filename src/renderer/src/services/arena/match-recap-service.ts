@@ -1,4 +1,5 @@
 import { formatWinnerCampLabel } from '@shared/arena/camp-labels'
+import { isDiscussionGameModeId } from '@shared/arena/discussion-mode'
 import type { Match, MatchRecap, MatchRecapMoment, MatchRecapMvp } from '@shared/arena/types'
 import { randomUUID } from '@renderer/utils/id'
 import { gatewayChatCompletion } from '../gateway-api'
@@ -260,6 +261,20 @@ async function generateNarratorRecap(match: Match): Promise<MatchRecap | null> {
 
 async function produceRecap(match: Match, preferNarrator: boolean): Promise<MatchRecap> {
   let recap = buildFallbackRecap(match)
+  if (isDiscussionGameModeId(match.gameModeId)) {
+    const artifact = match.runtime.roundtableState?.artifact
+    if (artifact?.summary) {
+      recap.summary = artifact.summary
+      recap.highlights = artifact.sections.slice(0, 3).map((section) => ({
+        id: randomUUID(),
+        round: match.runtime.currentRound || 1,
+        type: 'highlight' as const,
+        title: section.heading,
+        description: section.bullets.join('；'),
+      }))
+    }
+    return recap
+  }
   if (!preferNarrator) return recap
   try {
     const generated = await generateNarratorRecap(match)

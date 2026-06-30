@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import type { CharacterGrowthSnapshot } from '@shared/arena/types'
 import { CHARACTER_ATTRIBUTE_LABELS, type CharacterAttributeId } from '@shared/arena/character-growth'
+import { normalizeCharacterAttributes } from '@shared/arena/character-model-params'
 
 const props = defineProps<{
   snapshots: CharacterGrowthSnapshot[]
@@ -10,7 +11,7 @@ const props = defineProps<{
 type RangeKey = '7d' | '30d' | '90d'
 
 const range = ref<RangeKey>('30d')
-const metric = ref<CharacterAttributeId>('expression')
+const metric = ref<CharacterAttributeId>('precision')
 
 const rangeDays: Record<RangeKey, number> = { '7d': 7, '30d': 30, '90d': 90 }
 
@@ -25,7 +26,7 @@ const filtered = computed(() => {
 const chartPoints = computed(() => {
   const items = filtered.value
   if (!items.length) return []
-  const values = items.map((item) => item.attributes[metric.value])
+  const values = items.map((item) => normalizeCharacterAttributes(item.attributes)[metric.value])
   const min = Math.max(20, Math.min(...values) - 8)
   const max = Math.min(120, Math.max(...values) + 8)
   const span = Math.max(max - min, 1)
@@ -33,8 +34,9 @@ const chartPoints = computed(() => {
   const height = 120
   return items.map((item, index) => {
     const x = items.length === 1 ? width / 2 : (index / (items.length - 1)) * width
-    const y = height - ((item.attributes[metric.value] - min) / span) * (height - 12) - 6
-    return { x, y, value: item.attributes[metric.value], date: item.createdAt }
+    const attrs = normalizeCharacterAttributes(item.attributes)
+    const y = height - ((attrs[metric.value] - min) / span) * (height - 12) - 6
+    return { x, y, value: attrs[metric.value], date: item.createdAt }
   })
 })
 

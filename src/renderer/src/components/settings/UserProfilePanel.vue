@@ -1,31 +1,38 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { DataTableColumns } from '../../ui'
-import type { PortalUsageRecord, PortalWalletSummary } from '@renderer/services'
+import { Camera } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+import type { PortalWalletSummary } from '@renderer/services'
 import type { UserInfo } from '@renderer/services'
 import ProfileSectionLayout from './ProfileSectionLayout.vue'
 import SettingsBlock from './SettingsBlock.vue'
 import SettingsInfoRow from './SettingsInfoRow.vue'
-import PortalDataTable from './PortalDataTable.vue'
-import { NButton, NTag } from '../../ui'
+import { NInput, NTag } from '../../ui'
 
 const props = defineProps<{
   profile: UserInfo | null
   displayName: string
-  avatarInitial: string
+  avatarUrl: string
   gatewayReady: boolean
   activeKeysCount: number
   hasLocalKey: boolean
   wechatBound: boolean
   wallet: PortalWalletSummary | null
   balancePoints: number
-  recentUsage: PortalUsageRecord[]
-  usageColumns: DataTableColumns<PortalUsageRecord>
 }>()
 
 const emit = defineEmits<{
-  navigate: [tab: string]
+  'update-profile': [payload: { displayName?: string; avatarDataUrl?: string }]
 }>()
+
+const nameDraft = ref(props.displayName)
+const avatarInputRef = ref<HTMLInputElement | null>(null)
+
+watch(
+  () => props.displayName,
+  (value) => {
+    nameDraft.value = value
+  }
+)
 
 const emailStatus = computed(() => {
   if (props.profile?.emailVerified === false) return '未验证'
@@ -39,26 +46,68 @@ const emailStatusType = computed(() => {
   if (props.profile?.emailBound) return 'success' as const
   return 'default' as const
 })
+
+function commitDisplayName() {
+  const next = nameDraft.value.trim()
+  if (!next || next === props.displayName) return
+  emit('update-profile', { displayName: next })
+}
+
+function openAvatarPicker() {
+  avatarInputRef.value?.click()
+}
+
+async function onAvatarSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!file.type.startsWith('image/')) return
+  if (file.size > 8 * 1024 * 1024) return
+  const dataUrl = await readFileAsDataUrl(file)
+  emit('update-profile', { avatarDataUrl: dataUrl })
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.readAsDataURL(file)
+  })
+}
 </script>
 
 <template>
-  <ProfileSectionLayout title="账户概览" desc="个人资料、账户状态与最近模型调用。">
-    <template v-if="recentUsage.length" #actions>
-      <NButton text type="primary" size="small" @click="emit('navigate', 'usage')">查看全部 →</NButton>
-    </template>
-
+  <ProfileSectionLayout title="账户概览" desc="个人资料与账户状态。">
     <section class="portal-plain-block">
       <div class="user-profile-hero">
-        <span class="profile-avatar" aria-hidden="true">{{ avatarInitial }}</span>
+        <button type="button" class="profile-avatar profile-avatar--editable" @click="openAvatarPicker">
+          <img :src="avatarUrl" alt="" />
+          <i class="profile-avatar__overlay" aria-hidden="true">
+            <Camera :size="16" />
+          </i>
+        </button>
+        <input
+          ref="avatarInputRef"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          class="profile-avatar-input"
+          @change="onAvatarSelected"
+        />
         <div class="user-profile-hero__body">
           <p class="profile-hero__eyebrow">当前用户</p>
-          <h2 class="profile-hero__name">{{ displayName }}</h2>
+          <NInput
+            v-model:value="nameDraft"
+            class="profile-name-input"
+            maxlength="24"
+            placeholder="输入显示名称"
+            @blur="commitDisplayName"
+            @keydown.enter="($event.target as HTMLInputElement)?.blur()"
+          />
           <p v-if="profile?.username" class="profile-hero__meta">@{{ profile.username }}</p>
           <p v-if="profile?.emailDisplay" class="profile-hero__meta">{{ profile.emailDisplay }}</p>
           <div class="profile-hero__tags">
-            <NTag :type="gatewayReady ? 'success' : 'warning'" size="small" :bordered="false">
-              {{ gatewayReady ? '网关已就绪' : '待验证邮箱' }}
-            </NTag>
             <NTag v-if="profile?.emailVerified === false" type="warning" size="small" :bordered="false">
               邮箱未验证
             </NTag>
@@ -117,27 +166,6 @@ const emailStatusType = computed(() => {
         :value="`${Number(wallet.totalRechargedYuan || 0).toFixed(2)} 元`"
       />
     </SettingsBlock>
-
-    <section class="portal-plain-block profile-list-region">
-      <h4 class="portal-plain-block__title">最近调用</h4>
-      <p class="portal-plain-block__desc" title="展示最近 5 次模型调用记录">最近 5 次模型调用。</p>
-      <PortalDataTable
-        v-if="recentUsage.length"
-        :columns="usageColumns"
-        :data="recentUsage"
-        :pagination="false"
-      />
-      <div v-else class="profile-empty profile-empty--compact">
-        <p>暂无调用记录</p>
-        <span>发起模型调用后将在此展示最近 5 条记录</span>
-      </div>
-      <div class="user-profile-links">
-        <NButton size="small" quaternary @click="emit('navigate', 'user-stats')">查看用户统计</NButton>
-        <NButton size="small" quaternary @click="emit('navigate', 'security')">账号安全</NButton>
-        <NButton size="small" quaternary @click="emit('navigate', 'wallet')">钱包充值</NButton>
-        <NButton size="small" quaternary @click="emit('navigate', 'keys')">API Key</NButton>
-      </div>
-    </section>
   </ProfileSectionLayout>
 </template>
 
@@ -150,6 +178,53 @@ const emailStatusType = computed(() => {
 
 .user-profile-hero__body {
   min-width: 0;
+  flex: 1 1 auto;
+}
+
+.profile-avatar--editable {
+  position: relative;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.profile-avatar--editable img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.profile-avatar__overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(18, 27, 83, 0.42);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.profile-avatar--editable:hover .profile-avatar__overlay,
+.profile-avatar--editable:focus-visible .profile-avatar__overlay {
+  opacity: 1;
+}
+
+.profile-avatar-input {
+  display: none;
+}
+
+.profile-name-input {
+  max-width: 320px;
+}
+
+.profile-name-input :deep(.n-input__input-el) {
+  font-size: var(--text-h2);
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .profile-hero__tags {
@@ -157,12 +232,5 @@ const emailStatusType = computed(() => {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
-}
-
-.user-profile-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 12px;
 }
 </style>

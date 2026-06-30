@@ -14,6 +14,8 @@ import './styles/app.css'
 
 import './styles/agent-arena.css'
 
+import './styles/arena-dialog.css'
+
 import './styles/login-arena.css'
 
 

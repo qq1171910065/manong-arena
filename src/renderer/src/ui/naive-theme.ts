@@ -66,7 +66,16 @@ export function buildNaiveThemeOverrides(): GlobalThemeOverrides {
     Select: {
       peers: {
         InternalSelection: {
-          borderRadius: radius,
+          borderRadius: radiusMd,
+          border: `1px solid color-mix(in srgb, ${cssVar('--line', '#e2e8f0')} 88%, #7069ff 12%)`,
+          color: cssVar('--surface', '#ffffff'),
+          textColor: cssVar('--text', '#0f172a'),
+          placeholderColor: cssVar('--soft', '#94a3b8'),
+          boxShadowFocus: `0 0 0 3px color-mix(in srgb, ${brand} 14%, transparent)`,
+        },
+        InternalSelectMenu: {
+          borderRadius: radiusMd,
+          color: cssVar('--surface', '#ffffff'),
         },
       },
     },
